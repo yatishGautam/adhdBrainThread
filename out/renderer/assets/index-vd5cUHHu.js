@@ -599,6 +599,7 @@ function NowPanel({ readOnly }) {
               children: state.paused ? "Resume" : "Pause"
             }
           ),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { size: "sm", onClick: () => void window.thread.invoke["hud:show"](void 0), children: "Show HUD" }),
           /* @__PURE__ */ jsxRuntimeExports.jsx(
             Button,
             {

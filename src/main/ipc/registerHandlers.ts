@@ -231,6 +231,12 @@ export function registerHandlers(ctx: AppContext): void {
   on('window:mainReady', async () => {
     ctx.onMainReady();
   }, ctx);
+  on('hud:show', async () => {
+    ctx.openHud();
+  }, ctx);
+  on('hud:reset', async () => {
+    ctx.resetHud();
+  }, ctx);
   on('hud:hide', async () => {
     ctx.hud?.hide();
   }, ctx);

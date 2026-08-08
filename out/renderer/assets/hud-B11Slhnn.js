@@ -303,7 +303,7 @@ function ControlBar({
   onSwitch,
   onEnd
 }) {
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", gap: 4, flexShrink: 0, WebkitAppRegion: "no-drag" }, children: [
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", gap: 5, flexShrink: 0, flexWrap: "wrap", justifyContent: "flex-end", WebkitAppRegion: "no-drag" }, children: [
     /* @__PURE__ */ jsxRuntimeExports.jsx(
       HudButton,
       {
@@ -326,14 +326,15 @@ function HudButton({
   return /* @__PURE__ */ jsxRuntimeExports.jsx("button", { onClick, title, style: hudBtn, ...rest, children: label });
 }
 const hudBtn = {
-  padding: "5px 8px",
-  borderRadius: 7,
+  padding: "6px 10px",
+  borderRadius: 8,
   border: "1px solid var(--line)",
   background: "var(--surface-raised)",
   color: "var(--text-muted)",
   cursor: "pointer",
   fontSize: 10,
-  whiteSpace: "nowrap"
+  whiteSpace: "nowrap",
+  minWidth: 56
 };
 function Toast({ text }) {
   return /* @__PURE__ */ jsxRuntimeExports.jsx(AnimatePresence, { children: text ? /* @__PURE__ */ jsxRuntimeExports.jsx(
@@ -472,21 +473,21 @@ function HudApp() {
         position: "relative",
         display: "flex",
         alignItems: "center",
-        padding: "0 14px",
-        gap: 12,
+        justifyContent: "space-between",
+        padding: "10px 12px",
+        gap: 10,
         background: "var(--surface)",
         border: "1px solid var(--line)",
-        borderRadius: 16,
-        opacity: paused ? 0.6 : 1,
+        borderRadius: 22,
+        opacity: paused ? 0.75 : 1,
         transition: "opacity var(--motion-slow) var(--ease-out)",
-        // The title bar area doubles as the drag handle.
         WebkitAppRegion: "drag"
       },
       children: [
         !state ? /* @__PURE__ */ jsxRuntimeExports.jsx(EmptyHud, {}) : switching ? /* @__PURE__ */ jsxRuntimeExports.jsx(SwitchPicker, { onDone: () => setSwitching(false) }) : /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx(MiniRing, { progress, paused }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { flex: 1, minWidth: 0 }, children: /* @__PURE__ */ jsxRuntimeExports.jsx(ThreadLabel, { title: state.threadTitle, nextAction: state.nextAction }) }),
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6, flexShrink: 0 }, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { flex: 1, minWidth: 0, overflow: "hidden" }, children: /* @__PURE__ */ jsxRuntimeExports.jsx(ThreadLabel, { title: state.threadTitle, nextAction: state.nextAction }) }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6, flexShrink: 0, minWidth: 0 }, children: [
             /* @__PURE__ */ jsxRuntimeExports.jsx(Countdown, { remainingMs, paused }),
             /* @__PURE__ */ jsxRuntimeExports.jsx(
               ControlBar,

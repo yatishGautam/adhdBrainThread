@@ -140,6 +140,8 @@ export interface Requests {
   'data:reveal': [void, void];
 
   'window:mainReady': [void, void];
+  'hud:show': [void, void];
+  'hud:reset': [void, void];
   'hud:hide': [void, void];
   'celebration:done': [void, void];
 }
@@ -207,6 +209,8 @@ export const REQUEST_CHANNELS = [
   'data:export',
   'data:reveal',
   'window:mainReady',
+  'hud:show',
+  'hud:reset',
   'hud:hide',
   'celebration:done',
 ] as const satisfies readonly RequestChannel[];

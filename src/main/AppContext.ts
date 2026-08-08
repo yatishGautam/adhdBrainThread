@@ -12,7 +12,7 @@ import { AnalyticsService } from './services/AnalyticsService.js';
 import { SessionService } from './services/SessionService.js';
 import { CelebrationOrchestrator } from './services/CelebrationOrchestrator.js';
 import { CelebrationOverlay } from './windows/celebrationWindow.js';
-import { createHudWindow } from './windows/hudWindow.js';
+import { createHudWindow, defaultHudPosition } from './windows/hudWindow.js';
 import { createMainWindow } from './windows/mainWindow.js';
 import { createTray, updateTray, markQuitting, type TrayState } from './windows/tray.js';
 
@@ -84,9 +84,25 @@ export class AppContext {
   }
 
   openHud(): void {
-    if (this.hud && !this.hud.isDestroyed()) return;
+    if (this.hud && !this.hud.isDestroyed()) {
+      this.hud.show();
+      return;
+    }
     const saved = this.db.settings.get().hudBounds;
     this.hud = createHudWindow(saved, (position) => {
+      void this.db.settings.update({ hudBounds: position });
+    });
+    this.hud.on('closed', () => {
+      this.hud = null;
+    });
+  }
+
+  resetHud(): void {
+    if (this.hud && !this.hud.isDestroyed()) {
+      this.hud.close();
+      this.hud = null;
+    }
+    this.hud = createHudWindow(defaultHudPosition(), (position) => {
       void this.db.settings.update({ hudBounds: position });
     });
     this.hud.on('closed', () => {

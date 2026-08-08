@@ -1,5 +1,11 @@
 import { useMemo } from 'react';
-import { formatCollapsedDate, formatDayNumber, formatLocalDate, formatMonth } from '@shared/format.js';
+import {
+  formatCollapsedDate,
+  formatCollapsedMonth,
+  formatDayNumber,
+  formatLocalDate,
+  formatMonth,
+} from '@shared/format.js';
 import { useDayStore, loadDay } from '../stores/dayStore.js';
 import { useUiStore } from '../stores/uiStore.js';
 
@@ -87,7 +93,20 @@ export function SideRail(): React.JSX.Element {
               >
                 {formatMonth(month.key)}
               </div>
-            ) : null}
+            ) : (
+              <div
+                style={{
+                  padding: '4px 8px',
+                  fontSize: 11,
+                  color: 'var(--text-faint)',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.04em',
+                  textAlign: 'center',
+                }}
+              >
+                {formatCollapsedMonth(month.key)}
+              </div>
+            )}
             {month.days.map((date) => {
               const isToday = date === today?.localDate;
               const isPastDate = today ? date < today.localDate : false;
@@ -115,12 +134,16 @@ export function SideRail(): React.JSX.Element {
                     textAlign: collapsed ? 'center' : 'left',
                   }}
                 >
-                  <span className="mono" style={{ width: 24, textAlign: 'right', color: 'var(--text-faint)' }}>
-                    {formatDayNumber(date)}
-                  </span>
-                  <span style={{ whiteSpace: 'nowrap' }}>
-                    {collapsed ? formatCollapsedDate(date) : formatLocalDate(date)}
-                  </span>
+                  {!collapsed ? (
+                    <>
+                      <span className="mono" style={{ width: 24, textAlign: 'right', color: 'var(--text-faint)' }}>
+                        {formatDayNumber(date)}
+                      </span>
+                      <span style={{ whiteSpace: 'nowrap' }}>{formatLocalDate(date)}</span>
+                    </>
+                  ) : (
+                    <span style={{ whiteSpace: 'nowrap' }}>{formatCollapsedDate(date)}</span>
+                  )}
                 </button>
               );
             })}

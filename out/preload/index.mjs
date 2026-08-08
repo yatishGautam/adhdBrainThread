@@ -43,6 +43,8 @@ const REQUEST_CHANNELS = [
   "data:export",
   "data:reveal",
   "window:mainReady",
+  "hud:show",
+  "hud:reset",
   "hud:hide",
   "celebration:done"
 ];

@@ -17,6 +17,7 @@ export function createMainWindow(hooks: MainWindowHooks): BrowserWindow {
     show: false,
     backgroundColor: '#0F1115',
     icon: appIconPath(),
+    title: 'ADHD Superpower',
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     webPreferences: {
       preload: preloadPath,

@@ -48,9 +48,14 @@ export function formatMonth(localDate: string): string {
   return `${MONTHS[month - 1]} ${year}`;
 }
 
+export function formatCollapsedMonth(localDate: string): string {
+  const { month } = parts(localDate);
+  return MONTHS[month - 1] ?? '';
+}
+
 export function formatCollapsedDate(localDate: string): string {
-  const { month, day } = parts(localDate);
-  return `${ordinal(day)} ${MONTHS[month - 1]?.slice(0, 3) ?? ''}`;
+  const { day, weekday } = parts(localDate);
+  return `${ordinal(day)} ${WEEKDAYS[weekday]}`;
 }
 
 export function formatCalendarHeadline(localDate: string): string {

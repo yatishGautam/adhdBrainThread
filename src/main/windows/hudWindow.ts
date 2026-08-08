@@ -9,12 +9,20 @@ import { loadRenderer, preloadPath } from './urls.js';
  * Wider than the 360px in the original spec: the control buttons carry text labels rather than
  * bare glyphs, and a button whose meaning you have to remember is a button you stop using.
  */
-export const HUD_WIDTH = 460;
-export const HUD_HEIGHT = 92;
+export const HUD_WIDTH = 340;
+export const HUD_HEIGHT = 86;
 
 export interface HudPosition {
   x: number;
   y: number;
+}
+
+export function defaultHudPosition(): HudPosition {
+  const { workArea } = screen.getPrimaryDisplay();
+  return {
+    x: Math.round(workArea.x + workArea.width - HUD_WIDTH - 24),
+    y: Math.round(workArea.y + 24),
+  };
 }
 
 export function createHudWindow(saved: HudPosition | undefined, onMoved: (at: HudPosition) => void): BrowserWindow {

@@ -2331,8 +2331,15 @@ function loadRenderer(window, page) {
     void window.loadFile(path.join(here$2, `../renderer/${page}.html`));
   }
 }
-const HUD_WIDTH = 460;
-const HUD_HEIGHT = 92;
+const HUD_WIDTH = 340;
+const HUD_HEIGHT = 86;
+function defaultHudPosition() {
+  const { workArea } = screen.getPrimaryDisplay();
+  return {
+    x: Math.round(workArea.x + workArea.width - HUD_WIDTH - 24),
+    y: Math.round(workArea.y + 24)
+  };
+}
 function createHudWindow(saved, onMoved) {
   const position = saved ?? defaultPosition();
   const window = new BrowserWindow({
@@ -2575,9 +2582,24 @@ class AppContext {
     });
   }
   openHud() {
-    if (this.hud && !this.hud.isDestroyed()) return;
+    if (this.hud && !this.hud.isDestroyed()) {
+      this.hud.show();
+      return;
+    }
     const saved = this.db.settings.get().hudBounds;
     this.hud = createHudWindow(saved, (position) => {
+      void this.db.settings.update({ hudBounds: position });
+    });
+    this.hud.on("closed", () => {
+      this.hud = null;
+    });
+  }
+  resetHud() {
+    if (this.hud && !this.hud.isDestroyed()) {
+      this.hud.close();
+      this.hud = null;
+    }
+    this.hud = createHudWindow(defaultHudPosition(), (position) => {
       void this.db.settings.update({ hudBounds: position });
     });
     this.hud.on("closed", () => {
@@ -2850,6 +2872,12 @@ function registerHandlers(ctx2) {
   }, ctx2);
   on("window:mainReady", async () => {
     ctx2.onMainReady();
+  }, ctx2);
+  on("hud:show", async () => {
+    ctx2.openHud();
+  }, ctx2);
+  on("hud:reset", async () => {
+    ctx2.resetHud();
   }, ctx2);
   on("hud:hide", async () => {
     ctx2.hud?.hide();

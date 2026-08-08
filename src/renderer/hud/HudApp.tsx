@@ -49,14 +49,14 @@ export function HudApp(): React.JSX.Element {
         position: 'relative',
         display: 'flex',
         alignItems: 'center',
-        padding: '0 14px',
-        gap: 12,
+        justifyContent: 'space-between',
+        padding: '10px 12px',
+        gap: 10,
         background: 'var(--surface)',
         border: '1px solid var(--line)',
-        borderRadius: 16,
-        opacity: paused ? 0.6 : 1,
+        borderRadius: 22,
+        opacity: paused ? 0.75 : 1,
         transition: 'opacity var(--motion-slow) var(--ease-out)',
-        // The title bar area doubles as the drag handle.
         WebkitAppRegion: 'drag',
       } as React.CSSProperties}
     >
@@ -67,10 +67,10 @@ export function HudApp(): React.JSX.Element {
       ) : (
         <>
           <MiniRing progress={progress} paused={paused} />
-          <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
             <ThreadLabel title={state.threadTitle} nextAction={state.nextAction} />
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6, flexShrink: 0 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6, flexShrink: 0, minWidth: 0 }}>
             <Countdown remainingMs={remainingMs} paused={paused} />
             <ControlBar
               paused={paused}

@@ -19,7 +19,7 @@ export function ControlBar({
   onEnd: () => void;
 }): React.JSX.Element {
   return (
-    <div style={{ display: 'flex', gap: 4, flexShrink: 0, WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+    <div style={{ display: 'flex', gap: 5, flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end', WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
       <HudButton
         onClick={onPauseResume}
         title={paused ? 'Resume the timer' : 'Pause the timer'}
@@ -50,12 +50,13 @@ export function HudButton({
 }
 
 export const hudBtn: React.CSSProperties = {
-  padding: '5px 8px',
-  borderRadius: 7,
+  padding: '6px 10px',
+  borderRadius: 8,
   border: '1px solid var(--line)',
   background: 'var(--surface-raised)',
   color: 'var(--text-muted)',
   cursor: 'pointer',
   fontSize: 10,
   whiteSpace: 'nowrap',
+  minWidth: 56,
 };

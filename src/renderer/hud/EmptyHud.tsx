@@ -12,7 +12,7 @@ export function EmptyHud(): React.JSX.Element {
         cursor: 'pointer',
       }}
     >
-      Nothing running — open Thread to pick something
+      Nothing running — open ADHD Superpower to pick something
     </div>
   );
 }

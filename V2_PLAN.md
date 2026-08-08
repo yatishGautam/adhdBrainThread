@@ -1,4 +1,4 @@
-# Thread — v2 plan
+# ADHD Superpower — v2 plan
 
 v1 covers PRD phases 1–6 plus a clarity pass on the UI. Everything below was deliberately cut
 to get a usable app first. Ordered by what actually blocks daily use.

@@ -56,6 +56,9 @@ export function NowPanel({ readOnly }: { readOnly: boolean }): React.JSX.Element
             >
               {state.paused ? 'Resume' : 'Pause'}
             </Button>
+            <Button size="sm" onClick={() => void window.thread.invoke['hud:show'](undefined)}>
+              Show HUD
+            </Button>
             <Button
               size="sm"
               title="Got distracted? Tap this. It adds time back to your clock and costs you nothing."

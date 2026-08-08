@@ -1,10 +1,10 @@
-# Thread
+# ADHD Superpower
 
 A desktop focus companion for ADHD working sessions. Electron + React + TypeScript.
 Local-first, file-backed, no server, no account.
 
 This project began as FocusBar, a simple Pomodoro timer (kept for reference in `legacy/`), and
-was rebuilt into Thread following the full product spec: a threads board instead of a task list,
+was rebuilt into ADHD Superpower following the full product spec: a threads board instead of a task list,
 a floating always-on-top HUD, a momentum system that replaces streaks, and a celebration overlay
 — all backed by a hand-rolled sharded JSON storage engine instead of a database.
 

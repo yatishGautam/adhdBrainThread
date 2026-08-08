@@ -1,5 +1,5 @@
 {
-  "name": "thread",
+  "name": "adhd-superpower",
   "version": "0.1.0",
   "description": "A desktop focus companion for ADHD working sessions.",
   "main": "out/main/index.js",
@@ -40,8 +40,8 @@
     "zustand": "^5.0.2"
   },
   "build": {
-    "appId": "com.yatish.thread",
-    "productName": "Thread",
+    "appId": "com.yatish.adhd-superpower",
+    "productName": "ADHD Superpower",
     "asar": true,
     "files": [
       "out/**/*",
