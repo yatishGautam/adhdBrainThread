@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:;"
+    />
+    <title>FocusBar</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="titlebar">
+        <div class="brand" aria-label="FocusBar">
+          <span class="brand-mark"></span>
+          <span>FocusBar</span>
+        </div>
+        <div class="window-actions">
+          <button id="settingsButton" class="icon-button" aria-label="Open settings">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5Z"></path>
+              <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.12 2.12-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.04 1.55V20.3h-3v-.09a1.7 1.7 0 0 0-1.04-1.55 1.7 1.7 0 0 0-1.88.34l-.06.06-2.12-2.12.06-.06A1.7 1.7 0 0 0 7 15a1.7 1.7 0 0 0-1.55-1.04H5.3v-3h.15A1.7 1.7 0 0 0 7 9.92a1.7 1.7 0 0 0-.34-1.88L6.6 7.98l2.12-2.12.06.06a1.7 1.7 0 0 0 1.88.34A1.7 1.7 0 0 0 11.7 4.7V4.6h3v.1a1.7 1.7 0 0 0 1.04 1.56 1.7 1.7 0 0 0 1.88-.34l.06-.06 2.12 2.12-.06.06a1.7 1.7 0 0 0-.34 1.88 1.7 1.7 0 0 0 1.55 1.04h.15v3h-.15A1.7 1.7 0 0 0 19.4 15Z"></path>
+            </svg>
+          </button>
+          <button id="hideButton" class="icon-button" aria-label="Hide window">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M6 12h12"></path>
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <section class="timer-view">
+        <nav class="mode-tabs" aria-label="Timer mode">
+          <button data-mode="focus" class="mode-tab active">Focus</button>
+          <button data-mode="shortBreak" class="mode-tab">Short break</button>
+          <button data-mode="longBreak" class="mode-tab">Long break</button>
+        </nav>
+
+        <div class="timer-ring" aria-live="polite">
+          <svg viewBox="0 0 220 220" aria-hidden="true">
+            <circle class="ring-track" cx="110" cy="110" r="96"></circle>
+            <circle class="ring-progress" cx="110" cy="110" r="96"></circle>
+          </svg>
+          <div class="timer-copy">
+            <div id="timeDisplay" class="time-display">25:00</div>
+            <div id="statusDisplay" class="status-display">READY</div>
+          </div>
+        </div>
+
+        <label class="task-field">
+          <span>Current task</span>
+          <input
+            id="taskInput"
+            type="text"
+            maxlength="120"
+            placeholder="What will you finish?"
+            autocomplete="off"
+          />
+        </label>
+
+        <div class="primary-controls">
+          <button id="resetButton" class="round-button" aria-label="Reset timer">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4.9 7.7A8 8 0 1 1 4 12"></path>
+              <path d="M4 4v4h4"></path>
+            </svg>
+          </button>
+
+          <button id="startButton" class="start-button">Start focus</button>
+
+          <button id="skipButton" class="round-button" aria-label="Skip interval">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="m6 6 8 6-8 6V6Z"></path>
+              <path d="M17 6v12"></path>
+            </svg>
+          </button>
+        </div>
+
+        <footer class="session-footer">
+          <div>
+            <strong id="todayCount">0</strong>
+            <span>today</span>
+          </div>
+          <div id="cycleDots" class="cycle-dots" aria-label="Focus cycle progress"></div>
+          <div>
+            <strong id="cycleCount">0/4</strong>
+            <span>cycle</span>
+          </div>
+        </footer>
+      </section>
+
+      <aside id="settingsPanel" class="settings-panel" aria-hidden="true">
+        <div class="settings-header">
+          <div>
+            <p class="eyebrow">Preferences</p>
+            <h2>Make it yours</h2>
+          </div>
+          <button id="closeSettingsButton" class="icon-button" aria-label="Close settings">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="m7 7 10 10M17 7 7 17"></path>
+            </svg>
+          </button>
+        </div>
+
+        <div class="settings-grid">
+          <label>
+            <span>Focus</span>
+            <div class="number-control">
+              <input id="focusMinutes" type="number" min="1" max="180" />
+              <small>min</small>
+            </div>
+          </label>
+          <label>
+            <span>Short break</span>
+            <div class="number-control">
+              <input id="shortBreakMinutes" type="number" min="1" max="60" />
+              <small>min</small>
+            </div>
+          </label>
+          <label>
+            <span>Long break</span>
+            <div class="number-control">
+              <input id="longBreakMinutes" type="number" min="1" max="120" />
+              <small>min</small>
+            </div>
+          </label>
+          <label>
+            <span>Long break after</span>
+            <div class="number-control">
+              <input id="sessionsBeforeLongBreak" type="number" min="1" max="12" />
+              <small>sessions</small>
+            </div>
+          </label>
+        </div>
+
+        <div class="toggle-list">
+          <label class="toggle-row">
+            <span>
+              <strong>Always on top</strong>
+              <small>Keep the timer above other windows</small>
+            </span>
+            <input id="alwaysOnTop" type="checkbox" />
+          </label>
+          <label class="toggle-row">
+            <span>
+              <strong>Auto-start breaks</strong>
+              <small>Begin a break after focus ends</small>
+            </span>
+            <input id="autoStartBreaks" type="checkbox" />
+          </label>
+          <label class="toggle-row">
+            <span>
+              <strong>Auto-start focus</strong>
+              <small>Begin focus after a break ends</small>
+            </span>
+            <input id="autoStartFocus" type="checkbox" />
+          </label>
+          <label class="toggle-row">
+            <span>
+              <strong>Notification sound</strong>
+              <small>Use the native alert sound</small>
+            </span>
+            <input id="sound" type="checkbox" />
+          </label>
+        </div>
+
+        <div class="shortcut-card">
+          <span><kbd>Space</kbd> Start / pause</span>
+          <span><kbd>R</kbd> Reset</span>
+          <span><kbd>S</kbd> Skip</span>
+        </div>
+      </aside>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

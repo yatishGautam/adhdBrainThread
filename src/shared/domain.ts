@@ -1,0 +1,133 @@
+/**
+ * The domain model. Shared verbatim by main, preload and renderer.
+ *
+ * Conventions that the whole app depends on:
+ *  - Every id is a ULID, so lexical sort === creation order. Shard key ranges rely on this.
+ *  - Every timestamp is a UTC ISO-8601 string.
+ *  - Every record that analytics buckets also stores `localDate` (YYYY-MM-DD), computed at
+ *    write time from the user's timezone. Never re-derive a local day from UTC at read time:
+ *    that is how sessions land on the wrong side of a DST boundary.
+ */
+
+export type ThreadStatus = 'idle' | 'in_progress' | 'waiting' | 'done';
+
+export interface Step {
+  id: string;
+  text: string;
+  done: boolean;
+  /** Sparse ordering (1000, 2000, 3000). See docs/storage.md and reorderStep(). */
+  order: number;
+  completedAt?: string;
+  /** Written at completion time so DMS can bucket steps by local day without re-deriving. */
+  completedLocalDate?: string;
+}
+
+export interface Thread {
+  id: string;
+  title: string;
+  /** Markdown, freeform. */
+  notes: string;
+  status: ThreadStatus;
+  steps: Step[];
+  /** Required when status === 'waiting'. A blocked thread with no recorded blocker gets lost. */
+  waitingOn?: string;
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string;
+  completedLocalDate?: string;
+  /** Denormalised; rebuildable from sessions. */
+  totalFocusMs: number;
+  sessionCount: number;
+  distractionCount: number;
+  archived: boolean;
+}
+
+/** Atomic, lives on a day, no checklist. */
+export interface Todo {
+  id: string;
+  text: string;
+  done: boolean;
+  localDate: string;
+  createdAt: string;
+  completedAt?: string;
+  /** Set when promoted. The todo is never deleted — the history stays honest. */
+  promotedToThreadId?: string;
+  order: number;
+}
+
+/** Inbox capture, unsorted. */
+export interface Thought {
+  id: string;
+  text: string;
+  createdAt: string;
+  localDate: string;
+  processed: boolean;
+}
+
+export interface Day {
+  /** Primary key. */
+  localDate: string;
+  createdAt: string;
+  /** Threads chosen for today. */
+  intentThreadIds: string[];
+  todos: Todo[];
+  thoughts: Thought[];
+  /** Auto-filled on completion. */
+  loggedThreadIds: string[];
+  note?: string;
+}
+
+export type DistractionKind = 'internal' | 'external' | 'unspecified';
+
+export interface Distraction {
+  id: string;
+  at: string;
+  /** One tap = 'unspecified'. Tagging is a long-press, never required. */
+  kind: DistractionKind;
+  note?: string;
+  grantedMs: number;
+}
+
+export type SessionOutcome =
+  | 'completed'
+  | 'ended_early'
+  | 'switched'
+  | 'abandoned'
+  | 'recovered';
+
+export interface Pause {
+  at: string;
+  resumedAt?: string;
+}
+
+export interface Session {
+  id: string;
+  threadId: string;
+  startedAt: string;
+  endedAt?: string;
+  localDate: string;
+  plannedMs: number;
+  /** Excludes paused time. Measured with a monotonic clock, not wall clock. */
+  activeMs: number;
+  /** Time added back by distraction logging. */
+  grantedMs: number;
+  outcome: SessionOutcome;
+  switchedToThreadId?: string;
+  distractions: Distraction[];
+  pauses: Pause[];
+}
+
+export interface Settings {
+  version: 1;
+  defaultSessionMs: number;
+  distractionGraceMs: number;
+  soundEnabled: boolean;
+  celebrationsEnabled: boolean;
+  /** Anti-repeat memory for celebration selection. */
+  recentCelebrationIds: string[];
+  railCollapsed: boolean;
+  hudBounds?: { x: number; y: number };
+  timezone: string;
+  /** Suppresses the recovery prompt for a session the user already answered. */
+  lastOpenSessionId?: string;
+}
