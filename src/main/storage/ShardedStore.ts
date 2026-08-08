@@ -53,6 +53,14 @@ export interface InitReport {
   quarantined: string[];
 }
 
+/** Just enough shard metadata for a caller to skip shards it cannot need. */
+export interface ShardSummary {
+  id: string;
+  minKey: string;
+  maxKey: string;
+  count: number;
+}
+
 /** Typed view over one collection. Repositories talk to this; nothing else touches the engine. */
 export interface CollectionHandle<T> {
   get(key: string): Promise<T | null>;
@@ -60,8 +68,8 @@ export interface CollectionHandle<T> {
   delete(key: string): Promise<void>;
   range(minKey: string, maxKey: string): Promise<T[]>;
   all(): Promise<T[]>;
-  /** Shard ids newest-first. Paged reads walk these so they stay lazy. */
-  shardIds(): string[];
+  /** Shard summaries newest-first. Paged and range reads walk these so they stay lazy. */
+  shards(): ShardSummary[];
   recordsIn(shardId: string): Promise<T[]>;
 }
 
@@ -112,9 +120,9 @@ export class ShardedStore {
       delete: (key) => this.deleteRecord(config, key),
       range: async (min, max) => (await this.rangeRecords(config, min, max)) as T[],
       all: async () => (await this.allRecords(config)) as T[],
-      shardIds: () =>
+      shards: () =>
         nonEmptyShards(this.indexFor(config))
-          .map((shard) => shard.id)
+          .map(({ id, minKey, maxKey, count }) => ({ id, minKey, maxKey, count }))
           .reverse(),
       recordsIn: async (shardId) => (await this.recordsInShard(config, shardId)) as T[],
     };
@@ -194,8 +202,8 @@ export class ShardedStore {
       record: parsed,
     });
     const shard = await this.shardForKey(config, key);
+    this.touch(shard);
     shard.records.set(key, parsed);
-    shard.dirty = true;
     this.scheduleFlush();
   }
 
@@ -208,7 +216,7 @@ export class ShardedStore {
     });
     const shard = await this.shardForKey(config, key);
     if (shard.records.delete(key)) {
-      shard.dirty = true;
+      this.touch(shard);
       this.scheduleFlush();
     }
   }
@@ -285,8 +293,8 @@ export class ShardedStore {
 
     const shard: LoadedShard =
       result.kind === 'missing'
-        ? { collection: config.name, meta, records: new Map(), dirty: false }
-        : { collection: config.name, meta, records: result.shard.records, dirty: false };
+        ? { collection: config.name, meta, records: new Map(), dirty: false, version: 0 }
+        : { collection: config.name, meta, records: result.shard.records, dirty: false, version: 0 };
 
     if (result.kind === 'ok') {
       // The manifest index and the cache share this object, so correcting it here is enough.
@@ -326,6 +334,7 @@ export class ShardedStore {
         meta: fresh,
         records: new Map(),
         dirty: true,
+        version: 1,
       };
       this.cache.set(`${config.name}/${id}`, shard);
       return shard;
@@ -341,13 +350,28 @@ export class ShardedStore {
       if (this.cache.size <= limit) break;
       const config = this.configs.get(shard.collection);
       if (config?.singleFile) continue; // pinned: bounded by the WIP cap, always hot
-      if (shard.dirty && config) await writeShard(this.options.root, config, shard);
+      if (shard.dirty && config) await this.persistShard(config, shard);
       this.cache.delete(key);
       this.manifestDirty = true;
     }
   }
 
   // ------------------------------------------------------------------- flush
+
+  private touch(shard: LoadedShard): void {
+    shard.dirty = true;
+    shard.version += 1;
+  }
+
+  /**
+   * Clears `dirty` only if nothing mutated the shard while the write was in flight. Without the
+   * version check a concurrent put is written nowhere and then dropped by the journal truncate.
+   */
+  private async persistShard(config: AnyCollectionConfig, shard: LoadedShard): Promise<void> {
+    const version = shard.version;
+    await writeShard(this.options.root, config, shard);
+    if (shard.version === version) shard.dirty = false;
+  }
 
   private scheduleFlush(): void {
     if (this.closed || this.flushTimer) return;
@@ -359,22 +383,30 @@ export class ShardedStore {
   }
 
   private async flushNow(): Promise<void> {
-    for (let pass = 0; pass < 4; pass += 1) {
+    // Loops until every shard is clean: sealing and splitting create fresh dirty shards, and a
+    // mutation that lands mid-write leaves its own shard dirty for the next pass.
+    for (let pass = 0; pass < 6; pass += 1) {
       const dirty = [...this.cache.values()].filter((shard) => shard.dirty);
-      if (dirty.length === 0 && pass > 0) break;
+      if (dirty.length === 0) break;
       for (const shard of dirty) {
         const config = this.configs.get(shard.collection);
         if (!config) continue;
-        await writeShard(this.options.root, config, shard);
+        await this.persistShard(config, shard);
         this.manifestDirty = true;
       }
-      if (!(await this.applyStructure())) break;
+      await this.applyStructure();
     }
     if (this.manifestDirty) {
       await saveManifest(this.options.root, this.manifest);
       this.manifestDirty = false;
     }
-    await this.journal.truncate();
+    // Only once every shard is clean: anything still dirty is not on disk yet, and replay is
+    // idempotent, so keeping extra journal entries is always the safe side to err on.
+    if (![...this.cache.values()].some((shard) => shard.dirty)) {
+      await this.journal.truncate();
+    } else {
+      this.scheduleFlush();
+    }
   }
 
   // --------------------------------------------------------------- structure
@@ -434,6 +466,7 @@ export class ShardedStore {
       meta: upperMeta,
       records: new Map(),
       dirty: true,
+      version: 1,
     };
     for (const key of keys.slice(pivot)) {
       upper.records.set(key, source.records.get(key));
@@ -444,7 +477,7 @@ export class ShardedStore {
     upperMeta.sealed = !isHead;
     Object.assign(meta, keyBounds(source.records), { count: source.records.size });
     Object.assign(upperMeta, keyBounds(upper.records), { count: upper.records.size });
-    source.dirty = true;
+    this.touch(source);
 
     index.shards.push(upperMeta);
     if (isHead) index.headShardId = upperId;
@@ -462,6 +495,7 @@ export class ShardedStore {
       meta,
       records: new Map(),
       dirty: true,
+      version: 1,
     });
   }
 
@@ -498,7 +532,7 @@ export class ShardedStore {
         }
         shard.records.set(entry.key, parsed.data);
       }
-      shard.dirty = true;
+      this.touch(shard);
       applied += 1;
     }
     return applied;

@@ -52,7 +52,11 @@ export async function readShard(
   return { kind: 'ok', shard, checksumMismatch };
 }
 
-/** Records are written sorted by key, so a diff of this file reads like a timeline. */
+/**
+ * Records are written sorted by key, so a diff of this file reads like a timeline.
+ * Deliberately does not clear `shard.dirty` — only the caller knows whether a mutation landed
+ * while this write was in flight.
+ */
 export async function writeShard(
   root: string,
   config: AnyCollectionConfig,
@@ -68,7 +72,6 @@ export async function writeShard(
     checksum: checksum(text),
     updatedAt: new Date().toISOString(),
   });
-  shard.dirty = false;
 }
 
 export function keyBounds(records: Map<string, unknown>): { minKey: string; maxKey: string } {

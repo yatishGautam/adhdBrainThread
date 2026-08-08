@@ -1,83 +1,87 @@
 /**
- * Sparse integer ordering (1000, 2000, 3000). A reorder writes one step's `order` to the
+ * Sparse integer ordering (1000, 2000, 3000). A reorder writes one item's `order` to the
  * midpoint of its neighbours; only when a gap closes below 1 does the whole list renumber.
- * Array-index ordering would rewrite every step on every drag and lose concurrent edits.
+ * Array-index ordering would rewrite every item on every drag and lose concurrent edits.
+ *
+ * Generic because todos reorder the same way steps do.
  */
 import { ORDER_MIN_GAP, ORDER_STEP } from '@shared/constants.js';
 import type { Step } from '@shared/domain.js';
 
-export function sortSteps(steps: Step[]): Step[] {
-  return [...steps].sort((a, b) => a.order - b.order);
+export interface Orderable {
+  id: string;
+  order: number;
 }
 
-export function nextOrder(steps: Step[]): number {
-  const highest = steps.reduce((max, step) => Math.max(max, step.order), 0);
-  return highest + ORDER_STEP;
+export function sortByOrder<T extends Orderable>(items: T[]): T[] {
+  return [...items].sort((a, b) => a.order - b.order);
 }
 
-/** Order value that places a new step directly after `afterStepId`. */
-export function orderAfter(steps: Step[], afterStepId: string): number {
-  const sorted = sortSteps(steps);
-  const index = sorted.findIndex((step) => step.id === afterStepId);
-  if (index === -1) return nextOrder(steps);
-  const before = sorted[index];
+export function nextOrder(items: Orderable[]): number {
+  return items.reduce((max, item) => Math.max(max, item.order), 0) + ORDER_STEP;
+}
+
+/** Order value that places a new item directly after `afterId`. */
+export function orderAfter<T extends Orderable>(items: T[], afterId: string): number {
+  const sorted = sortByOrder(items);
+  const index = sorted.findIndex((item) => item.id === afterId);
+  const before = index === -1 ? undefined : sorted[index];
+  if (!before) return nextOrder(items);
   const after = sorted[index + 1];
-  if (!before) return nextOrder(steps);
-  if (!after) return before.order + ORDER_STEP;
-  return midpoint(before.order, after.order);
+  return after ? midpoint(before.order, after.order) : before.order + ORDER_STEP;
 }
 
 export function midpoint(low: number, high: number): number {
   return low + (high - low) / 2;
 }
 
-export interface ReorderResult {
-  steps: Step[];
+export interface ReorderResult<T> {
+  items: T[];
   /** True when the gap collapsed and the whole list was renumbered. */
   renumbered: boolean;
 }
 
-/** Moves `stepId` to `toIndex` in the visible (sorted) order. */
-export function reorderStep(steps: Step[], stepId: string, toIndex: number): ReorderResult {
-  const sorted = sortSteps(steps);
-  const moving = sorted.find((step) => step.id === stepId);
-  if (!moving) return { steps, renumbered: false };
+/** Moves `id` to `toIndex` in the visible (sorted) order. */
+export function reorder<T extends Orderable>(
+  items: T[],
+  id: string,
+  toIndex: number,
+): ReorderResult<T> {
+  const sorted = sortByOrder(items);
+  const moving = sorted.find((item) => item.id === id);
+  if (!moving) return { items: sorted, renumbered: false };
 
-  const without = sorted.filter((step) => step.id !== stepId);
+  const without = sorted.filter((item) => item.id !== id);
   const target = Math.max(0, Math.min(toIndex, without.length));
   const before = without[target - 1];
   const after = without[target];
 
-  const order =
-    !before && !after
-      ? ORDER_STEP
-      : !before
-        ? (after as Step).order - ORDER_STEP
-        : !after
-          ? before.order + ORDER_STEP
-          : midpoint(before.order, after.order);
+  let order: number;
+  if (!before && !after) order = ORDER_STEP;
+  else if (!before) order = (after as T).order - ORDER_STEP;
+  else if (!after) order = before.order + ORDER_STEP;
+  else order = midpoint(before.order, after.order);
 
-  const moved: Step = { ...moving, order };
-  const next = sortSteps([...without, moved]);
-
-  if (needsRenumber(next)) return { steps: renumber(next), renumbered: true };
-  return { steps: next, renumbered: false };
+  const next = sortByOrder([...without, { ...moving, order }]);
+  return needsRenumber(next)
+    ? { items: renumber(next), renumbered: true }
+    : { items: next, renumbered: false };
 }
 
-function needsRenumber(steps: Step[]): boolean {
-  for (let i = 1; i < steps.length; i += 1) {
-    const previous = steps[i - 1];
-    const current = steps[i];
+function needsRenumber(items: Orderable[]): boolean {
+  for (let i = 1; i < items.length; i += 1) {
+    const previous = items[i - 1];
+    const current = items[i];
     if (previous && current && current.order - previous.order < ORDER_MIN_GAP) return true;
   }
   return false;
 }
 
-export function renumber(steps: Step[]): Step[] {
-  return sortSteps(steps).map((step, index) => ({ ...step, order: (index + 1) * ORDER_STEP }));
+export function renumber<T extends Orderable>(items: T[]): T[] {
+  return sortByOrder(items).map((item, index) => ({ ...item, order: (index + 1) * ORDER_STEP }));
 }
 
 /** The top unchecked step — what turns the board from an inventory into a menu. */
 export function nextAction(steps: Step[]): Step | null {
-  return sortSteps(steps).find((step) => !step.done) ?? null;
+  return sortByOrder(steps).find((step) => !step.done) ?? null;
 }

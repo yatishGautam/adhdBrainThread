@@ -37,6 +37,11 @@ export interface LoadedShard {
   meta: ShardMeta;
   records: Map<string, unknown>;
   dirty: boolean;
+  /**
+   * Bumped on every mutation. A flush that started before a mutation landed must not clear
+   * `dirty`, or the journal gets truncated and that mutation exists nowhere.
+   */
+  version: number;
 }
 
 export interface StoreEvents {
