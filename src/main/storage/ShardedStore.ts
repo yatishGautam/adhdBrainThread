@@ -367,9 +367,9 @@ export class ShardedStore {
    * Clears `dirty` only if nothing mutated the shard while the write was in flight. Without the
    * version check a concurrent put is written nowhere and then dropped by the journal truncate.
    */
-  private async persistShard(config: AnyCollectionConfig, shard: LoadedShard): Promise<void> {
+  private async persistShard(_config: AnyCollectionConfig, shard: LoadedShard): Promise<void> {
     const version = shard.version;
-    await writeShard(this.options.root, config, shard);
+    await writeShard(this.options.root, shard);
     if (shard.version === version) shard.dirty = false;
   }
 

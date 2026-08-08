@@ -45,9 +45,11 @@ export async function readShard(
   const checksumMismatch = checksum(raw) !== meta.checksum;
   const bounds = keyBounds(records);
   const shard: LoadedShard = {
+    collection: config.name,
     meta: { ...meta, ...bounds, count: records.size, bytes: byteLength(raw), checksum: checksum(raw) },
     records,
     dirty: false,
+    version: 0,
   };
   return { kind: 'ok', shard, checksumMismatch };
 }
@@ -57,11 +59,7 @@ export async function readShard(
  * Deliberately does not clear `shard.dirty` — only the caller knows whether a mutation landed
  * while this write was in flight.
  */
-export async function writeShard(
-  root: string,
-  config: AnyCollectionConfig,
-  shard: LoadedShard,
-): Promise<void> {
+export async function writeShard(root: string, shard: LoadedShard): Promise<void> {
   const sorted = [...shard.records.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
   const text = serialise({ id: shard.meta.id, records: sorted.map(([, record]) => record) });
   await atomicWriteFile(path.join(root, shard.meta.file), text);
