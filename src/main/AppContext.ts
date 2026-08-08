@@ -12,7 +12,7 @@ import { AnalyticsService } from './services/AnalyticsService.js';
 import { SessionService } from './services/SessionService.js';
 import { CelebrationOrchestrator } from './services/CelebrationOrchestrator.js';
 import { CelebrationOverlay } from './windows/celebrationWindow.js';
-import { createHudWindow, type HudPosition } from './windows/hudWindow.js';
+import { createHudWindow } from './windows/hudWindow.js';
 import { createMainWindow } from './windows/mainWindow.js';
 import { createTray, updateTray, markQuitting, type TrayState } from './windows/tray.js';
 

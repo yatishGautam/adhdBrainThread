@@ -98,9 +98,15 @@ export async function compact(
     for (const meta of index.shards) {
       const result = await readShard(root, config, meta);
       if (result.kind === 'ok') {
-        loaded.push({ collection: config.name, meta, records: result.shard.records, dirty: false });
+        loaded.push({
+          collection: config.name,
+          meta,
+          records: result.shard.records,
+          dirty: false,
+          version: 0,
+        });
       } else {
-        loaded.push({ collection: config.name, meta, records: new Map(), dirty: false });
+        loaded.push({ collection: config.name, meta, records: new Map(), dirty: false, version: 0 });
       }
     }
     loaded.sort((a, b) => shardSequence(a.meta.id) - shardSequence(b.meta.id));
@@ -121,7 +127,7 @@ export async function compact(
     }
 
     for (const shard of merged) {
-      if (shard.dirty) await writeShard(root, config, shard);
+      if (shard.dirty) await writeShard(root, shard);
     }
     index.shards = merged.map((shard) => shard.meta);
     if (!index.shards.some((shard) => shard.id === index.headShardId)) {
