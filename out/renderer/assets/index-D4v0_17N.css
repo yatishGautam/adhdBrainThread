@@ -1,0 +1,104 @@
+._root_1okao_1 {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 28px 16px;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+._title_1okao_11 {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+._detail_1okao_17 {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+  max-width: 32ch;
+}
+._button_1tzqa_1 {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out),
+    opacity var(--motion-fast) var(--ease-out);
+  white-space: nowrap;
+}
+
+._button_1tzqa_1:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+._sm_1tzqa_18 {
+  padding: 4px 10px;
+  font-size: var(--text-xs);
+}
+
+._md_1tzqa_23 {
+  padding: 8px 14px;
+  font-size: var(--text-sm);
+}
+
+._primary_1tzqa_28 {
+  background: var(--amber);
+  color: #201203;
+  font-weight: 600;
+}
+._primary_1tzqa_28:hover:not(:disabled) {
+  background: var(--amber-bright);
+}
+
+._ghost_1tzqa_37 {
+  background: var(--surface-raised);
+  border-color: var(--line);
+  color: var(--text);
+}
+._ghost_1tzqa_37:hover:not(:disabled) {
+  border-color: var(--amber);
+}
+
+._danger_1tzqa_46 {
+  background: transparent;
+  border-color: var(--line);
+  color: var(--danger);
+}
+._danger_1tzqa_46:hover:not(:disabled) {
+  border-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+._chip_ae5bh_1 {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  background: color-mix(in srgb, var(--tone-color) 16%, transparent);
+  color: var(--tone-color);
+}
+
+._amber_ae5bh_14 {
+  --tone-color: var(--amber);
+}
+._slate_ae5bh_17 {
+  --tone-color: var(--slate);
+}
+._moss_ae5bh_20 {
+  --tone-color: var(--moss);
+}
+._lavender_ae5bh_23 {
+  --tone-color: var(--lavender);
+}
+._danger_ae5bh_26 {
+  --tone-color: var(--danger);
+}
