@@ -26,9 +26,9 @@ export function LoggedPanel({ day }: { day: Day | null }): React.JSX.Element {
   const focusMs = threads.reduce((sum, t) => sum + t.totalFocusMs, 0);
 
   return (
-    <Panel title="Logged today" warm>
+    <Panel title="Logged today" subtitle="Proof of what you actually did." warm>
       {threads.length === 0 ? (
-        <EmptyState title="Nothing logged yet." detail="Completed threads show up here automatically." />
+        <EmptyState title="Nothing logged yet." detail="Finish a thread and it lands here on its own." />
       ) : (
         <>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>

@@ -7,6 +7,7 @@ import { ThreadDetail } from './ThreadDetail.js';
 import { DoneSection } from './DoneSection.js';
 import { EmptyState } from '../../../shared/components/EmptyState.js';
 import { Button } from '../../../shared/components/Button.js';
+import { PageHeader } from '../../../shared/components/PageHeader.js';
 
 export function ThreadsView(): React.JSX.Element {
   const threads = useThreadStore((s) => s.threads);
@@ -40,16 +41,22 @@ export function ThreadsView(): React.JSX.Element {
 
   return (
     <div style={{ padding: '20px 28px 40px', maxWidth: 920, margin: '0 auto' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
-        <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 22, margin: 0 }}>Threads</h1>
-        <span style={{ fontSize: 12, color: 'var(--text-faint)' }}>
-          {inProgressCount}/{WIP_IN_PROGRESS_CAP} in progress
-        </span>
-      </div>
+      <PageHeader
+        title="Threads"
+        description="Everything you're working on. Each thread keeps its own checklist."
+        right={
+          <span
+            title={`A gentle limit: at most ${WIP_IN_PROGRESS_CAP} threads marked "In progress" at once.`}
+            style={{ fontSize: 12, color: 'var(--text-faint)', whiteSpace: 'nowrap', paddingTop: 6 }}
+          >
+            {inProgressCount} of {WIP_IN_PROGRESS_CAP} in progress
+          </span>
+        }
+      />
 
       {board.length > BOARD_SOFT_CAP ? (
-        <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '8px 0 0' }}>
-          {board.length} open threads — might be worth closing a few out.
+        <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '0 0 12px' }}>
+          {board.length} open threads — might be worth closing a few out. (Not a rule, just a nudge.)
         </p>
       ) : null}
 
@@ -57,7 +64,7 @@ export function ThreadsView(): React.JSX.Element {
         {board.length === 0 && !creating ? (
           <EmptyState
             title="Nothing on the board yet."
-            detail="Add the first thing you're working on."
+            detail="A thread is one thing you're working on — a bug, an errand, a chapter."
             action={<Button variant="primary" onClick={() => setCreating(true)}>New thread</Button>}
           />
         ) : (

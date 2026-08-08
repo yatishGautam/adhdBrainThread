@@ -1,6 +1,10 @@
-import { DistractionButton, hudBtn } from './DistractionButton.js';
+import { DistractionButton } from './DistractionButton.js';
 import type { DistractionKind } from '@shared/domain.js';
 
+/**
+ * Labelled rather than icon-only. The HUD sits beside real work all day, so a button whose
+ * meaning you have to remember is a button you stop using.
+ */
 export function ControlBar({
   paused,
   onPauseResume,
@@ -15,17 +19,43 @@ export function ControlBar({
   onEnd: () => void;
 }): React.JSX.Element {
   return (
-    <div style={{ display: 'flex', gap: 6, flexShrink: 0, WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-      <button onClick={onPauseResume} style={hudBtn} title={paused ? 'Resume' : 'Pause'}>
-        {paused ? '▶' : '❙❙'}
-      </button>
+    <div style={{ display: 'flex', gap: 4, flexShrink: 0, WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+      <HudButton
+        onClick={onPauseResume}
+        title={paused ? 'Resume the timer' : 'Pause the timer'}
+        label={paused ? 'Resume' : 'Pause'}
+      />
       <DistractionButton onDistraction={onDistraction} />
-      <button onClick={onSwitch} style={hudBtn} title="Switch">
-        ⇄
-      </button>
-      <button onClick={onEnd} style={hudBtn} title="End">
-        ■
-      </button>
+      <HudButton onClick={onSwitch} title="Work on a different thread instead" label="Switch" />
+      <HudButton onClick={onEnd} title="Stop the timer (this does not finish the thread)" label="Stop" />
     </div>
   );
 }
+
+export function HudButton({
+  onClick,
+  title,
+  label,
+  ...rest
+}: {
+  onClick?: () => void;
+  title: string;
+  label: string;
+} & React.ButtonHTMLAttributes<HTMLButtonElement>): React.JSX.Element {
+  return (
+    <button onClick={onClick} title={title} style={hudBtn} {...rest}>
+      {label}
+    </button>
+  );
+}
+
+export const hudBtn: React.CSSProperties = {
+  padding: '5px 8px',
+  borderRadius: 7,
+  border: '1px solid var(--line)',
+  background: 'var(--surface-raised)',
+  color: 'var(--text-muted)',
+  cursor: 'pointer',
+  fontSize: 10,
+  whiteSpace: 'nowrap',
+};

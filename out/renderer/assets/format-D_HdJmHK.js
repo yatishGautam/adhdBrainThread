@@ -14102,6 +14102,10 @@ function formatLocalDate(localDate) {
   const { month, day, weekday } = parts(localDate);
   return `${WEEKDAYS[weekday]?.slice(0, 3)} ${day} ${MONTHS[month - 1]?.slice(0, 3)}`;
 }
+function formatLongDate(localDate) {
+  const { year, month, day, weekday } = parts(localDate);
+  return `${WEEKDAYS[weekday]}, ${day} ${MONTHS[month - 1]} ${year}`;
+}
 function formatMonth(localDate) {
   const { year, month } = parts(localDate);
   return `${MONTHS[month - 1]} ${year}`;
@@ -14126,11 +14130,12 @@ export {
   formatDuration as f,
   formatDayNumber as g,
   formatLocalDate as h,
-  formatTimeOfDay as i,
+  formatLongDate as i,
   jsxRuntimeExports as j,
-  commonjsGlobal as k,
-  getDefaultExportFromCjs as l,
+  formatTimeOfDay as k,
+  commonjsGlobal as l,
   motion as m,
+  getDefaultExportFromCjs as n,
   reactExports as r,
   useConstant as u
 };

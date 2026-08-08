@@ -5,7 +5,11 @@
 import { BrowserWindow, screen } from 'electron';
 import { loadRenderer, preloadPath } from './urls.js';
 
-export const HUD_WIDTH = 360;
+/**
+ * Wider than the 360px in the original spec: the control buttons carry text labels rather than
+ * bare glyphs, and a button whose meaning you have to remember is a button you stop using.
+ */
+export const HUD_WIDTH = 460;
 export const HUD_HEIGHT = 92;
 
 export interface HudPosition {

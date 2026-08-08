@@ -1,4 +1,5 @@
 import { BrowserWindow, shell } from 'electron';
+import { appIconPath } from './appIcon.js';
 import { loadRenderer, preloadPath } from './urls.js';
 
 export interface MainWindowHooks {
@@ -15,6 +16,7 @@ export function createMainWindow(hooks: MainWindowHooks): BrowserWindow {
     minHeight: 700,
     show: false,
     backgroundColor: '#0F1115',
+    icon: appIconPath(),
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     webPreferences: {
       preload: preloadPath,

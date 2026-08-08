@@ -19,9 +19,15 @@ export function PlanPanel({ day, readOnly }: { day: Day | null; readOnly: boolea
   };
 
   return (
-    <Panel title="Today's plan">
+    <Panel
+      title="Today's plan"
+      subtitle="Threads you picked for today, plus small one-off todos."
+    >
       {intentThreads.length === 0 && (!day || day.todos.length === 0) ? (
-        <EmptyState title="Nothing planned yet." />
+        <EmptyState
+          title="Nothing planned yet."
+          detail="Add a thread you want to move today, or jot a quick todo below."
+        />
       ) : null}
 
       {intentThreads.length > 0 ? (

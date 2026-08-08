@@ -15,11 +15,15 @@ export function ThoughtCapture({ day, readOnly }: { day: Day | null; readOnly: b
   };
 
   return (
-    <Panel title="Thoughts">
+    <Panel
+      title="Thoughts"
+      subtitle="Somewhere to dump a thought so it stops interrupting you."
+      hint="Type anything that pops into your head mid-task. Later you can turn each one into a thread, a todo, or just delete it."
+    >
       {!readOnly ? (
         <input
           value={text}
-          placeholder="Capture a thought…"
+          placeholder="Type it here and press Enter…"
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && void add()}
           style={{
@@ -34,7 +38,7 @@ export function ThoughtCapture({ day, readOnly }: { day: Day | null; readOnly: b
         />
       ) : null}
       {!day || day.thoughts.length === 0 ? (
-        <EmptyState title="Nothing captured." />
+        <EmptyState title="Nothing captured." detail="This is a parking lot, not a to-do list." />
       ) : (
         <ThoughtList day={day} readOnly={readOnly} />
       )}

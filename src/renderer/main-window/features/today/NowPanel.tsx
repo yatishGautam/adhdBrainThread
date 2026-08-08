@@ -16,14 +16,21 @@ export function NowPanel({ readOnly }: { readOnly: boolean }): React.JSX.Element
   const remaining = tick?.remainingMs ?? state?.remainingMs ?? 0;
 
   return (
-    <Panel title="Now">
+    <Panel
+      title="Now"
+      subtitle={state ? undefined : 'The one thing you are working on right now.'}
+    >
       {!state ? (
         readOnly ? (
           <EmptyState title="Nothing was running." />
         ) : picking ? (
           <ThreadPicker onPick={(id) => window.thread.invoke['session:start']({ threadId: id }).then(() => setPicking(false))} onCancel={() => setPicking(false)} />
         ) : (
-          <EmptyState title="Nothing running." action={<Button variant="primary" onClick={() => setPicking(true)}>Pick something</Button>} />
+          <EmptyState
+            title="Nothing running."
+            detail="Starting a timer is the whole point — even a few minutes counts."
+            action={<Button variant="primary" onClick={() => setPicking(true)}>Pick something</Button>}
+          />
         )
       ) : (
         <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
@@ -49,11 +56,15 @@ export function NowPanel({ readOnly }: { readOnly: boolean }): React.JSX.Element
             >
               {state.paused ? 'Resume' : 'Pause'}
             </Button>
-            <Button size="sm" onClick={() => void window.thread.invoke['session:distraction']({})}>
-              Distraction
+            <Button
+              size="sm"
+              title="Got distracted? Tap this. It adds time back to your clock and costs you nothing."
+              onClick={() => void window.thread.invoke['session:distraction']({})}
+            >
+              I got distracted
             </Button>
-            <Button size="sm" onClick={() => void window.thread.invoke['session:end']({})}>
-              End
+            <Button size="sm" title="Stop the timer. This does not finish the thread." onClick={() => void window.thread.invoke['session:end']({})}>
+              Stop
             </Button>
           </div>
         </div>

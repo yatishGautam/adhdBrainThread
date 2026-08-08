@@ -1,4 +1,4 @@
-import { BrowserWindow, screen, shell, app, nativeImage, Tray, Menu, nativeTheme, ipcMain, powerMonitor } from "electron";
+import { BrowserWindow, screen, app, nativeImage, shell, Tray, Menu, nativeTheme, ipcMain, powerMonitor } from "electron";
 import { z } from "zod";
 import { toZonedTime, format } from "date-fns-tz";
 import path from "node:path";
@@ -2321,17 +2321,17 @@ class CelebrationOrchestrator {
     this.overlay.stop();
   }
 }
-const here$1 = path.dirname(fileURLToPath(import.meta.url));
-const preloadPath = path.join(here$1, "../preload/index.mjs");
+const here$2 = path.dirname(fileURLToPath(import.meta.url));
+const preloadPath = path.join(here$2, "../preload/index.mjs");
 function loadRenderer(window, page) {
   const devServer = process.env["ELECTRON_RENDERER_URL"];
   if (devServer) {
     void window.loadURL(`${devServer}/${page === "index" ? "" : `${page}.html`}`);
   } else {
-    void window.loadFile(path.join(here$1, `../renderer/${page}.html`));
+    void window.loadFile(path.join(here$2, `../renderer/${page}.html`));
   }
 }
-const HUD_WIDTH = 360;
+const HUD_WIDTH = 460;
 const HUD_HEIGHT = 92;
 function createHudWindow(saved, onMoved) {
   const position = saved ?? defaultPosition();
@@ -2435,6 +2435,18 @@ class CelebrationOverlay {
     this.window = null;
   }
 }
+const here$1 = path.dirname(fileURLToPath(import.meta.url));
+function appIconPath() {
+  return path.join(here$1, "../../assets/icon.png");
+}
+function appIcon() {
+  return nativeImage.createFromPath(appIconPath());
+}
+function applyDockIcon() {
+  if (process.platform !== "darwin" || !app.dock) return;
+  const image = appIcon();
+  if (!image.isEmpty()) app.dock.setIcon(image);
+}
 function createMainWindow(hooks) {
   const window = new BrowserWindow({
     width: 1180,
@@ -2443,6 +2455,7 @@ function createMainWindow(hooks) {
     minHeight: 700,
     show: false,
     backgroundColor: "#0F1115",
+    icon: appIconPath(),
     titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
     webPreferences: {
       preload: preloadPath,
@@ -2879,6 +2892,7 @@ if (!gotLock) {
 }
 let ctx = null;
 async function bootstrap() {
+  applyDockIcon();
   const root = appDataRoot();
   await writeLockFile(root);
   ctx = await AppContext.create(root);

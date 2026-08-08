@@ -59,22 +59,22 @@ export function ThreadCard({ thread, onOpen }: { thread: Thread; onOpen: () => v
         <button
           onClick={focus}
           disabled={starting}
-          title="Focus"
+          title="Start a timer on this thread"
           style={{
-            width: 32,
-            height: 32,
-            borderRadius: '50%',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            padding: '7px 14px',
+            borderRadius: 999,
             border: 'none',
             background: 'var(--amber)',
             color: '#201203',
+            fontWeight: 600,
+            fontSize: 12,
             cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: 13,
           }}
         >
-          ▶
+          ▶ Focus
         </button>
       </div>
     </div>

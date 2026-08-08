@@ -59,9 +59,19 @@ export function StatusDropdown({
     <div style={{ position: 'relative' }}>
       <button
         onClick={() => setOpen((v) => !v)}
-        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+        title="Change status"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 3,
+          background: 'none',
+          border: 'none',
+          cursor: 'pointer',
+          padding: 0,
+        }}
       >
         <StatusChip status={status} />
+        <span style={{ fontSize: 9, color: 'var(--text-faint)' }}>▾</span>
       </button>
       {open ? (
         <>

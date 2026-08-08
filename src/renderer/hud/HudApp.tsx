@@ -69,17 +69,19 @@ export function HudApp(): React.JSX.Element {
           <MiniRing progress={progress} paused={paused} />
           <div style={{ flex: 1, minWidth: 0 }}>
             <ThreadLabel title={state.threadTitle} nextAction={state.nextAction} />
-            <Countdown remainingMs={remainingMs} />
           </div>
-          <ControlBar
-            paused={paused}
-            onPauseResume={() =>
-              void window.thread.invoke[paused ? 'session:resume' : 'session:pause'](undefined)
-            }
-            onDistraction={(kind, note) => void window.thread.invoke['session:distraction']({ kind, note })}
-            onSwitch={() => setSwitching(true)}
-            onEnd={() => void window.thread.invoke['session:end']({})}
-          />
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6, flexShrink: 0 }}>
+            <Countdown remainingMs={remainingMs} paused={paused} />
+            <ControlBar
+              paused={paused}
+              onPauseResume={() =>
+                void window.thread.invoke[paused ? 'session:resume' : 'session:pause'](undefined)
+              }
+              onDistraction={(kind, note) => void window.thread.invoke['session:distraction']({ kind, note })}
+              onSwitch={() => setSwitching(true)}
+              onEnd={() => void window.thread.invoke['session:end']({})}
+            />
+          </div>
         </>
       )}
       <HudToast text={toast} />

@@ -1,5 +1,5 @@
-import { R as React, r as reactExports, j as jsxRuntimeExports, e as formatMonth, g as formatDayNumber, d as formatClock, f as formatDuration, h as formatLocalDate, i as formatTimeOfDay, m as motion, k as commonjsGlobal, l as getDefaultExportFromCjs, c as createRoot } from "./format-C7YSyzYl.js";
-import { R as Ring } from "./Ring-DVCq_uCA.js";
+import { R as React, r as reactExports, j as jsxRuntimeExports, e as formatMonth, g as formatDayNumber, h as formatLocalDate, d as formatClock, f as formatDuration, i as formatLongDate, k as formatTimeOfDay, m as motion, l as commonjsGlobal, n as getDefaultExportFromCjs, c as createRoot } from "./format-D_HdJmHK.js";
+import { R as Ring } from "./Ring-GR7IvACJ.js";
 const createStoreImpl = (createState) => {
   let state;
   const listeners = /* @__PURE__ */ new Set();
@@ -164,50 +164,53 @@ function SideRail() {
             children: "Today"
           }
         ) : null,
-        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { flex: 1, overflowY: "auto", padding: "0 8px" }, children: months.map((month) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { marginBottom: 12 }, children: [
-          !collapsed ? /* @__PURE__ */ jsxRuntimeExports.jsx(
-            "div",
-            {
-              style: {
-                padding: "4px 8px",
-                fontSize: 11,
-                color: "var(--text-faint)",
-                textTransform: "uppercase",
-                letterSpacing: "0.04em"
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { flex: 1, overflowY: "auto", padding: "0 8px" }, children: [
+          !collapsed && months.length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: { fontSize: 11, color: "var(--text-faint)", padding: "0 8px", lineHeight: 1.5 }, children: "Past days appear here once you’ve used them. Days you didn’t work are never created." }) : null,
+          months.map((month) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { marginBottom: 12 }, children: [
+            !collapsed ? /* @__PURE__ */ jsxRuntimeExports.jsx(
+              "div",
+              {
+                style: {
+                  padding: "4px 8px",
+                  fontSize: 11,
+                  color: "var(--text-faint)",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.04em"
+                },
+                children: formatMonth(month.key)
+              }
+            ) : null,
+            month.days.map((date2) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
+              "button",
+              {
+                onClick: () => {
+                  setTab("today");
+                  void loadDay(date2);
+                },
+                title: date2,
+                style: {
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  width: "100%",
+                  padding: collapsed ? "6px 0" : "6px 8px",
+                  justifyContent: collapsed ? "center" : "flex-start",
+                  borderRadius: 6,
+                  border: "none",
+                  background: viewedDate === date2 ? "var(--surface-raised)" : "transparent",
+                  color: viewedDate === date2 ? "var(--text)" : "var(--text-muted)",
+                  cursor: "pointer",
+                  fontSize: 13
+                },
+                children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "mono", style: { width: 20, textAlign: "right", color: "var(--text-faint)" }, children: formatDayNumber(date2) }),
+                  !collapsed ? /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: formatLocalDate(date2) }) : null
+                ]
               },
-              children: formatMonth(month.key)
-            }
-          ) : null,
-          month.days.map((date2) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
-            "button",
-            {
-              onClick: () => {
-                setTab("today");
-                void loadDay(date2);
-              },
-              title: date2,
-              style: {
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                width: "100%",
-                padding: collapsed ? "6px 0" : "6px 8px",
-                justifyContent: collapsed ? "center" : "flex-start",
-                borderRadius: 6,
-                border: "none",
-                background: viewedDate === date2 ? "var(--surface-raised)" : "transparent",
-                color: viewedDate === date2 ? "var(--text)" : "var(--text-muted)",
-                cursor: "pointer",
-                fontSize: 13
-              },
-              children: [
-                /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "mono", style: { width: 20, textAlign: "right" }, children: formatDayNumber(date2) }),
-                !collapsed ? /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: date2 }) : null
-              ]
-            },
-            date2
-          ))
-        ] }, month.key)) })
+              date2
+            ))
+          ] }, month.key))
+        ] })
       ]
     }
   );
@@ -279,6 +282,105 @@ function EmptyState({
     /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: styles$2.title, children: title2 }),
     detail2 ? /* @__PURE__ */ jsxRuntimeExports.jsx("p", { className: styles$2.detail, children: detail2 }) : null,
     action
+  ] });
+}
+function PageHeader({
+  title: title2,
+  description,
+  right
+}) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(
+    "div",
+    {
+      style: {
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "flex-start",
+        gap: 16,
+        marginBottom: 24
+      },
+      children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("h1", { style: { fontFamily: "var(--font-display)", fontSize: 22, margin: 0 }, children: title2 }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: { fontSize: 12, color: "var(--text-muted)", margin: "4px 0 0" }, children: description })
+        ] }),
+        right
+      ]
+    }
+  );
+}
+function GettingStarted() {
+  const setTab = useUiStore((s2) => s2.setTab);
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(
+    "div",
+    {
+      style: {
+        borderRadius: 14,
+        border: "1px solid var(--line)",
+        background: "var(--surface)",
+        padding: "28px 26px"
+      },
+      children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("h2", { style: { fontFamily: "var(--font-display)", fontSize: 18, margin: "0 0 8px" }, children: "Welcome — here’s the whole idea" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { style: { fontSize: 13, color: "var(--text-muted)", lineHeight: 1.6, margin: "0 0 20px", maxWidth: "58ch" }, children: [
+          "A ",
+          /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { style: { color: "var(--text)" }, children: "thread" }),
+          " is one thing you’re working on. It holds its own checklist, so you never have to remember where you left off."
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("ol", { style: { margin: "0 0 22px", padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 12 }, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(Step$1, { n: 1, title: "Make a thread", detail: "Anything you're working on — a bug, an errand, a chapter." }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(Step$1, { n: 2, title: "Give it a first step", detail: "Just the next physical action. That's what shows on the board." }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(Step$1, { n: 3, title: "Press Focus", detail: "A small timer floats above your other windows. Work until it stops." })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 12 }, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "button",
+            {
+              onClick: () => setTab("threads"),
+              style: {
+                padding: "10px 18px",
+                borderRadius: 10,
+                border: "none",
+                background: "var(--amber)",
+                color: "#201203",
+                fontWeight: 600,
+                fontSize: 13,
+                cursor: "pointer"
+              },
+              children: "Make your first thread"
+            }
+          ),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { fontSize: 11, color: "var(--text-faint)" }, children: "Nothing is tracked until you do — this page stays empty on purpose." })
+        ] })
+      ]
+    }
+  );
+}
+function Step$1({ n: n2, title: title2, detail: detail2 }) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("li", { style: { display: "flex", gap: 12, alignItems: "flex-start" }, children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx(
+      "span",
+      {
+        className: "mono",
+        style: {
+          width: 20,
+          height: 20,
+          borderRadius: "50%",
+          background: "var(--surface-raised)",
+          color: "var(--amber)",
+          fontSize: 11,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          flexShrink: 0
+        },
+        children: n2
+      }
+    ),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { fontSize: 13 }, children: title2 }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { fontSize: 12, color: "var(--text-faint)", display: "block", marginTop: 1 }, children: detail2 })
+    ] })
   ] });
 }
 function useIpcEvent(channel, handler) {
@@ -363,8 +465,65 @@ function ThreadPicker({
     )
   ] });
 }
+function Hint({ children }) {
+  const [open, setOpen] = reactExports.useState(false);
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(
+    "span",
+    {
+      style: { position: "relative", display: "inline-flex" },
+      onMouseEnter: () => setOpen(true),
+      onMouseLeave: () => setOpen(false),
+      children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "span",
+          {
+            style: {
+              width: 14,
+              height: 14,
+              borderRadius: "50%",
+              border: "1px solid var(--text-faint)",
+              color: "var(--text-faint)",
+              fontSize: 9,
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: "help",
+              flexShrink: 0
+            },
+            children: "?"
+          }
+        ),
+        open ? /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "span",
+          {
+            style: {
+              position: "absolute",
+              top: "100%",
+              left: "50%",
+              transform: "translateX(-50%)",
+              marginTop: 6,
+              background: "var(--surface-raised)",
+              border: "1px solid var(--line)",
+              borderRadius: 8,
+              padding: "8px 10px",
+              fontSize: 11,
+              lineHeight: 1.5,
+              color: "var(--text-muted)",
+              width: 220,
+              zIndex: 50,
+              boxShadow: "0 8px 24px rgba(0,0,0,0.4)"
+            },
+            children
+          }
+        ) : null
+      ]
+    }
+  );
+}
 function Panel({
   title: title2,
+  subtitle,
+  hint,
   warm,
   children
 }) {
@@ -379,19 +538,24 @@ function Panel({
         padding: 18
       },
       children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx(
-          "div",
-          {
-            style: {
-              fontSize: 11,
-              textTransform: "uppercase",
-              letterSpacing: "0.05em",
-              color: warm ? "var(--amber)" : "var(--text-faint)",
-              marginBottom: 14
-            },
-            children: title2
-          }
-        ),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { marginBottom: 14 }, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 6 }, children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx(
+              "span",
+              {
+                style: {
+                  fontSize: 11,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.05em",
+                  color: warm ? "var(--amber)" : "var(--text-faint)"
+                },
+                children: title2
+              }
+            ),
+            hint ? /* @__PURE__ */ jsxRuntimeExports.jsx(Hint, { children: hint }) : null
+          ] }),
+          subtitle ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { fontSize: 11, color: "var(--text-faint)", marginTop: 3 }, children: subtitle }) : null
+        ] }),
         children
       ]
     }
@@ -402,25 +566,47 @@ function NowPanel({ readOnly }) {
   const tick = useLiveClock(state?.session.id ?? null);
   const [picking, setPicking] = reactExports.useState(false);
   const remaining = tick?.remainingMs ?? state?.remainingMs ?? 0;
-  return /* @__PURE__ */ jsxRuntimeExports.jsx(Panel, { title: "Now", children: !state ? readOnly ? /* @__PURE__ */ jsxRuntimeExports.jsx(EmptyState, { title: "Nothing was running." }) : picking ? /* @__PURE__ */ jsxRuntimeExports.jsx(ThreadPicker, { onPick: (id) => window.thread.invoke["session:start"]({ threadId: id }).then(() => setPicking(false)), onCancel: () => setPicking(false) }) : /* @__PURE__ */ jsxRuntimeExports.jsx(EmptyState, { title: "Nothing running.", action: /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { variant: "primary", onClick: () => setPicking(true), children: "Pick something" }) }) : /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 16 }, children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx(Ring, { value: tick?.progress ?? 0, size: 44, dim: state.paused, children: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "mono", style: { fontSize: 10 }, children: formatClock(remaining) }) }),
-    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { flex: 1, minWidth: 0 }, children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { fontSize: 15, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, children: state.threadTitle }),
-      state.nextAction ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { fontSize: 11, color: "var(--text-muted)", marginTop: 2 }, children: state.nextAction }) : null
-    ] }),
-    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", gap: 6 }, children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx(
-        Button,
+  return /* @__PURE__ */ jsxRuntimeExports.jsx(
+    Panel,
+    {
+      title: "Now",
+      subtitle: state ? void 0 : "The one thing you are working on right now.",
+      children: !state ? readOnly ? /* @__PURE__ */ jsxRuntimeExports.jsx(EmptyState, { title: "Nothing was running." }) : picking ? /* @__PURE__ */ jsxRuntimeExports.jsx(ThreadPicker, { onPick: (id) => window.thread.invoke["session:start"]({ threadId: id }).then(() => setPicking(false)), onCancel: () => setPicking(false) }) : /* @__PURE__ */ jsxRuntimeExports.jsx(
+        EmptyState,
         {
-          size: "sm",
-          onClick: () => void window.thread.invoke[state.paused ? "session:resume" : "session:pause"](void 0),
-          children: state.paused ? "Resume" : "Pause"
+          title: "Nothing running.",
+          detail: "Starting a timer is the whole point — even a few minutes counts.",
+          action: /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { variant: "primary", onClick: () => setPicking(true), children: "Pick something" })
         }
-      ),
-      /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { size: "sm", onClick: () => void window.thread.invoke["session:distraction"]({}), children: "Distraction" }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { size: "sm", onClick: () => void window.thread.invoke["session:end"]({}), children: "End" })
-    ] })
-  ] }) });
+      ) : /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 16 }, children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx(Ring, { value: tick?.progress ?? 0, size: 44, dim: state.paused, children: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "mono", style: { fontSize: 10 }, children: formatClock(remaining) }) }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { flex: 1, minWidth: 0 }, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { fontSize: 15, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, children: state.threadTitle }),
+          state.nextAction ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { fontSize: 11, color: "var(--text-muted)", marginTop: 2 }, children: state.nextAction }) : null
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", gap: 6 }, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            Button,
+            {
+              size: "sm",
+              onClick: () => void window.thread.invoke[state.paused ? "session:resume" : "session:pause"](void 0),
+              children: state.paused ? "Resume" : "Pause"
+            }
+          ),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            Button,
+            {
+              size: "sm",
+              title: "Got distracted? Tap this. It adds time back to your clock and costs you nothing.",
+              onClick: () => void window.thread.invoke["session:distraction"]({}),
+              children: "I got distracted"
+            }
+          ),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { size: "sm", title: "Stop the timer. This does not finish the thread.", onClick: () => void window.thread.invoke["session:end"]({}), children: "Stop" })
+        ] })
+      ] })
+    }
+  );
 }
 const WIP_IN_PROGRESS_CAP = 3;
 const BOARD_SOFT_CAP = 7;
@@ -545,70 +731,83 @@ function PlanPanel({ day, readOnly }) {
     const next = current.includes(threadId) ? current.filter((id) => id !== threadId) : [...current, threadId];
     await window.thread.invoke["day:setIntent"]({ threadIds: next });
   };
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs(Panel, { title: "Today's plan", children: [
-    intentThreads.length === 0 && (!day || day.todos.length === 0) ? /* @__PURE__ */ jsxRuntimeExports.jsx(EmptyState, { title: "Nothing planned yet." }) : null,
-    intentThreads.length > 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { display: "flex", flexDirection: "column", gap: 6, marginBottom: 14 }, children: intentThreads.map((thread) => {
-      const next = [...thread.steps].sort((a2, b2) => a2.order - b2.order).find((s2) => !s2.done);
-      return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 10 }, children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx(
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(
+    Panel,
+    {
+      title: "Today's plan",
+      subtitle: "Threads you picked for today, plus small one-off todos.",
+      children: [
+        intentThreads.length === 0 && (!day || day.todos.length === 0) ? /* @__PURE__ */ jsxRuntimeExports.jsx(
+          EmptyState,
+          {
+            title: "Nothing planned yet.",
+            detail: "Add a thread you want to move today, or jot a quick todo below."
+          }
+        ) : null,
+        intentThreads.length > 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { display: "flex", flexDirection: "column", gap: 6, marginBottom: 14 }, children: intentThreads.map((thread) => {
+          const next = [...thread.steps].sort((a2, b2) => a2.order - b2.order).find((s2) => !s2.done);
+          return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 10 }, children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx(
+              "button",
+              {
+                onClick: () => void window.thread.invoke["session:start"]({ threadId: thread.id }),
+                style: {
+                  width: 22,
+                  height: 22,
+                  borderRadius: "50%",
+                  border: "none",
+                  background: "var(--amber)",
+                  color: "#201203",
+                  cursor: "pointer",
+                  fontSize: 10,
+                  flexShrink: 0
+                },
+                children: "▶"
+              }
+            ),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { minWidth: 0 }, children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, children: thread.title }),
+              next ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { fontSize: 11, color: "var(--text-faint)" }, children: next.text }) : null
+            ] })
+          ] }, thread.id);
+        }) }) : null,
+        !readOnly ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { marginBottom: 14 }, children: picking ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", flexDirection: "column", gap: 4, maxHeight: 150, overflowY: "auto" }, children: [
+          threads.filter((t2) => t2.status !== "done" && !intentThreads.some((it) => it.id === t2.id)).map((thread) => /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "button",
+            {
+              onClick: () => {
+                void toggleIntent(thread.id);
+                setPicking(false);
+              },
+              style: {
+                textAlign: "left",
+                padding: "6px 8px",
+                borderRadius: 6,
+                border: "1px solid var(--line)",
+                background: "var(--surface-raised)",
+                cursor: "pointer",
+                fontSize: 12
+              },
+              children: thread.title
+            },
+            thread.id
+          )),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("button", { onClick: () => setPicking(false), style: { fontSize: 11, color: "var(--text-faint)", background: "none", border: "none", cursor: "pointer", textAlign: "left" }, children: "Done" })
+        ] }) : /* @__PURE__ */ jsxRuntimeExports.jsxs(
           "button",
           {
-            onClick: () => void window.thread.invoke["session:start"]({ threadId: thread.id }),
-            style: {
-              width: 22,
-              height: 22,
-              borderRadius: "50%",
-              border: "none",
-              background: "var(--amber)",
-              color: "#201203",
-              cursor: "pointer",
-              fontSize: 10,
-              flexShrink: 0
-            },
-            children: "▶"
+            onClick: () => setPicking(true),
+            style: { fontSize: 12, color: "var(--text-faint)", background: "none", border: "none", cursor: "pointer" },
+            children: [
+              "+ Add a thread ",
+              intentThreads.length >= INTENT_SOFT_CAP ? "(getting full)" : ""
+            ]
           }
-        ),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { minWidth: 0 }, children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, children: thread.title }),
-          next ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { fontSize: 11, color: "var(--text-faint)" }, children: next.text }) : null
-        ] })
-      ] }, thread.id);
-    }) }) : null,
-    !readOnly ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { marginBottom: 14 }, children: picking ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", flexDirection: "column", gap: 4, maxHeight: 150, overflowY: "auto" }, children: [
-      threads.filter((t2) => t2.status !== "done" && !intentThreads.some((it) => it.id === t2.id)).map((thread) => /* @__PURE__ */ jsxRuntimeExports.jsx(
-        "button",
-        {
-          onClick: () => {
-            void toggleIntent(thread.id);
-            setPicking(false);
-          },
-          style: {
-            textAlign: "left",
-            padding: "6px 8px",
-            borderRadius: 6,
-            border: "1px solid var(--line)",
-            background: "var(--surface-raised)",
-            cursor: "pointer",
-            fontSize: 12
-          },
-          children: thread.title
-        },
-        thread.id
-      )),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("button", { onClick: () => setPicking(false), style: { fontSize: 11, color: "var(--text-faint)", background: "none", border: "none", cursor: "pointer", textAlign: "left" }, children: "Done" })
-    ] }) : /* @__PURE__ */ jsxRuntimeExports.jsxs(
-      "button",
-      {
-        onClick: () => setPicking(true),
-        style: { fontSize: 12, color: "var(--text-faint)", background: "none", border: "none", cursor: "pointer" },
-        children: [
-          "+ Add a thread ",
-          intentThreads.length >= INTENT_SOFT_CAP ? "(getting full)" : ""
-        ]
-      }
-    ) }) : null,
-    /* @__PURE__ */ jsxRuntimeExports.jsx(TodoList, { day, readOnly })
-  ] });
+        ) }) : null,
+        /* @__PURE__ */ jsxRuntimeExports.jsx(TodoList, { day, readOnly })
+      ]
+    }
+  );
 }
 function ThoughtList({ day, readOnly }) {
   const thoughts = [...day.thoughts].sort((a2, b2) => b2.createdAt.localeCompare(a2.createdAt));
@@ -669,27 +868,35 @@ function ThoughtCapture({ day, readOnly }) {
     setText("");
     if (trimmed) await window.thread.invoke["thought:add"]({ text: trimmed });
   };
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs(Panel, { title: "Thoughts", children: [
-    !readOnly ? /* @__PURE__ */ jsxRuntimeExports.jsx(
-      "input",
-      {
-        value: text,
-        placeholder: "Capture a thought…",
-        onChange: (e3) => setText(e3.target.value),
-        onKeyDown: (e3) => e3.key === "Enter" && void add2(),
-        style: {
-          width: "100%",
-          padding: "8px 10px",
-          borderRadius: 8,
-          border: "1px solid var(--line)",
-          background: "var(--surface-raised)",
-          fontSize: 13,
-          marginBottom: 12
-        }
-      }
-    ) : null,
-    !day || day.thoughts.length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx(EmptyState, { title: "Nothing captured." }) : /* @__PURE__ */ jsxRuntimeExports.jsx(ThoughtList, { day, readOnly })
-  ] });
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(
+    Panel,
+    {
+      title: "Thoughts",
+      subtitle: "Somewhere to dump a thought so it stops interrupting you.",
+      hint: "Type anything that pops into your head mid-task. Later you can turn each one into a thread, a todo, or just delete it.",
+      children: [
+        !readOnly ? /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "input",
+          {
+            value: text,
+            placeholder: "Type it here and press Enter…",
+            onChange: (e3) => setText(e3.target.value),
+            onKeyDown: (e3) => e3.key === "Enter" && void add2(),
+            style: {
+              width: "100%",
+              padding: "8px 10px",
+              borderRadius: 8,
+              border: "1px solid var(--line)",
+              background: "var(--surface-raised)",
+              fontSize: 13,
+              marginBottom: 12
+            }
+          }
+        ) : null,
+        !day || day.thoughts.length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx(EmptyState, { title: "Nothing captured.", detail: "This is a parking lot, not a to-do list." }) : /* @__PURE__ */ jsxRuntimeExports.jsx(ThoughtList, { day, readOnly })
+      ]
+    }
+  );
 }
 function LoggedPanel({ day }) {
   const [threads, setThreads] = reactExports.useState([]);
@@ -706,7 +913,7 @@ function LoggedPanel({ day }) {
   }, [ids.join(",")]);
   const sessionCount = threads.reduce((sum, t2) => sum + t2.sessionCount, 0);
   const focusMs = threads.reduce((sum, t2) => sum + t2.totalFocusMs, 0);
-  return /* @__PURE__ */ jsxRuntimeExports.jsx(Panel, { title: "Logged today", warm: true, children: threads.length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx(EmptyState, { title: "Nothing logged yet.", detail: "Completed threads show up here automatically." }) : /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+  return /* @__PURE__ */ jsxRuntimeExports.jsx(Panel, { title: "Logged today", subtitle: "Proof of what you actually did.", warm: true, children: threads.length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx(EmptyState, { title: "Nothing logged yet.", detail: "Finish a thread and it lands here on its own." }) : /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
     /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }, children: threads.map((thread) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
       "button",
       {
@@ -741,14 +948,28 @@ function TodayView() {
   const today = useDayStore((s2) => s2.today);
   const viewed = useDayStore((s2) => s2.viewed);
   const viewedDate = useDayStore((s2) => s2.viewedDate);
+  const threads = useThreadStore((s2) => s2.threads);
   const isPast = viewedDate !== null && viewedDate !== today?.localDate;
   const day = isPast ? viewed : today;
   if (isPast && !viewed) {
-    return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { padding: 40 }, children: /* @__PURE__ */ jsxRuntimeExports.jsx(EmptyState, { title: "Nothing happened on this day.", detail: "No record was created — and none will be." }) });
+    return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { padding: 40 }, children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+      EmptyState,
+      {
+        title: "Nothing happened on this day.",
+        detail: "No record was created — and none will be. Days only exist once you use them."
+      }
+    ) });
   }
+  const firstRun = threads.length === 0 && !isPast;
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { padding: "20px 28px 40px", maxWidth: 1040, margin: "0 auto" }, children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx("h1", { style: { fontFamily: "var(--font-display)", fontSize: 22, margin: "0 0 20px" }, children: isPast ? viewedDate : "Today" }),
-    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }, children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx(
+      PageHeader,
+      {
+        title: isPast ? formatLongDate(viewedDate) : "Today",
+        description: isPast ? "A read-only look back at this day." : "What you picked for today, and what you got done."
+      }
+    ),
+    firstRun ? /* @__PURE__ */ jsxRuntimeExports.jsx(GettingStarted, {}) : /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }, children: [
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", flexDirection: "column", gap: 20 }, children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx(NowPanel, { readOnly: isPast }),
         /* @__PURE__ */ jsxRuntimeExports.jsx(PlanPanel, { day, readOnly: isPast })
@@ -834,12 +1055,24 @@ function StatusDropdown({
     );
   }
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { position: "relative" }, children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx(
+    /* @__PURE__ */ jsxRuntimeExports.jsxs(
       "button",
       {
         onClick: () => setOpen((v2) => !v2),
-        style: { background: "none", border: "none", cursor: "pointer", padding: 0 },
-        children: /* @__PURE__ */ jsxRuntimeExports.jsx(StatusChip, { status })
+        title: "Change status",
+        style: {
+          display: "flex",
+          alignItems: "center",
+          gap: 3,
+          background: "none",
+          border: "none",
+          cursor: "pointer",
+          padding: 0
+        },
+        children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(StatusChip, { status }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { fontSize: 9, color: "var(--text-faint)" }, children: "▾" })
+        ]
       }
     ),
     open ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
@@ -983,21 +1216,21 @@ function ThreadCard({ thread, onOpen }) {
             {
               onClick: focus,
               disabled: starting,
-              title: "Focus",
+              title: "Start a timer on this thread",
               style: {
-                width: 32,
-                height: 32,
-                borderRadius: "50%",
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "7px 14px",
+                borderRadius: 999,
                 border: "none",
                 background: "var(--amber)",
                 color: "#201203",
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: 13
+                fontWeight: 600,
+                fontSize: 12,
+                cursor: "pointer"
               },
-              children: "▶"
+              children: "▶ Focus"
             }
           )
         ] })
@@ -1402,25 +1635,36 @@ function ThreadsView() {
     }
   }
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { padding: "20px 28px 40px", maxWidth: 920, margin: "0 auto" }, children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }, children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx("h1", { style: { fontFamily: "var(--font-display)", fontSize: 22, margin: 0 }, children: "Threads" }),
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { style: { fontSize: 12, color: "var(--text-faint)" }, children: [
-        inProgressCount,
-        "/",
-        WIP_IN_PROGRESS_CAP,
-        " in progress"
-      ] })
-    ] }),
-    board.length > BOARD_SOFT_CAP ? /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { style: { fontSize: 12, color: "var(--text-muted)", margin: "8px 0 0" }, children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx(
+      PageHeader,
+      {
+        title: "Threads",
+        description: "Everything you're working on. Each thread keeps its own checklist.",
+        right: /* @__PURE__ */ jsxRuntimeExports.jsxs(
+          "span",
+          {
+            title: `A gentle limit: at most ${WIP_IN_PROGRESS_CAP} threads marked "In progress" at once.`,
+            style: { fontSize: 12, color: "var(--text-faint)", whiteSpace: "nowrap", paddingTop: 6 },
+            children: [
+              inProgressCount,
+              " of ",
+              WIP_IN_PROGRESS_CAP,
+              " in progress"
+            ]
+          }
+        )
+      }
+    ),
+    board.length > BOARD_SOFT_CAP ? /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { style: { fontSize: 12, color: "var(--text-muted)", margin: "0 0 12px" }, children: [
       board.length,
-      " open threads — might be worth closing a few out."
+      " open threads — might be worth closing a few out. (Not a rule, just a nudge.)"
     ] }) : null,
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { marginTop: 20, display: "flex", flexDirection: "column", gap: 10 }, children: [
       board.length === 0 && !creating ? /* @__PURE__ */ jsxRuntimeExports.jsx(
         EmptyState,
         {
           title: "Nothing on the board yet.",
-          detail: "Add the first thing you're working on.",
+          detail: "A thread is one thing you're working on — a bug, an errand, a chapter.",
           action: /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { variant: "primary", onClick: () => setCreating(true), children: "New thread" })
         }
       ) : board.sort(sortBoard).map((thread) => /* @__PURE__ */ jsxRuntimeExports.jsx(ThreadCard, { thread, onOpen: () => setOpenId(thread.id) }, thread.id)),
@@ -1481,10 +1725,16 @@ function ScopeToggle({
   )) });
 }
 function MomentumRing({ value, band: band2 }) {
-  return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { flexShrink: 0, textAlign: "center" }, children: /* @__PURE__ */ jsxRuntimeExports.jsx(Ring, { value: value / 100, size: 180, band: band2.id, children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "mono", style: { fontSize: 40 }, children: value }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { fontSize: 12, color: "var(--text-muted)" }, children: band2.label })
-  ] }) }) });
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { flexShrink: 0, textAlign: "center" }, children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx(Ring, { value: value / 100, size: 180, band: band2.id, children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "mono", style: { fontSize: 40 }, children: value }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { fontSize: 12, color: "var(--text-muted)" }, children: band2.label })
+    ] }) }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", justifyContent: "center", gap: 5, marginTop: 8 }, children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { fontSize: 11, color: "var(--text-faint)" }, children: "Momentum" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx(Hint, { children: "A rolling average of how much you’ve been starting lately. It drifts down slowly when you’re away and back up when you return — it can’t be broken like a streak." })
+    ] })
+  ] });
 }
 function r(e3) {
   var t2, f2, n2 = "";
@@ -22861,10 +23111,14 @@ function AnalyticsView() {
   };
   if (!summary) return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { padding: 32, color: "var(--text-muted)" }, children: "Loading…" });
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { padding: "20px 28px 40px", maxWidth: 900, margin: "0 auto" }, children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }, children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx("h1", { style: { fontFamily: "var(--font-display)", fontSize: 22, margin: 0 }, children: "Analytics" }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx(ScopeToggle, { scope, onChange: (next) => setScope(next) })
-    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx(
+      PageHeader,
+      {
+        title: "Analytics",
+        description: "Patterns, not scores. Nothing here can be failed or broken.",
+        right: /* @__PURE__ */ jsxRuntimeExports.jsx(ScopeToggle, { scope, onChange: (next) => setScope(next) })
+      }
+    ),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 12, marginBottom: 24 }, children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx("button", { onClick: () => shift(-1), style: navBtn, children: "‹" }),
       /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { fontSize: 14, color: "var(--text-muted)", minWidth: 160, textAlign: "center" }, children: summary.label }),

@@ -2,6 +2,7 @@ import { app, powerMonitor } from 'electron';
 import { AppContext } from './AppContext.js';
 import { registerHandlers } from './ipc/registerHandlers.js';
 import { claimSingleInstance, clearLockFile, writeLockFile } from './services/SingleInstance.js';
+import { applyDockIcon } from './windows/appIcon.js';
 import { appDataRoot, markQuitting } from './windows/tray.js';
 
 const gotLock = claimSingleInstance(() => {
@@ -16,6 +17,7 @@ if (!gotLock) {
 let ctx: AppContext | null = null;
 
 async function bootstrap(): Promise<void> {
+  applyDockIcon();
   const root = appDataRoot();
   await writeLockFile(root);
 

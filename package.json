@@ -50,10 +50,18 @@
     ],
     "mac": {
       "category": "public.app-category.productivity",
+      "icon": "assets/icon.png",
       "target": [
         "dmg",
         "zip"
       ]
+    },
+    "win": {
+      "icon": "assets/icon.png"
+    },
+    "linux": {
+      "icon": "assets/icon.png",
+      "category": "Utility"
     },
     "artifactName": "${productName}-${version}-${arch}.${ext}"
   }

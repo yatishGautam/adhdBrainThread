@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { formatDayNumber, formatMonth } from '@shared/format.js';
+import { formatDayNumber, formatLocalDate, formatMonth } from '@shared/format.js';
 import { useDayStore, loadDay } from '../stores/dayStore.js';
 import { useUiStore } from '../stores/uiStore.js';
 
@@ -66,6 +66,12 @@ export function SideRail(): React.JSX.Element {
       ) : null}
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '0 8px' }}>
+        {!collapsed && months.length === 0 ? (
+          <p style={{ fontSize: 11, color: 'var(--text-faint)', padding: '0 8px', lineHeight: 1.5 }}>
+            Past days appear here once you&rsquo;ve used them. Days you didn&rsquo;t work are never
+            created.
+          </p>
+        ) : null}
         {months.map((month) => (
           <div key={month.key} style={{ marginBottom: 12 }}>
             {!collapsed ? (
@@ -104,10 +110,10 @@ export function SideRail(): React.JSX.Element {
                   fontSize: 13,
                 }}
               >
-                <span className="mono" style={{ width: 20, textAlign: 'right' }}>
+                <span className="mono" style={{ width: 20, textAlign: 'right', color: 'var(--text-faint)' }}>
                   {formatDayNumber(date)}
                 </span>
-                {!collapsed ? <span>{date}</span> : null}
+                {!collapsed ? <span>{formatLocalDate(date)}</span> : null}
               </button>
             ))}
           </div>

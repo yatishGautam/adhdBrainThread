@@ -8,6 +8,7 @@ import { StatTile } from './StatTile.js';
 import { InsightCard } from './InsightCard.js';
 import { DistractionSection } from './DistractionSection.js';
 import { ActiveDays } from './ActiveDays.js';
+import { PageHeader } from '../../../shared/components/PageHeader.js';
 
 /**
  * Real-time: every mutation updates rollups in main and pushes here. No refresh button. Every
@@ -33,10 +34,11 @@ export function AnalyticsView(): React.JSX.Element {
 
   return (
     <div style={{ padding: '20px 28px 40px', maxWidth: 900, margin: '0 auto' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-        <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 22, margin: 0 }}>Analytics</h1>
-        <ScopeToggle scope={scope} onChange={(next) => setScope(next)} />
-      </div>
+      <PageHeader
+        title="Analytics"
+        description="Patterns, not scores. Nothing here can be failed or broken."
+        right={<ScopeToggle scope={scope} onChange={(next) => setScope(next)} />}
+      />
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
         <button onClick={() => shift(-1)} style={navBtn}>
