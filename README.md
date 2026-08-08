@@ -1,78 +1,93 @@
-# FocusBar
+# Thread
 
-A clean Pomodoro timer built with Electron. It stays in a floating window and shows the live countdown directly in the macOS menu bar.
+A desktop focus companion for ADHD working sessions. Electron + React + TypeScript.
+Local-first, file-backed, no server, no account.
 
-## Features
+This project began as FocusBar, a simple Pomodoro timer (kept for reference in `legacy/`), and
+was rebuilt into Thread following the full product spec: a threads board instead of a task list,
+a floating always-on-top HUD, a momentum system that replaces streaks, and a celebration overlay
+— all backed by a hand-rolled sharded JSON storage engine instead of a database.
 
-- Always-on-top, resizable mini window
-- Live macOS menu-bar countdown
-- Focus, short-break, and long-break modes
-- Automatic long break after a configurable number of sessions
-- Optional automatic focus/break starts
-- Native desktop notifications and sound
-- Current-task field
-- Daily session count and cycle progress
-- Timer recovery after app restarts
-- Closing the window hides it; the timer continues in the menu bar
-- Secure Electron setup with context isolation, sandboxing, and no renderer Node access
+## Design principles
+
+- **One thing is on screen at a time.** The board is an inventory; the HUD is the product.
+- **Starting is the behaviour being reinforced, not finishing.** A 4-minute abandoned session
+  still counts toward momentum.
+- **Nothing accumulates as debt.** No streak that can break. No overdue counters.
+- **Blocked is not failure.** `waiting` is a calm status, not a warning.
+- **Logging a distraction costs zero points and adds time back to the clock** — the moment
+  self-reporting feels expensive, people stop doing it.
+- **The data is the user's.** Plain JSON, pretty-printed, sorted keys, git-friendly.
 
 ## Run it
 
-You need Node.js installed.
-
 ```bash
-cd focusbar-pomodoro
 npm install
-npm start
+npm run dev
 ```
 
-The first install downloads Electron, so it can take a little while.
+`electron-vite dev` starts all three renderers (main window, HUD, celebration overlay) with HMR.
 
-## Build a macOS app
-
-Run this command **on a Mac**:
+## Test
 
 ```bash
-npm run dist:mac
+npm test
 ```
 
-The `.dmg` and `.zip` will appear inside the `dist` folder.
+Unit tests cover the storage engine (kill-mid-write, backdated inserts into sealed shards,
+corrupt-shard quarantine, manifest rebuild from disk, journal replay) and the momentum/insight
+math.
 
-Because this project is not signed with an Apple Developer certificate, macOS may warn you the first time you open a packaged build. For personal use, right-click the app and choose **Open**. For distribution, add Apple code signing and notarization credentials to electron-builder.
+## Build
 
-## Menu-bar behavior
+```bash
+npm run build      # typecheck + electron-vite build
+npm run dist:mac    # packaged .dmg / .zip via electron-builder
+```
 
-- The menu bar shows `● 24:59` during focus.
-- `○` means a short break.
-- `◆` means a long break.
-- Click the menu-bar item to show or hide the timer.
-- Right-click/control-click it for Start, Pause, Reset, Skip, and Quit.
+## Architecture
 
-## Keyboard shortcuts
-
-- `Space`: Start or pause
-- `R`: Reset the current interval
-- `S`: Skip to the next interval
-- `Esc`: Close settings
-
-## Project structure
+The main process is the single owner of all state and the only process that touches disk.
+Renderers hold derived view state and send intents over a fully typed IPC bridge
+(`src/shared/ipc/channels.ts`) — a channel added on one side and forgotten on the other is a
+compile error, not a runtime surprise.
 
 ```text
-focusbar-pomodoro/
-├── assets/
-│   ├── trayTemplate.png
-│   └── trayTemplate@2x.png
-├── src/
-│   ├── main.js
-│   ├── preload.js
-│   └── renderer/
-│       ├── app.js
-│       ├── index.html
-│       └── styles.css
-├── package.json
-└── README.md
+src/
+  shared/            domain model, IPC contract, constants, formatting — imported by all three processes
+  main/
+    storage/         ShardedStore: manifest, journal, atomic writes, repair/quarantine, repositories
+    services/        SessionService (monotonic clock), AnalyticsService (momentum/rollups),
+                      CelebrationOrchestrator, momentum math, insight cards
+    windows/          main window, HUD, celebration overlay, tray
+    ipc/              every IPC handler, keyed by channel name
+  preload/            contextBridge, typed API surface
+  renderer/
+    main-window/       Today / Threads / Analytics tabs, Zustand stores
+    hud/                floating timer window
+    celebration/        overlay + pack registry (one file to touch when adding a pack)
 ```
 
-## Implementation note
+### Storage
 
-The timer is driven by an absolute end timestamp in Electron's main process. The renderer and menu-bar title are views of that same state. This avoids the common problem where a browser-based countdown drifts or pauses when its window is hidden.
+Size-based sharding with a manifest index and lazy loading, hardened with a write-ahead journal:
+
+- shard files are always written before the manifest; the manifest is a rebuildable cache
+- every mutation is journaled (fsynced) before it's considered accepted — a crash between the
+  journal write and the shard flush is recovered by replaying the journal on boot
+- a shard that fails to parse or validate is quarantined (renamed aside), never deleted
+- `threads/active.json` is the one unsharded collection — bounded by the work-in-progress cap
+- steps and todos use sparse integer ordering (1000, 2000, 3000) so a drag-reorder writes one
+  record's `order` field, not the whole list
+
+See `src/main/storage/ShardedStore.ts` and its test suite for the full failure-mode matrix.
+
+## Status
+
+Phases 1–6 of the build spec are implemented and manually verified end-to-end (storage → IPC →
+main window → HUD → celebration overlay, zero console exceptions): the storage engine, threads
+board, HUD + sessions, Today view, celebrations, and analytics.
+
+Deferred to a later pass: the settings screen, data export/repair UI, keyboard shortcuts, and a
+full sound design pass. The underlying IPC handlers for repair/export already exist
+(`data:repair`, `data:export`) — only the UI is missing.
