@@ -14110,8 +14110,26 @@ function formatMonth(localDate) {
   const { year, month } = parts(localDate);
   return `${MONTHS[month - 1]} ${year}`;
 }
+function formatCollapsedDate(localDate) {
+  const { month, day } = parts(localDate);
+  return `${ordinal(day)} ${MONTHS[month - 1]?.slice(0, 3) ?? ""}`;
+}
 function formatDayNumber(localDate) {
   return String(parts(localDate).day);
+}
+function ordinal(value) {
+  const suffix = value % 100;
+  if (suffix >= 11 && suffix <= 13) return `${value}th`;
+  switch (value % 10) {
+    case 1:
+      return `${value}st`;
+    case 2:
+      return `${value}nd`;
+    case 3:
+      return `${value}rd`;
+    default:
+      return `${value}th`;
+  }
 }
 function formatTimeOfDay(iso) {
   const date = new Date(iso);
@@ -14129,13 +14147,14 @@ export {
   formatMonth as e,
   formatDuration as f,
   formatDayNumber as g,
-  formatLocalDate as h,
-  formatLongDate as i,
+  formatCollapsedDate as h,
+  formatLocalDate as i,
   jsxRuntimeExports as j,
-  formatTimeOfDay as k,
-  commonjsGlobal as l,
+  formatLongDate as k,
+  formatTimeOfDay as l,
   motion as m,
-  getDefaultExportFromCjs as n,
+  commonjsGlobal as n,
+  getDefaultExportFromCjs as o,
   reactExports as r,
   useConstant as u
 };

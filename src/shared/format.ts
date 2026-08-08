@@ -48,8 +48,33 @@ export function formatMonth(localDate: string): string {
   return `${MONTHS[month - 1]} ${year}`;
 }
 
+export function formatCollapsedDate(localDate: string): string {
+  const { month, day } = parts(localDate);
+  return `${ordinal(day)} ${MONTHS[month - 1]?.slice(0, 3) ?? ''}`;
+}
+
+export function formatCalendarHeadline(localDate: string): string {
+  const { year, month, day, weekday } = parts(localDate);
+  return `${year} · ${MONTHS[month - 1]?.slice(0, 3) ?? ''} · ${ordinal(day)} ${WEEKDAYS[weekday]?.slice(0, 3) ?? ''}`;
+}
+
 export function formatDayNumber(localDate: string): string {
   return String(parts(localDate).day);
+}
+
+function ordinal(value: number): string {
+  const suffix = value % 100;
+  if (suffix >= 11 && suffix <= 13) return `${value}th`;
+  switch (value % 10) {
+    case 1:
+      return `${value}st`;
+    case 2:
+      return `${value}nd`;
+    case 3:
+      return `${value}rd`;
+    default:
+      return `${value}th`;
+  }
 }
 
 export function formatTimeOfDay(iso: string): string {

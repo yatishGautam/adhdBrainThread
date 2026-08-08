@@ -4,9 +4,18 @@ import { StatusChip } from '../../../shared/components/Chip.js';
 import { StatusDropdown } from './StatusDropdown.js';
 import { NextAction } from './NextAction.js';
 
-export function ThreadCard({ thread, onOpen }: { thread: Thread; onOpen: () => void }): React.JSX.Element {
+export function ThreadCard({
+  thread,
+  expanded,
+  onToggle,
+}: {
+  thread: Thread;
+  expanded: boolean;
+  onToggle: () => void;
+}): React.JSX.Element {
   const [starting, setStarting] = useState(false);
   const done = thread.steps.filter((s) => s.done).length;
+  const inProgress = thread.status === 'in_progress';
 
   const focus = async (e: React.MouseEvent): Promise<void> => {
     e.stopPropagation();
@@ -24,17 +33,18 @@ export function ThreadCard({ thread, onOpen }: { thread: Thread; onOpen: () => v
 
   return (
     <div
-      onClick={onOpen}
+      onClick={onToggle}
       style={{
         display: 'flex',
         alignItems: 'center',
         gap: 14,
         padding: '14px 16px',
         borderRadius: 12,
-        border: '1px solid var(--line)',
+        border: `1px solid ${inProgress ? 'rgba(242, 166, 90, 0.6)' : 'var(--line)'}`,
         background: 'var(--surface)',
         cursor: 'pointer',
-        transition: 'border-color var(--motion-fast) var(--ease-out)',
+        transition: 'border-color var(--motion-fast) var(--ease-out), box-shadow 260ms ease-in-out',
+        boxShadow: inProgress ? '0 0 0 1px rgba(242, 166, 90, 0.12)' : undefined,
       }}
     >
       <div style={{ flex: 1, minWidth: 0 }}>
@@ -56,6 +66,24 @@ export function ThreadCard({ thread, onOpen }: { thread: Thread; onOpen: () => v
 
       <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <StatusDropdown status={thread.status} onChange={setStatus} />
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggle();
+          }}
+          title={expanded ? 'Hide details' : 'Show details'}
+          style={{
+            padding: '7px 10px',
+            borderRadius: 999,
+            border: '1px solid var(--line)',
+            background: 'transparent',
+            color: 'var(--text-muted)',
+            cursor: 'pointer',
+            fontSize: 12,
+          }}
+        >
+          {expanded ? '▴' : '📄'}
+        </button>
         <button
           onClick={focus}
           disabled={starting}

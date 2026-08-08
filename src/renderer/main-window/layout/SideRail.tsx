@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { formatDayNumber, formatLocalDate, formatMonth } from '@shared/format.js';
+import { formatCollapsedDate, formatDayNumber, formatLocalDate, formatMonth } from '@shared/format.js';
 import { useDayStore, loadDay } from '../stores/dayStore.js';
 import { useUiStore } from '../stores/uiStore.js';
 
@@ -13,11 +13,12 @@ export function SideRail(): React.JSX.Element {
   const setTab = useUiStore((s) => s.setTab);
 
   const months = useMemo(() => groupByMonth(dates), [dates]);
+  const collapsedWidth = 108;
 
   return (
     <div
       style={{
-        width: collapsed ? 56 : 220,
+        width: collapsed ? collapsedWidth : 220,
         flexShrink: 0,
         background: 'var(--surface)',
         borderRight: '1px solid var(--line)',
@@ -27,7 +28,7 @@ export function SideRail(): React.JSX.Element {
         overflow: 'hidden',
       }}
     >
-      <div style={{ display: 'flex', justifyContent: collapsed ? 'center' : 'flex-end', padding: 12 }}>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', padding: 12 }}>
         <button
           onClick={toggleRail}
           title={collapsed ? 'Expand' : 'Collapse'}
@@ -87,35 +88,42 @@ export function SideRail(): React.JSX.Element {
                 {formatMonth(month.key)}
               </div>
             ) : null}
-            {month.days.map((date) => (
-              <button
-                key={date}
-                onClick={() => {
-                  setTab('today');
-                  void loadDay(date);
-                }}
-                title={date}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  width: '100%',
-                  padding: collapsed ? '6px 0' : '6px 8px',
-                  justifyContent: collapsed ? 'center' : 'flex-start',
-                  borderRadius: 6,
-                  border: 'none',
-                  background: viewedDate === date ? 'var(--surface-raised)' : 'transparent',
-                  color: viewedDate === date ? 'var(--text)' : 'var(--text-muted)',
-                  cursor: 'pointer',
-                  fontSize: 13,
-                }}
-              >
-                <span className="mono" style={{ width: 20, textAlign: 'right', color: 'var(--text-faint)' }}>
-                  {formatDayNumber(date)}
-                </span>
-                {!collapsed ? <span>{formatLocalDate(date)}</span> : null}
-              </button>
-            ))}
+            {month.days.map((date) => {
+              const isToday = date === today?.localDate;
+              const isPastDate = today ? date < today.localDate : false;
+              return (
+                <button
+                  key={date}
+                  onClick={() => {
+                    setTab('today');
+                    void loadDay(date);
+                  }}
+                  title={date}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    width: '100%',
+                    padding: collapsed ? '8px 6px' : '6px 8px',
+                    justifyContent: collapsed ? 'center' : 'flex-start',
+                    borderRadius: 8,
+                    border: 'none',
+                    background: viewedDate === date ? 'var(--surface-raised)' : 'transparent',
+                    color: isToday ? 'var(--text)' : isPastDate ? 'var(--text-faint)' : 'var(--text-muted)',
+                    cursor: 'pointer',
+                    fontSize: 13,
+                    textAlign: collapsed ? 'center' : 'left',
+                  }}
+                >
+                  <span className="mono" style={{ width: 24, textAlign: 'right', color: 'var(--text-faint)' }}>
+                    {formatDayNumber(date)}
+                  </span>
+                  <span style={{ whiteSpace: 'nowrap' }}>
+                    {collapsed ? formatCollapsedDate(date) : formatLocalDate(date)}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         ))}
       </div>

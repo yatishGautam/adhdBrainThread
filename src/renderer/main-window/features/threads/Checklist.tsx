@@ -3,6 +3,8 @@ import type { Step } from '@shared/domain.js';
 
 export function Checklist({ threadId, steps }: { threadId: string; steps: Step[] }): React.JSX.Element {
   const [text, setText] = useState('');
+  const [draggingStepId, setDraggingStepId] = useState<string | null>(null);
+  const [dragOverStepId, setDragOverStepId] = useState<string | null>(null);
   const sorted = [...steps].sort((a, b) => a.order - b.order);
 
   const add = async (afterStepId?: string): Promise<void> => {
@@ -10,6 +12,12 @@ export function Checklist({ threadId, steps }: { threadId: string; steps: Step[]
     setText('');
     if (!trimmed) return;
     await window.thread.invoke['steps:add']({ threadId, text: trimmed, afterStepId });
+  };
+
+  const moveStep = async (stepId: string, toIndex: number): Promise<void> => {
+    setDragOverStepId(null);
+    setDraggingStepId(null);
+    await window.thread.invoke['steps:reorder']({ threadId, stepId, toIndex });
   };
 
   return (
@@ -21,8 +29,46 @@ export function Checklist({ threadId, steps }: { threadId: string; steps: Step[]
           step={step}
           isLast={index === sorted.length - 1}
           onEnterAtEnd={() => add()}
+          draggable={true}
+          onDragStart={() => setDraggingStepId(step.id)}
+          onDragOver={(event) => {
+            event.preventDefault();
+            if (draggingStepId && draggingStepId !== step.id) setDragOverStepId(step.id);
+          }}
+          onDrop={(event) => {
+            event.preventDefault();
+            if (draggingStepId && draggingStepId !== step.id) moveStep(draggingStepId, index);
+          }}
+          onDragEnd={() => {
+            setDraggingStepId(null);
+            setDragOverStepId(null);
+          }}
+          isDragOver={dragOverStepId === step.id}
+          isDragging={draggingStepId === step.id}
         />
       ))}
+      <div
+        onDragOver={(event) => {
+          event.preventDefault();
+          if (draggingStepId) setDragOverStepId('end');
+        }}
+        onDrop={(event) => {
+          event.preventDefault();
+          if (draggingStepId) moveStep(draggingStepId, sorted.length);
+        }}
+        style={{
+          minHeight: 28,
+          borderRadius: 8,
+          border: `1px dashed ${dragOverStepId === 'end' ? 'var(--amber)' : 'var(--line)'}`,
+          padding: 8,
+          margin: '8px 0',
+          color: dragOverStepId === 'end' ? 'var(--text)' : 'var(--text-faint)',
+          fontSize: 12,
+          textAlign: 'center',
+        }}
+      >
+        {dragOverStepId === 'end' ? 'Release to move to the end' : 'Drag a step here to move it to the end'}
+      </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0' }}>
         <span style={{ width: 16, height: 16, borderRadius: 4, border: '1px solid var(--line)' }} />
         <input
@@ -42,11 +88,25 @@ function ChecklistItem({
   step,
   isLast,
   onEnterAtEnd,
+  draggable,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  onDragEnd,
+  isDragOver,
+  isDragging,
 }: {
   threadId: string;
   step: Step;
   isLast: boolean;
   onEnterAtEnd: () => void;
+  draggable: boolean;
+  onDragStart: (event: React.DragEvent<HTMLDivElement>) => void;
+  onDragOver: (event: React.DragEvent<HTMLDivElement>) => void;
+  onDrop: (event: React.DragEvent<HTMLDivElement>) => void;
+  onDragEnd: () => void;
+  isDragOver: boolean;
+  isDragging: boolean;
 }): React.JSX.Element {
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(step.text);
@@ -63,9 +123,28 @@ function ChecklistItem({
 
   return (
     <div
+      draggable={draggable && !editing}
+      onDragStart={(event) => {
+        if (!editing) {
+          event.dataTransfer.effectAllowed = 'move';
+          onDragStart(event);
+        }
+      }}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+      onDragEnd={onDragEnd}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
-      style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0' }}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+        padding: '6px 0',
+        borderRadius: 8,
+        border: isDragOver ? '1px solid var(--amber)' : '1px solid transparent',
+        background: isDragging ? 'rgba(242, 166, 90, 0.06)' : 'transparent',
+        cursor: editing ? 'text' : 'grab',
+      }}
     >
       <button
         onClick={() => void window.thread.invoke['steps:toggle']({ threadId, stepId: step.id })}

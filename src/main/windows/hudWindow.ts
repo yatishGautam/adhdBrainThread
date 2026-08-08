@@ -45,6 +45,7 @@ export function createHudWindow(saved: HudPosition | undefined, onMoved: (at: Hu
 
   window.setAlwaysOnTop(true, 'floating');
   window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  window.once('ready-to-show', () => window.show());
 
   // Position is persisted per run so the HUD reappears where the user parked it.
   window.on('moved', () => {

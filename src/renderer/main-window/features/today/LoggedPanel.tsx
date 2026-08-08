@@ -10,6 +10,7 @@ export function LoggedPanel({ day }: { day: Day | null }): React.JSX.Element {
   const [threads, setThreads] = useState<Thread[]>([]);
   const setTab = useUiStore((s) => s.setTab);
   const ids = day?.loggedThreadIds ?? [];
+  const doneTodos = day?.todos.filter((todo) => todo.done && !todo.promotedToThreadId) ?? [];
 
   useEffect(() => {
     if (ids.length === 0) {
@@ -27,8 +28,8 @@ export function LoggedPanel({ day }: { day: Day | null }): React.JSX.Element {
 
   return (
     <Panel title="Logged today" subtitle="Proof of what you actually did." warm>
-      {threads.length === 0 ? (
-        <EmptyState title="Nothing logged yet." detail="Finish a thread and it lands here on its own." />
+      {threads.length === 0 && doneTodos.length === 0 ? (
+        <EmptyState title="Nothing logged yet." detail="Finish a thread or complete a todo and it lands here on its own." />
       ) : (
         <>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
@@ -48,6 +49,18 @@ export function LoggedPanel({ day }: { day: Day | null }): React.JSX.Element {
               >
                 ✓ {thread.title}
               </button>
+            ))}
+            {doneTodos.map((todo) => (
+              <div
+                key={todo.id}
+                style={{
+                  padding: '6px 4px',
+                  fontSize: 13,
+                  color: 'var(--text-muted)',
+                }}
+              >
+                ✓ {todo.text}
+              </div>
             ))}
           </div>
           <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>

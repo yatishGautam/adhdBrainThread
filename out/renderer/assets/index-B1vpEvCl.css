@@ -74,7 +74,7 @@
   border-color: var(--danger);
   background: color-mix(in srgb, var(--danger) 12%, transparent);
 }
-._chip_ae5bh_1 {
+._chip_1t1ys_1 {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -87,18 +87,27 @@
   color: var(--tone-color);
 }
 
-._amber_ae5bh_14 {
+._amber_1t1ys_14 {
   --tone-color: var(--amber);
 }
-._slate_ae5bh_17 {
+._slate_1t1ys_17 {
   --tone-color: var(--slate);
 }
-._moss_ae5bh_20 {
+._moss_1t1ys_20 {
   --tone-color: var(--moss);
 }
-._lavender_ae5bh_23 {
+._lavender_1t1ys_23 {
   --tone-color: var(--lavender);
 }
-._danger_ae5bh_26 {
+._danger_1t1ys_26 {
   --tone-color: var(--danger);
+}
+
+._pulse_1t1ys_30 {
+  animation: _pulse_1t1ys_30 2.4s ease-in-out infinite;
+}
+
+@keyframes _pulse_1t1ys_30 {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(242, 166, 90, 0.2); }
+  50% { box-shadow: 0 0 0 12px rgba(242, 166, 90, 0); }
 }

@@ -1,5 +1,5 @@
-import { R as React, r as reactExports, j as jsxRuntimeExports, e as formatMonth, g as formatDayNumber, h as formatLocalDate, d as formatClock, f as formatDuration, i as formatLongDate, k as formatTimeOfDay, m as motion, l as commonjsGlobal, n as getDefaultExportFromCjs, c as createRoot } from "./format-D_HdJmHK.js";
-import { R as Ring } from "./Ring-GR7IvACJ.js";
+import { R as React, r as reactExports, j as jsxRuntimeExports, e as formatMonth, g as formatDayNumber, h as formatCollapsedDate, i as formatLocalDate, d as formatClock, f as formatDuration, k as formatLongDate, m as motion, l as formatTimeOfDay, n as commonjsGlobal, o as getDefaultExportFromCjs, c as createRoot } from "./format-D_v_IbX5.js";
+import { R as Ring } from "./Ring-BA85kTrH.js";
 const createStoreImpl = (createState) => {
   let state;
   const listeners = /* @__PURE__ */ new Set();
@@ -114,11 +114,12 @@ function SideRail() {
   const toggleRail = useUiStore((s2) => s2.toggleRail);
   const setTab = useUiStore((s2) => s2.setTab);
   const months = reactExports.useMemo(() => groupByMonth(dates), [dates]);
+  const collapsedWidth = 108;
   return /* @__PURE__ */ jsxRuntimeExports.jsxs(
     "div",
     {
       style: {
-        width: collapsed ? 56 : 220,
+        width: collapsed ? collapsedWidth : 220,
         flexShrink: 0,
         background: "var(--surface)",
         borderRight: "1px solid var(--line)",
@@ -128,7 +129,7 @@ function SideRail() {
         overflow: "hidden"
       },
       children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { display: "flex", justifyContent: collapsed ? "center" : "flex-end", padding: 12 }, children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { display: "flex", justifyContent: "flex-end", padding: 12 }, children: /* @__PURE__ */ jsxRuntimeExports.jsx(
           "button",
           {
             onClick: toggleRail,
@@ -180,35 +181,40 @@ function SideRail() {
                 children: formatMonth(month.key)
               }
             ) : null,
-            month.days.map((date2) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
-              "button",
-              {
-                onClick: () => {
-                  setTab("today");
-                  void loadDay(date2);
+            month.days.map((date2) => {
+              const isToday = date2 === today?.localDate;
+              const isPastDate = today ? date2 < today.localDate : false;
+              return /* @__PURE__ */ jsxRuntimeExports.jsxs(
+                "button",
+                {
+                  onClick: () => {
+                    setTab("today");
+                    void loadDay(date2);
+                  },
+                  title: date2,
+                  style: {
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    width: "100%",
+                    padding: collapsed ? "8px 6px" : "6px 8px",
+                    justifyContent: collapsed ? "center" : "flex-start",
+                    borderRadius: 8,
+                    border: "none",
+                    background: viewedDate === date2 ? "var(--surface-raised)" : "transparent",
+                    color: isToday ? "var(--text)" : isPastDate ? "var(--text-faint)" : "var(--text-muted)",
+                    cursor: "pointer",
+                    fontSize: 13,
+                    textAlign: collapsed ? "center" : "left"
+                  },
+                  children: [
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "mono", style: { width: 24, textAlign: "right", color: "var(--text-faint)" }, children: formatDayNumber(date2) }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { whiteSpace: "nowrap" }, children: collapsed ? formatCollapsedDate(date2) : formatLocalDate(date2) })
+                  ]
                 },
-                title: date2,
-                style: {
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  width: "100%",
-                  padding: collapsed ? "6px 0" : "6px 8px",
-                  justifyContent: collapsed ? "center" : "flex-start",
-                  borderRadius: 6,
-                  border: "none",
-                  background: viewedDate === date2 ? "var(--surface-raised)" : "transparent",
-                  color: viewedDate === date2 ? "var(--text)" : "var(--text-muted)",
-                  cursor: "pointer",
-                  fontSize: 13
-                },
-                children: [
-                  /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "mono", style: { width: 20, textAlign: "right", color: "var(--text-faint)" }, children: formatDayNumber(date2) }),
-                  !collapsed ? /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: formatLocalDate(date2) }) : null
-                ]
-              },
-              date2
-            ))
+                date2
+              );
+            })
           ] }, month.key))
         ] })
       ]
@@ -717,7 +723,24 @@ function TodoItem({ todo, readOnly }) {
             children: todo.text
           }
         ),
-        hover && !editing && !readOnly ? /* @__PURE__ */ jsxRuntimeExports.jsx(PromoteToThread, { localDate: localDate2, todoId: todo.id }) : null
+        hover && !editing && !readOnly ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 8 }, children: [
+          !todo.promotedToThreadId ? /* @__PURE__ */ jsxRuntimeExports.jsx(PromoteToThread, { localDate: localDate2, todoId: todo.id }) : null,
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "button",
+            {
+              onClick: () => void window.thread.invoke["todo:remove"]({ localDate: localDate2, todoId: todo.id }),
+              title: "Delete todo",
+              style: {
+                background: "none",
+                border: "none",
+                color: "var(--text-faint)",
+                cursor: "pointer",
+                fontSize: 12
+              },
+              children: "✕"
+            }
+          )
+        ] }) : null
       ]
     }
   );
@@ -902,6 +925,7 @@ function LoggedPanel({ day }) {
   const [threads, setThreads] = reactExports.useState([]);
   const setTab = useUiStore((s2) => s2.setTab);
   const ids = day?.loggedThreadIds ?? [];
+  const doneTodos = day?.todos.filter((todo) => todo.done && !todo.promotedToThreadId) ?? [];
   reactExports.useEffect(() => {
     if (ids.length === 0) {
       setThreads([]);
@@ -913,27 +937,44 @@ function LoggedPanel({ day }) {
   }, [ids.join(",")]);
   const sessionCount = threads.reduce((sum, t2) => sum + t2.sessionCount, 0);
   const focusMs = threads.reduce((sum, t2) => sum + t2.totalFocusMs, 0);
-  return /* @__PURE__ */ jsxRuntimeExports.jsx(Panel, { title: "Logged today", subtitle: "Proof of what you actually did.", warm: true, children: threads.length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx(EmptyState, { title: "Nothing logged yet.", detail: "Finish a thread and it lands here on its own." }) : /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }, children: threads.map((thread) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
-      "button",
-      {
-        onClick: () => setTab("threads"),
-        style: {
-          textAlign: "left",
-          background: "none",
-          border: "none",
-          padding: "6px 4px",
-          cursor: "pointer",
-          fontSize: 13,
-          color: "var(--text)"
+  return /* @__PURE__ */ jsxRuntimeExports.jsx(Panel, { title: "Logged today", subtitle: "Proof of what you actually did.", warm: true, children: threads.length === 0 && doneTodos.length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx(EmptyState, { title: "Nothing logged yet.", detail: "Finish a thread or complete a todo and it lands here on its own." }) : /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }, children: [
+      threads.map((thread) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
+        "button",
+        {
+          onClick: () => setTab("threads"),
+          style: {
+            textAlign: "left",
+            background: "none",
+            border: "none",
+            padding: "6px 4px",
+            cursor: "pointer",
+            fontSize: 13,
+            color: "var(--text)"
+          },
+          children: [
+            "✓ ",
+            thread.title
+          ]
         },
-        children: [
-          "✓ ",
-          thread.title
-        ]
-      },
-      thread.id
-    )) }),
+        thread.id
+      )),
+      doneTodos.map((todo) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
+        "div",
+        {
+          style: {
+            padding: "6px 4px",
+            fontSize: 13,
+            color: "var(--text-muted)"
+          },
+          children: [
+            "✓ ",
+            todo.text
+          ]
+        },
+        todo.id
+      ))
+    ] }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { fontSize: 11, color: "var(--text-muted)" }, children: [
       sessionCount,
       " session",
@@ -981,19 +1022,21 @@ function TodayView() {
     ] })
   ] });
 }
-const chip = "_chip_ae5bh_1";
-const amber = "_amber_ae5bh_14";
-const slate = "_slate_ae5bh_17";
-const moss = "_moss_ae5bh_20";
-const lavender = "_lavender_ae5bh_23";
-const danger = "_danger_ae5bh_26";
+const chip = "_chip_1t1ys_1";
+const amber = "_amber_1t1ys_14";
+const slate = "_slate_1t1ys_17";
+const moss = "_moss_1t1ys_20";
+const lavender = "_lavender_1t1ys_23";
+const danger = "_danger_1t1ys_26";
+const pulse = "_pulse_1t1ys_30";
 const styles = {
   chip,
   amber,
   slate,
   moss,
   lavender,
-  danger
+  danger,
+  pulse
 };
 const STATUS_META = {
   idle: { label: "Idle", icon: "○", tone: "lavender" },
@@ -1003,7 +1046,7 @@ const STATUS_META = {
 };
 function StatusChip({ status }) {
   const meta = STATUS_META[status];
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: `${styles.chip} ${styles[meta.tone]}`, children: [
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: `${styles.chip} ${styles[meta.tone]} ${status === "in_progress" ? styles.pulse : ""}`, children: [
     /* @__PURE__ */ jsxRuntimeExports.jsx("span", { "aria-hidden": "true", children: meta.icon }),
     meta.label
   ] });
@@ -1163,9 +1206,14 @@ function NextAction({ thread }) {
     }
   );
 }
-function ThreadCard({ thread, onOpen }) {
+function ThreadCard({
+  thread,
+  expanded,
+  onToggle
+}) {
   const [starting, setStarting] = reactExports.useState(false);
   const done = thread.steps.filter((s2) => s2.done).length;
+  const inProgress = thread.status === "in_progress";
   const focus = async (e3) => {
     e3.stopPropagation();
     setStarting(true);
@@ -1181,17 +1229,18 @@ function ThreadCard({ thread, onOpen }) {
   return /* @__PURE__ */ jsxRuntimeExports.jsxs(
     "div",
     {
-      onClick: onOpen,
+      onClick: onToggle,
       style: {
         display: "flex",
         alignItems: "center",
         gap: 14,
         padding: "14px 16px",
         borderRadius: 12,
-        border: "1px solid var(--line)",
+        border: `1px solid ${inProgress ? "rgba(242, 166, 90, 0.6)" : "var(--line)"}`,
         background: "var(--surface)",
         cursor: "pointer",
-        transition: "border-color var(--motion-fast) var(--ease-out)"
+        transition: "border-color var(--motion-fast) var(--ease-out), box-shadow 260ms ease-in-out",
+        boxShadow: inProgress ? "0 0 0 1px rgba(242, 166, 90, 0.12)" : void 0
       },
       children: [
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { flex: 1, minWidth: 0 }, children: [
@@ -1211,6 +1260,26 @@ function ThreadCard({ thread, onOpen }) {
         ] }),
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { onClick: (e3) => e3.stopPropagation(), style: { display: "flex", alignItems: "center", gap: 10 }, children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx(StatusDropdown, { status: thread.status, onChange: setStatus }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "button",
+            {
+              onClick: (e3) => {
+                e3.stopPropagation();
+                onToggle();
+              },
+              title: expanded ? "Hide details" : "Show details",
+              style: {
+                padding: "7px 10px",
+                borderRadius: 999,
+                border: "1px solid var(--line)",
+                background: "transparent",
+                color: "var(--text-muted)",
+                cursor: "pointer",
+                fontSize: 12
+              },
+              children: expanded ? "▴" : "📄"
+            }
+          ),
           /* @__PURE__ */ jsxRuntimeExports.jsx(
             "button",
             {
@@ -1238,14 +1307,63 @@ function ThreadCard({ thread, onOpen }) {
     }
   );
 }
+function Collapsible({
+  title: title2,
+  defaultOpen = false,
+  children
+}) {
+  const [open, setOpen] = reactExports.useState(defaultOpen);
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs(
+      "button",
+      {
+        onClick: () => setOpen((v2) => !v2),
+        style: {
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          width: "100%",
+          background: "none",
+          border: "none",
+          cursor: "pointer",
+          padding: "10px 0",
+          color: "var(--text-muted)",
+          fontSize: 13
+        },
+        children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "span",
+            {
+              style: {
+                display: "inline-block",
+                transform: open ? "rotate(90deg)" : "rotate(0deg)",
+                transition: "transform 160ms ease-out"
+              },
+              children: "›"
+            }
+          ),
+          title2
+        ]
+      }
+    ),
+    open ? /* @__PURE__ */ jsxRuntimeExports.jsx(motion.div, { initial: { opacity: 0 }, animate: { opacity: 1 }, transition: { duration: 0.16 }, children }) : null
+  ] });
+}
 function Checklist({ threadId, steps }) {
   const [text, setText] = reactExports.useState("");
+  const [draggingStepId, setDraggingStepId] = reactExports.useState(null);
+  const [dragOverStepId, setDragOverStepId] = reactExports.useState(null);
   const sorted = [...steps].sort((a2, b2) => a2.order - b2.order);
   const add2 = async (afterStepId) => {
     const trimmed = text.trim();
     setText("");
     if (!trimmed) return;
     await window.thread.invoke["steps:add"]({ threadId, text: trimmed, afterStepId });
+  };
+  const moveStep = async (stepId, toIndex) => {
+    setDragOverStepId(null);
+    setDraggingStepId(null);
+    await window.thread.invoke["steps:reorder"]({ threadId, stepId, toIndex });
   };
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
     sorted.map((step, index) => /* @__PURE__ */ jsxRuntimeExports.jsx(
@@ -1254,10 +1372,50 @@ function Checklist({ threadId, steps }) {
         threadId,
         step,
         isLast: index === sorted.length - 1,
-        onEnterAtEnd: () => add2()
+        onEnterAtEnd: () => add2(),
+        draggable: true,
+        onDragStart: () => setDraggingStepId(step.id),
+        onDragOver: (event) => {
+          event.preventDefault();
+          if (draggingStepId && draggingStepId !== step.id) setDragOverStepId(step.id);
+        },
+        onDrop: (event) => {
+          event.preventDefault();
+          if (draggingStepId && draggingStepId !== step.id) moveStep(draggingStepId, index);
+        },
+        onDragEnd: () => {
+          setDraggingStepId(null);
+          setDragOverStepId(null);
+        },
+        isDragOver: dragOverStepId === step.id,
+        isDragging: draggingStepId === step.id
       },
       step.id
     )),
+    /* @__PURE__ */ jsxRuntimeExports.jsx(
+      "div",
+      {
+        onDragOver: (event) => {
+          event.preventDefault();
+          if (draggingStepId) setDragOverStepId("end");
+        },
+        onDrop: (event) => {
+          event.preventDefault();
+          if (draggingStepId) moveStep(draggingStepId, sorted.length);
+        },
+        style: {
+          minHeight: 28,
+          borderRadius: 8,
+          border: `1px dashed ${dragOverStepId === "end" ? "var(--amber)" : "var(--line)"}`,
+          padding: 8,
+          margin: "8px 0",
+          color: dragOverStepId === "end" ? "var(--text)" : "var(--text-faint)",
+          fontSize: 12,
+          textAlign: "center"
+        },
+        children: dragOverStepId === "end" ? "Release to move to the end" : "Drag a step here to move it to the end"
+      }
+    ),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 10, padding: "6px 0" }, children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { width: 16, height: 16, borderRadius: 4, border: "1px solid var(--line)" } }),
       /* @__PURE__ */ jsxRuntimeExports.jsx(
@@ -1277,7 +1435,14 @@ function ChecklistItem({
   threadId,
   step,
   isLast,
-  onEnterAtEnd
+  onEnterAtEnd,
+  draggable,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  onDragEnd,
+  isDragOver,
+  isDragging
 }) {
   const [editing, setEditing] = reactExports.useState(false);
   const [text, setText] = reactExports.useState(step.text);
@@ -1292,9 +1457,28 @@ function ChecklistItem({
   return /* @__PURE__ */ jsxRuntimeExports.jsxs(
     "div",
     {
+      draggable: draggable && !editing,
+      onDragStart: (event) => {
+        if (!editing) {
+          event.dataTransfer.effectAllowed = "move";
+          onDragStart(event);
+        }
+      },
+      onDragOver,
+      onDrop,
+      onDragEnd,
       onMouseEnter: () => setHover(true),
       onMouseLeave: () => setHover(false),
-      style: { display: "flex", alignItems: "center", gap: 10, padding: "6px 0" },
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        padding: "6px 0",
+        borderRadius: 8,
+        border: isDragOver ? "1px solid var(--amber)" : "1px solid transparent",
+        background: isDragging ? "rgba(242, 166, 90, 0.06)" : "transparent",
+        cursor: editing ? "text" : "grab"
+      },
       children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx(
           "button",
@@ -1481,48 +1665,6 @@ function ThreadDetail({ thread, onClose }) {
 function SectionLabel({ children }) {
   return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { fontSize: 11, color: "var(--text-faint)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 10 }, children });
 }
-function Collapsible({
-  title: title2,
-  defaultOpen = false,
-  children
-}) {
-  const [open, setOpen] = reactExports.useState(defaultOpen);
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsxs(
-      "button",
-      {
-        onClick: () => setOpen((v2) => !v2),
-        style: {
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          width: "100%",
-          background: "none",
-          border: "none",
-          cursor: "pointer",
-          padding: "10px 0",
-          color: "var(--text-muted)",
-          fontSize: 13
-        },
-        children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx(
-            "span",
-            {
-              style: {
-                display: "inline-block",
-                transform: open ? "rotate(90deg)" : "rotate(0deg)",
-                transition: "transform 160ms ease-out"
-              },
-              children: "›"
-            }
-          ),
-          title2
-        ]
-      }
-    ),
-    open ? /* @__PURE__ */ jsxRuntimeExports.jsx(motion.div, { initial: { opacity: 0 }, animate: { opacity: 1 }, transition: { duration: 0.16 }, children }) : null
-  ] });
-}
 function DoneSection() {
   const [threads, setThreads] = reactExports.useState([]);
   const [loaded, setLoaded] = reactExports.useState(false);
@@ -1610,7 +1752,7 @@ function groupByDate(threads) {
 }
 function ThreadsView() {
   const threads = useThreadStore((s2) => s2.threads);
-  const [openId, setOpenId] = reactExports.useState(null);
+  const [expandedId, setExpandedId] = reactExports.useState(null);
   const [creating, setCreating] = reactExports.useState(false);
   const [title2, setTitle] = reactExports.useState("");
   const board = reactExports.useMemo(() => threads.filter((t2) => t2.status !== "done"), [threads]);
@@ -1624,16 +1766,8 @@ function ThreadsView() {
     const thread = await window.thread.invoke["threads:create"]({ title: trimmed });
     setTitle("");
     setCreating(false);
-    setOpenId(thread.id);
+    setExpandedId(thread.id);
   };
-  if (openId) {
-    const thread = threads.find((t2) => t2.id === openId);
-    if (!thread) {
-      setOpenId(null);
-    } else {
-      return /* @__PURE__ */ jsxRuntimeExports.jsx(ThreadDetail, { thread, onClose: () => setOpenId(null) });
-    }
-  }
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { padding: "20px 28px 40px", maxWidth: 920, margin: "0 auto" }, children: [
     /* @__PURE__ */ jsxRuntimeExports.jsx(
       PageHeader,
@@ -1667,7 +1801,17 @@ function ThreadsView() {
           detail: "A thread is one thing you're working on — a bug, an errand, a chapter.",
           action: /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { variant: "primary", onClick: () => setCreating(true), children: "New thread" })
         }
-      ) : board.sort(sortBoard).map((thread) => /* @__PURE__ */ jsxRuntimeExports.jsx(ThreadCard, { thread, onOpen: () => setOpenId(thread.id) }, thread.id)),
+      ) : board.sort(sortBoard).map((thread) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          ThreadCard,
+          {
+            thread,
+            expanded: expandedId === thread.id,
+            onToggle: () => setExpandedId(expandedId === thread.id ? null : thread.id)
+          }
+        ),
+        expandedId === thread.id ? /* @__PURE__ */ jsxRuntimeExports.jsx(ThreadExpanded, { thread }) : null
+      ] }, thread.id)),
       creating ? /* @__PURE__ */ jsxRuntimeExports.jsx(
         "input",
         {
@@ -1692,6 +1836,55 @@ function ThreadsView() {
     ] }),
     /* @__PURE__ */ jsxRuntimeExports.jsx(DoneSection, {})
   ] });
+}
+function ThreadExpanded({ thread }) {
+  const [notes, setNotes] = reactExports.useState(thread.notes);
+  reactExports.useEffect(() => {
+    setNotes(thread.notes);
+  }, [thread.id, thread.notes]);
+  const saveNotes = async () => {
+    if (notes !== thread.notes) {
+      await window.thread.invoke["threads:update"]({ id: thread.id, patch: { notes } });
+    }
+  };
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(
+    "div",
+    {
+      style: {
+        margin: "10px 0 18px",
+        padding: 18,
+        borderRadius: 14,
+        border: "1px solid var(--line)",
+        background: "var(--surface-raised)"
+      },
+      children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { marginBottom: 18 }, children: /* @__PURE__ */ jsxRuntimeExports.jsx(Checklist, { threadId: thread.id, steps: thread.steps }) }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { fontSize: 11, color: "var(--text-faint)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }, children: "Notes" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "textarea",
+            {
+              value: notes,
+              onChange: (e3) => setNotes(e3.target.value),
+              onBlur: () => void saveNotes(),
+              placeholder: "Markdown notes…",
+              rows: 5,
+              style: {
+                width: "100%",
+                resize: "vertical",
+                fontSize: 13,
+                lineHeight: 1.6,
+                padding: 12,
+                border: "1px solid var(--line)",
+                borderRadius: 10,
+                background: "var(--surface)"
+              }
+            }
+          )
+        ] })
+      ]
+    }
+  );
 }
 const STATUS_ORDER = { in_progress: 0, waiting: 1, idle: 2, done: 3 };
 function sortBoard(a2, b2) {

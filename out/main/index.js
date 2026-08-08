@@ -2359,6 +2359,7 @@ function createHudWindow(saved, onMoved) {
   });
   window.setAlwaysOnTop(true, "floating");
   window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  window.once("ready-to-show", () => window.show());
   window.on("moved", () => {
     const [x, y] = window.getPosition();
     if (typeof x === "number" && typeof y === "number") onMoved({ x, y });

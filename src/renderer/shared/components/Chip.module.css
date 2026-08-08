@@ -26,3 +26,12 @@
 .danger {
   --tone-color: var(--danger);
 }
+
+.pulse {
+  animation: pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(242, 166, 90, 0.2); }
+  50% { box-shadow: 0 0 0 12px rgba(242, 166, 90, 0); }
+}

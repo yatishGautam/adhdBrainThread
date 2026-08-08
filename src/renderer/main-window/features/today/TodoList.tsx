@@ -96,7 +96,24 @@ function TodoItem({ todo, readOnly }: { todo: Todo; readOnly: boolean }): React.
           {todo.text}
         </span>
       )}
-      {hover && !editing && !readOnly ? <PromoteToThread localDate={localDate} todoId={todo.id} /> : null}
+      {hover && !editing && !readOnly ? (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {!todo.promotedToThreadId ? <PromoteToThread localDate={localDate} todoId={todo.id} /> : null}
+          <button
+            onClick={() => void window.thread.invoke['todo:remove']({ localDate, todoId: todo.id })}
+            title="Delete todo"
+            style={{
+              background: 'none',
+              border: 'none',
+              color: 'var(--text-faint)',
+              cursor: 'pointer',
+              fontSize: 12,
+            }}
+          >
+            ✕
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }

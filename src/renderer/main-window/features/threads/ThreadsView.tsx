@@ -1,17 +1,17 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { WIP_IN_PROGRESS_CAP, BOARD_SOFT_CAP } from '@shared/constants.js';
 import type { Thread } from '@shared/domain.js';
 import { useThreadStore } from '../../stores/threadStore.js';
 import { ThreadCard } from './ThreadCard.js';
-import { ThreadDetail } from './ThreadDetail.js';
 import { DoneSection } from './DoneSection.js';
 import { EmptyState } from '../../../shared/components/EmptyState.js';
 import { Button } from '../../../shared/components/Button.js';
 import { PageHeader } from '../../../shared/components/PageHeader.js';
+import { Checklist } from './Checklist.js';
 
 export function ThreadsView(): React.JSX.Element {
   const threads = useThreadStore((s) => s.threads);
-  const [openId, setOpenId] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [title, setTitle] = useState('');
 
@@ -27,17 +27,8 @@ export function ThreadsView(): React.JSX.Element {
     const thread = await window.thread.invoke['threads:create']({ title: trimmed });
     setTitle('');
     setCreating(false);
-    setOpenId(thread.id);
+    setExpandedId(thread.id);
   };
-
-  if (openId) {
-    const thread = threads.find((t) => t.id === openId);
-    if (!thread) {
-      setOpenId(null);
-    } else {
-      return <ThreadDetail thread={thread} onClose={() => setOpenId(null)} />;
-    }
-  }
 
   return (
     <div style={{ padding: '20px 28px 40px', maxWidth: 920, margin: '0 auto' }}>
@@ -70,7 +61,16 @@ export function ThreadsView(): React.JSX.Element {
         ) : (
           board
             .sort(sortBoard)
-            .map((thread) => <ThreadCard key={thread.id} thread={thread} onOpen={() => setOpenId(thread.id)} />)
+            .map((thread) => (
+              <div key={thread.id}>
+                <ThreadCard
+                  thread={thread}
+                  expanded={expandedId === thread.id}
+                  onToggle={() => setExpandedId(expandedId === thread.id ? null : thread.id)}
+                />
+                {expandedId === thread.id ? <ThreadExpanded thread={thread} /> : null}
+              </div>
+            ))
         )}
 
         {creating ? (
@@ -100,6 +100,58 @@ export function ThreadsView(): React.JSX.Element {
       </div>
 
       <DoneSection />
+    </div>
+  );
+}
+
+function ThreadExpanded({ thread }: { thread: Thread }): React.JSX.Element {
+  const [notes, setNotes] = useState(thread.notes);
+
+  useEffect(() => {
+    setNotes(thread.notes);
+  }, [thread.id, thread.notes]);
+
+  const saveNotes = async (): Promise<void> => {
+    if (notes !== thread.notes) {
+      await window.thread.invoke['threads:update']({ id: thread.id, patch: { notes } });
+    }
+  };
+
+  return (
+    <div
+      style={{
+        margin: '10px 0 18px',
+        padding: 18,
+        borderRadius: 14,
+        border: '1px solid var(--line)',
+        background: 'var(--surface-raised)',
+      }}
+    >
+      <div style={{ marginBottom: 18 }}>
+        <Checklist threadId={thread.id} steps={thread.steps} />
+      </div>
+      <div>
+        <div style={{ fontSize: 11, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
+          Notes
+        </div>
+        <textarea
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          onBlur={() => void saveNotes()}
+          placeholder="Markdown notes…"
+          rows={5}
+          style={{
+            width: '100%',
+            resize: 'vertical',
+            fontSize: 13,
+            lineHeight: 1.6,
+            padding: 12,
+            border: '1px solid var(--line)',
+            borderRadius: 10,
+            background: 'var(--surface)',
+          }}
+        />
+      </div>
     </div>
   );
 }

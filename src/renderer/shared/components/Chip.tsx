@@ -16,7 +16,7 @@ const STATUS_META: Record<ThreadStatus, { label: string; icon: string; tone: str
 export function StatusChip({ status }: { status: ThreadStatus }): React.JSX.Element {
   const meta = STATUS_META[status];
   return (
-    <span className={`${styles.chip} ${styles[meta.tone]}`}>
+    <span className={`${styles.chip} ${styles[meta.tone]} ${status === 'in_progress' ? styles.pulse : ''}`}>
       <span aria-hidden="true">{meta.icon}</span>
       {meta.label}
     </span>
