@@ -13,13 +13,20 @@ import { useUiStore } from "../stores/uiStore.js";
 export function SideRail(): React.JSX.Element {
 	const dates = useDayStore((s) => s.dates);
 	const viewedDate = useDayStore((s) => s.viewedDate);
-	const today = useDayStore((s) => s.today);
+	const todayDate = useDayStore((s) => s.todayDate);
+	const goToday = useDayStore((s) => s.goToday);
 	const collapsed = useUiStore((s) => s.railCollapsed);
 	const toggleRail = useUiStore((s) => s.toggleRail);
 	const setTab = useUiStore((s) => s.setTab);
 
-	const months = useMemo(() => groupByMonth(dates), [dates]);
+	// Today's own row is never mixed into the past-days list — it always shows, even before a
+	// Day record exists, and it's what "back to today" navigates to.
+	const months = useMemo(
+		() => groupByMonth(dates.filter((date) => date !== todayDate)),
+		[dates, todayDate],
+	);
 	const collapsedWidth = 108;
+	const onToday = viewedDate === null || viewedDate === todayDate;
 
 	return (
 		<div
@@ -50,30 +57,36 @@ export function SideRail(): React.JSX.Element {
 				</button>
 			</div>
 
-			{!collapsed && today ? (
-				<button
-					onClick={() => {
-						setTab("today");
-						void loadDay(today.localDate);
-					}}
-					style={{
-						margin: "0 12px 12px",
-						padding: "8px 10px",
-						borderRadius: 8,
-						border: "1px solid var(--line)",
-						background:
-							viewedDate === today.localDate
-								? "var(--surface-raised)"
-								: "transparent",
-						color: "var(--amber)",
-						textAlign: "left",
-						cursor: "pointer",
-						fontSize: 13,
-					}}
-				>
-					Today
-				</button>
-			) : null}
+			<button
+				onClick={() => {
+					setTab("today");
+					goToday();
+				}}
+				title={formatLocalDate(todayDate)}
+				style={{
+					display: "flex",
+					flexDirection: "column",
+					alignItems: collapsed ? "center" : "flex-start",
+					margin: "0 12px 12px",
+					padding: "8px 10px",
+					borderRadius: 8,
+					border: "1px solid var(--line)",
+					background: onToday ? "var(--surface-raised)" : "transparent",
+					color: "var(--amber)",
+					textAlign: "left",
+					cursor: "pointer",
+					fontSize: 13,
+				}}
+			>
+				{collapsed ? "•" : "Today"}
+				{!collapsed ? (
+					<span
+						style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 1 }}
+					>
+						{formatLocalDate(todayDate)}
+					</span>
+				) : null}
+			</button>
 
 			<div style={{ flex: 1, overflowY: "auto", padding: "0 8px" }}>
 				{!collapsed && months.length === 0 ? (
@@ -118,8 +131,8 @@ export function SideRail(): React.JSX.Element {
 							</div>
 						)}
 						{month.days.map((date) => {
-							const isToday = date === today?.localDate;
-							const isPastDate = today ? date < today.localDate : false;
+							// Every entry left in this list is, by construction, before today.
+							const isPastDate = date < todayDate;
 							return (
 								<button
 									key={date}
@@ -141,11 +154,9 @@ export function SideRail(): React.JSX.Element {
 											viewedDate === date
 												? "var(--surface-raised)"
 												: "transparent",
-										color: isToday
-											? "var(--text)"
-											: isPastDate
-												? "var(--text-faint)"
-												: "var(--text-muted)",
+										color: isPastDate
+											? "var(--text-faint)"
+											: "var(--text-muted)",
 										cursor: "pointer",
 										fontSize: 13,
 										textAlign: collapsed ? "center" : "left",

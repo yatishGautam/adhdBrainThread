@@ -14079,7 +14079,15 @@ function formatDuration(ms) {
   if (rest === 0) return `${hours}h`;
   return `${hours}h ${rest}m`;
 }
-const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const WEEKDAYS = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday"
+];
 const MONTHS = [
   "January",
   "February",
@@ -14096,7 +14104,12 @@ const MONTHS = [
 ];
 function parts(localDate) {
   const [year, month, day] = localDate.split("-").map(Number);
-  return { year, month, day, weekday: new Date(Date.UTC(year, month - 1, day)).getUTCDay() };
+  return {
+    year,
+    month,
+    day,
+    weekday: new Date(Date.UTC(year, month - 1, day)).getUTCDay()
+  };
 }
 function formatLocalDate(localDate) {
   const { month, day, weekday } = parts(localDate);
@@ -14137,7 +14150,10 @@ function ordinal(value) {
 }
 function formatTimeOfDay(iso) {
   const date = new Date(iso);
-  return date.toLocaleTimeString(void 0, { hour: "numeric", minute: "2-digit" });
+  return date.toLocaleTimeString(void 0, {
+    hour: "numeric",
+    minute: "2-digit"
+  });
 }
 export {
   LayoutGroupContext as L,
@@ -14148,11 +14164,11 @@ export {
   useIsomorphicLayoutEffect as b,
   createRoot as c,
   formatClock as d,
-  formatMonth as e,
+  formatLocalDate as e,
   formatDuration as f,
-  formatCollapsedMonth as g,
-  formatDayNumber as h,
-  formatLocalDate as i,
+  formatMonth as g,
+  formatCollapsedMonth as h,
+  formatDayNumber as i,
   jsxRuntimeExports as j,
   formatCollapsedDate as k,
   formatLongDate as l,

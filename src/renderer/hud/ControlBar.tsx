@@ -9,13 +9,13 @@ export function ControlBar({
 	paused,
 	onPauseResume,
 	onDistraction,
-	onSwitch,
+	onSkip,
 	onEnd,
 }: {
 	paused: boolean;
 	onPauseResume: () => void;
 	onDistraction: (kind: DistractionKind, note?: string) => void;
-	onSwitch: () => void;
+	onSkip: () => void;
 	onEnd: () => void;
 }): React.JSX.Element {
 	return (
@@ -38,13 +38,13 @@ export function ControlBar({
 			/>
 			<DistractionButton onDistraction={onDistraction} />
 			<HudButton
-				onClick={onSwitch}
-				title="Work on a different thread instead"
-				label="Switch"
+				onClick={onSkip}
+				title="Finish this session right now — it still counts as complete, nothing is lost"
+				label="Skip"
 			/>
 			<HudButton
 				onClick={onEnd}
-				title="Stop the timer (this does not finish the thread)"
+				title="Stop the timer without finishing it"
 				label="Stop"
 			/>
 		</div>

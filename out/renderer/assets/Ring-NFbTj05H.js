@@ -1,4 +1,4 @@
-import { j as jsxRuntimeExports } from "./format-Bb8cE7Pe.js";
+import { j as jsxRuntimeExports, m as motion } from "./format-nk-eI89E.js";
 const BAND_COLOR = {
   resting: "var(--lavender)",
   warming: "var(--slate)",
@@ -6,16 +6,18 @@ const BAND_COLOR = {
   flow: "var(--amber-bright)",
   lit: "var(--moss)"
 };
-function Ring({ value, size, band, strokeWidth, dim, children }) {
+function Ring({ value, size, band, color, strokeWidth, dim, pulse, children }) {
   const stroke = strokeWidth ?? Math.max(2, Math.round(size * 0.09));
   const radius = (size - stroke) / 2;
   const circumference = 2 * Math.PI * radius;
   const clamped = Math.max(0, Math.min(1, value));
   const offset = circumference * (1 - clamped);
-  const color = band ? BAND_COLOR[band] : "var(--amber)";
+  const resolvedColor = color ?? (band ? BAND_COLOR[band] : "var(--amber)");
   return /* @__PURE__ */ jsxRuntimeExports.jsxs(
-    "div",
+    motion.div,
     {
+      animate: pulse ? { scale: [1, 1.08, 1] } : { scale: 1 },
+      transition: pulse ? { duration: 1.1, repeat: Infinity, ease: "easeInOut" } : { duration: 0.2 },
       style: {
         position: "relative",
         width: size,
@@ -43,13 +45,15 @@ function Ring({ value, size, band, strokeWidth, dim, children }) {
               cy: size / 2,
               r: radius,
               fill: "none",
-              stroke: color,
+              stroke: resolvedColor,
               strokeWidth: stroke,
               strokeLinecap: "round",
               strokeDasharray: circumference,
               strokeDashoffset: offset,
               transform: `rotate(-90 ${size / 2} ${size / 2})`,
-              style: { transition: "stroke-dashoffset var(--motion-slow) var(--ease-out)" }
+              style: {
+                transition: "stroke-dashoffset var(--motion-slow) var(--ease-out), stroke var(--motion-slow) var(--ease-out)"
+              }
             }
           )
         ] }),

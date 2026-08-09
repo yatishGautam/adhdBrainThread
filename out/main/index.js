@@ -1691,7 +1691,15 @@ function formatDuration(ms) {
   if (rest === 0) return `${hours}h`;
   return `${hours}h ${rest}m`;
 }
-const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const WEEKDAYS = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday"
+];
 const MONTHS = [
   "January",
   "February",
@@ -1708,7 +1716,12 @@ const MONTHS = [
 ];
 function parts(localDate2) {
   const [year, month, day] = localDate2.split("-").map(Number);
-  return { year, month, day, weekday: new Date(Date.UTC(year, month - 1, day)).getUTCDay() };
+  return {
+    year,
+    month,
+    day,
+    weekday: new Date(Date.UTC(year, month - 1, day)).getUTCDay()
+  };
 }
 function formatLocalDate(localDate2) {
   const { month, day, weekday } = parts(localDate2);
@@ -2331,8 +2344,8 @@ function loadRenderer(window, page) {
     void window.loadFile(path.join(here$2, `../renderer/${page}.html`));
   }
 }
-const HUD_WIDTH = 340;
-const HUD_HEIGHT = 86;
+const HUD_WIDTH = 470;
+const HUD_HEIGHT = 106;
 function defaultHudPosition() {
   const { workArea } = screen.getPrimaryDisplay();
   return {
@@ -2491,7 +2504,9 @@ function createMainWindow(hooks) {
 }
 const here = path.dirname(fileURLToPath(import.meta.url));
 function createTray(hooks) {
-  const image = nativeImage.createFromPath(path.join(here, "../../assets/trayTemplate.png"));
+  const image = nativeImage.createFromPath(
+    path.join(here, "../../assets/trayTemplate.png")
+  );
   image.setTemplateImage(true);
   const tray = new Tray(image.isEmpty() ? nativeImage.createEmpty() : image);
   tray.setToolTip("ADHD Superpower");
@@ -2501,7 +2516,9 @@ function createTray(hooks) {
 function updateTray(tray, state, hooks) {
   const title = state.running ? `${state.paused ? "❙❙" : "●"} ${formatClock(state.remainingMs)}` : "";
   if (process.platform === "darwin") tray.setTitle(title);
-  tray.setToolTip(state.threadTitle ? `ADHD Superpower — ${state.threadTitle}` : "ADHD Superpower");
+  tray.setToolTip(
+    state.threadTitle ? `ADHD Superpower — ${state.threadTitle}` : "ADHD Superpower"
+  );
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: state.threadTitle ?? "Nothing running", enabled: false },
@@ -2547,7 +2564,10 @@ class AppContext {
       },
       onWarning: (message) => console.warn("[storage]", message)
     });
-    ctx2.analytics = new AnalyticsService(ctx2.db, () => ctx2.broadcast("analytics:changed", void 0));
+    ctx2.analytics = new AnalyticsService(
+      ctx2.db,
+      () => ctx2.broadcast("analytics:changed", void 0)
+    );
     await ctx2.analytics.load();
     ctx2.sessions = new SessionService(ctx2.db, {
       onTick: (tick) => ctx2.broadcast("session:tick", tick),
@@ -2646,7 +2666,8 @@ class AppContext {
   // -------------------------------------------------------------- lifecycle
   onMainReady() {
     this.mainReady = true;
-    if (this.pendingRecovery) this.broadcast("session:recovery", this.pendingRecovery);
+    if (this.pendingRecovery)
+      this.broadcast("session:recovery", this.pendingRecovery);
   }
   async checkRecovery() {
     const open = await this.sessions.findRecoverable();
@@ -2691,201 +2712,363 @@ function preferReducedMotion() {
   return false;
 }
 function on(channel, handler, ctx2) {
-  ipcMain.handle(channel, (_event, payload) => handler(ctx2, payload));
+  ipcMain.handle(
+    channel,
+    (_event, payload) => handler(ctx2, payload)
+  );
 }
 function registerHandlers(ctx2) {
   const { db, sessions, analytics, celebrations } = ctx2;
   on("threads:list", async () => db.threads.list(), ctx2);
   on("threads:get", async (_c, { id }) => db.threads.get(id), ctx2);
-  on("threads:create", async (_c, { title, notes }) => {
-    const thread = await db.threads.create(title, notes);
-    ctx2.broadcastThreads();
-    return thread;
-  }, ctx2);
-  on("threads:update", async (_c, { id, patch }) => {
-    const thread = await ctx2.db.threads.get(id);
-    if (!thread) throw new Error("thread not found");
-    const saved = await db.threads.save({ ...thread, ...patch });
-    ctx2.broadcastThreads();
-    return saved;
-  }, ctx2);
-  on("threads:setStatus", async (_c, { id, status, waitingOn }) => {
-    if (status === "in_progress") {
-      const active = (await db.threads.list()).filter((t) => t.status === "in_progress" && t.id !== id);
-      if (active.length >= WIP_IN_PROGRESS_CAP) {
-        throw new Error(`At most ${WIP_IN_PROGRESS_CAP} threads can be in progress at once.`);
+  on(
+    "threads:create",
+    async (_c, { title, notes }) => {
+      const thread = await db.threads.create(title, notes);
+      ctx2.broadcastThreads();
+      return thread;
+    },
+    ctx2
+  );
+  on(
+    "threads:update",
+    async (_c, { id, patch }) => {
+      const thread = await ctx2.db.threads.get(id);
+      if (!thread) throw new Error("thread not found");
+      const saved = await db.threads.save({ ...thread, ...patch });
+      ctx2.broadcastThreads();
+      return saved;
+    },
+    ctx2
+  );
+  on(
+    "threads:setStatus",
+    async (_c, { id, status, waitingOn }) => {
+      if (status === "in_progress") {
+        const active = (await db.threads.list()).filter(
+          (t) => t.status === "in_progress" && t.id !== id
+        );
+        if (active.length >= WIP_IN_PROGRESS_CAP) {
+          throw new Error(
+            `At most ${WIP_IN_PROGRESS_CAP} threads can be in progress at once.`
+          );
+        }
       }
-    }
-    const thread = await db.threads.setStatus(id, status, waitingOn);
-    if (status === "done") {
-      await onThreadCompleted(ctx2, thread.id);
-    } else if (sessions.currentThreadId() === id) {
-      await sessions.end("ended_early");
-    }
-    ctx2.broadcastThreads();
-    return thread;
-  }, ctx2);
-  on("threads:remove", async (_c, { id }) => {
-    if (sessions.currentThreadId() === id) await sessions.end("ended_early");
-    await db.threads.remove(id);
-    ctx2.broadcastThreads();
-  }, ctx2);
+      const thread = await db.threads.setStatus(id, status, waitingOn);
+      if (status === "done") {
+        await onThreadCompleted(ctx2, thread.id);
+      } else if (sessions.currentThreadId() === id) {
+        await sessions.end("ended_early");
+      }
+      ctx2.broadcastThreads();
+      return thread;
+    },
+    ctx2
+  );
+  on(
+    "threads:remove",
+    async (_c, { id }) => {
+      if (sessions.currentThreadId() === id) await sessions.end("ended_early");
+      await db.threads.remove(id);
+      ctx2.broadcastThreads();
+    },
+    ctx2
+  );
   on("threads:done", async (_c, query) => db.threads.donePage(query), ctx2);
-  on("steps:add", async (_c, { threadId, text, afterStepId }) => {
-    const thread = await db.threads.addStep(threadId, text, afterStepId);
-    ctx2.broadcastThreads();
-    return thread;
-  }, ctx2);
-  on("steps:toggle", async (_c, { threadId, stepId }) => {
-    const thread = await db.threads.toggleStep(threadId, stepId);
-    await analytics.touchDays([db.clock.today()]);
-    ctx2.broadcastThreads();
-    ctx2.microTick();
-    return thread;
-  }, ctx2);
-  on("steps:update", async (_c, { threadId, stepId, text }) => {
-    const thread = await db.threads.updateStep(threadId, stepId, text);
-    ctx2.broadcastThreads();
-    return thread;
-  }, ctx2);
-  on("steps:remove", async (_c, { threadId, stepId }) => {
-    const thread = await db.threads.removeStep(threadId, stepId);
-    ctx2.broadcastThreads();
-    return thread;
-  }, ctx2);
-  on("steps:reorder", async (_c, { threadId, stepId, toIndex }) => {
-    const thread = await db.threads.reorderStep(threadId, stepId, toIndex);
-    ctx2.broadcastThreads();
-    return thread;
-  }, ctx2);
+  on(
+    "steps:add",
+    async (_c, { threadId, text, afterStepId }) => {
+      const thread = await db.threads.addStep(threadId, text, afterStepId);
+      ctx2.broadcastThreads();
+      return thread;
+    },
+    ctx2
+  );
+  on(
+    "steps:toggle",
+    async (_c, { threadId, stepId }) => {
+      const thread = await db.threads.toggleStep(threadId, stepId);
+      await analytics.touchDays([db.clock.today()]);
+      ctx2.broadcastThreads();
+      ctx2.microTick();
+      return thread;
+    },
+    ctx2
+  );
+  on(
+    "steps:update",
+    async (_c, { threadId, stepId, text }) => {
+      const thread = await db.threads.updateStep(threadId, stepId, text);
+      ctx2.broadcastThreads();
+      return thread;
+    },
+    ctx2
+  );
+  on(
+    "steps:remove",
+    async (_c, { threadId, stepId }) => {
+      const thread = await db.threads.removeStep(threadId, stepId);
+      ctx2.broadcastThreads();
+      return thread;
+    },
+    ctx2
+  );
+  on(
+    "steps:reorder",
+    async (_c, { threadId, stepId, toIndex }) => {
+      const thread = await db.threads.reorderStep(threadId, stepId, toIndex);
+      ctx2.broadcastThreads();
+      return thread;
+    },
+    ctx2
+  );
   on("day:get", async (_c, { localDate: localDate2 }) => db.days.get(localDate2), ctx2);
   on("day:today", async () => db.days.today(), ctx2);
   on("day:list", async () => db.days.listDates(), ctx2);
-  on("day:setIntent", async (_c, { threadIds }) => {
-    const day = await db.days.setIntent(threadIds);
-    ctx2.broadcastDay(day);
-    return day;
-  }, ctx2);
-  on("day:setNote", async (_c, { localDate: localDate2, note }) => {
-    const day = await db.days.setNote(localDate2, note);
-    ctx2.broadcastDay(day);
-    return day;
-  }, ctx2);
-  on("todo:add", async (_c, { text }) => {
-    const day = await db.days.addTodo(text);
-    ctx2.broadcastDay(day);
-    return day;
-  }, ctx2);
-  on("todo:toggle", async (_c, { localDate: localDate2, todoId }) => {
-    const day = await db.days.toggleTodo(localDate2, todoId);
-    ctx2.broadcastDay(day);
-    ctx2.microTick();
-    return day;
-  }, ctx2);
-  on("todo:update", async (_c, { localDate: localDate2, todoId, text }) => {
-    const day = await db.days.updateTodo(localDate2, todoId, text);
-    ctx2.broadcastDay(day);
-    return day;
-  }, ctx2);
-  on("todo:remove", async (_c, { localDate: localDate2, todoId }) => {
-    const day = await db.days.removeTodo(localDate2, todoId);
-    ctx2.broadcastDay(day);
-    return day;
-  }, ctx2);
-  on("todo:reorder", async (_c, { localDate: localDate2, todoId, toIndex }) => {
-    const day = await db.days.reorderTodo(localDate2, todoId, toIndex);
-    ctx2.broadcastDay(day);
-    return day;
-  }, ctx2);
-  on("todo:promote", async (_c, { localDate: localDate2, todoId }) => {
-    const todo = await db.days.findTodo(localDate2, todoId);
-    if (!todo) throw new Error("todo not found");
-    const thread = await db.threads.create(todo.text);
-    const day = await db.days.linkPromotedTodo(localDate2, todoId, thread.id);
-    ctx2.broadcastDay(day);
-    ctx2.broadcastThreads();
-    return { day, thread };
-  }, ctx2);
-  on("thought:add", async (_c, { text }) => {
-    const day = await db.days.addThought(text);
-    ctx2.broadcastDay(day);
-    return day;
-  }, ctx2);
-  on("thought:remove", async (_c, { localDate: localDate2, thoughtId }) => {
-    const day = await db.days.removeThought(localDate2, thoughtId);
-    ctx2.broadcastDay(day);
-    return day;
-  }, ctx2);
-  on("thought:process", async (_c, { localDate: localDate2, thoughtId, action }) => {
-    const thought = await db.days.findThought(localDate2, thoughtId);
-    if (!thought) throw new Error("thought not found");
-    let thread = null;
-    if (action === "thread") thread = await db.threads.create(thought.text);
-    else if (action === "todo") await db.days.addTodo(thought.text);
-    const day = await db.days.markThoughtProcessed(localDate2, thoughtId, action);
-    ctx2.broadcastDay(day);
-    if (thread) ctx2.broadcastThreads();
-    return { day, thread };
-  }, ctx2);
-  on("session:start", async (_c, { threadId, plannedMs }) => sessions.start(threadId, plannedMs), ctx2);
+  on(
+    "day:setIntent",
+    async (_c, { threadIds }) => {
+      const day = await db.days.setIntent(threadIds);
+      ctx2.broadcastDay(day);
+      return day;
+    },
+    ctx2
+  );
+  on(
+    "day:setNote",
+    async (_c, { localDate: localDate2, note }) => {
+      const day = await db.days.setNote(localDate2, note);
+      ctx2.broadcastDay(day);
+      return day;
+    },
+    ctx2
+  );
+  on(
+    "todo:add",
+    async (_c, { text }) => {
+      const day = await db.days.addTodo(text);
+      ctx2.broadcastDay(day);
+      return day;
+    },
+    ctx2
+  );
+  on(
+    "todo:toggle",
+    async (_c, { localDate: localDate2, todoId }) => {
+      const day = await db.days.toggleTodo(localDate2, todoId);
+      ctx2.broadcastDay(day);
+      ctx2.microTick();
+      return day;
+    },
+    ctx2
+  );
+  on(
+    "todo:update",
+    async (_c, { localDate: localDate2, todoId, text }) => {
+      const day = await db.days.updateTodo(localDate2, todoId, text);
+      ctx2.broadcastDay(day);
+      return day;
+    },
+    ctx2
+  );
+  on(
+    "todo:remove",
+    async (_c, { localDate: localDate2, todoId }) => {
+      const day = await db.days.removeTodo(localDate2, todoId);
+      ctx2.broadcastDay(day);
+      return day;
+    },
+    ctx2
+  );
+  on(
+    "todo:reorder",
+    async (_c, { localDate: localDate2, todoId, toIndex }) => {
+      const day = await db.days.reorderTodo(localDate2, todoId, toIndex);
+      ctx2.broadcastDay(day);
+      return day;
+    },
+    ctx2
+  );
+  on(
+    "todo:promote",
+    async (_c, { localDate: localDate2, todoId }) => {
+      const todo = await db.days.findTodo(localDate2, todoId);
+      if (!todo) throw new Error("todo not found");
+      const thread = await db.threads.create(todo.text);
+      const day = await db.days.linkPromotedTodo(localDate2, todoId, thread.id);
+      ctx2.broadcastDay(day);
+      ctx2.broadcastThreads();
+      return { day, thread };
+    },
+    ctx2
+  );
+  on(
+    "thought:add",
+    async (_c, { text }) => {
+      const day = await db.days.addThought(text);
+      ctx2.broadcastDay(day);
+      return day;
+    },
+    ctx2
+  );
+  on(
+    "thought:remove",
+    async (_c, { localDate: localDate2, thoughtId }) => {
+      const day = await db.days.removeThought(localDate2, thoughtId);
+      ctx2.broadcastDay(day);
+      return day;
+    },
+    ctx2
+  );
+  on(
+    "thought:process",
+    async (_c, { localDate: localDate2, thoughtId, action }) => {
+      const thought = await db.days.findThought(localDate2, thoughtId);
+      if (!thought) throw new Error("thought not found");
+      let thread = null;
+      if (action === "thread") thread = await db.threads.create(thought.text);
+      else if (action === "todo") await db.days.addTodo(thought.text);
+      const day = await db.days.markThoughtProcessed(
+        localDate2,
+        thoughtId,
+        action
+      );
+      ctx2.broadcastDay(day);
+      if (thread) ctx2.broadcastThreads();
+      return { day, thread };
+    },
+    ctx2
+  );
+  on(
+    "session:start",
+    async (_c, { threadId, plannedMs }) => sessions.start(threadId, plannedMs),
+    ctx2
+  );
   on("session:pause", async () => sessions.pause(), ctx2);
   on("session:resume", async () => sessions.resume(), ctx2);
-  on("session:end", async (_c, { outcome }) => {
-    await sessions.end(outcome);
-    return null;
-  }, ctx2);
-  on("session:switch", async (_c, { threadId }) => sessions.switchTo(threadId), ctx2);
-  on("session:distraction", async (_c, { kind, note }) => sessions.logDistraction(kind, note), ctx2);
+  on(
+    "session:end",
+    async (_c, { outcome }) => {
+      await sessions.end(outcome);
+      return null;
+    },
+    ctx2
+  );
+  on(
+    "session:switch",
+    async (_c, { threadId }) => sessions.switchTo(threadId),
+    ctx2
+  );
+  on(
+    "session:distraction",
+    async (_c, { kind, note }) => sessions.logDistraction(kind, note),
+    ctx2
+  );
   on("session:state", async () => sessions.state(), ctx2);
-  on("session:forThread", async (_c, { threadId }) => db.sessions.forThread(threadId), ctx2);
-  on("session:resolveRecovery", async (_c, { sessionId, keep }) => {
-    await sessions.resolveRecovery(sessionId, keep);
-  }, ctx2);
-  on("analytics:scope", async (_c, { scope, anchor }) => analytics.summary(scope, anchor), ctx2);
-  on("analytics:rebuild", async () => {
-    await analytics.rebuild();
-  }, ctx2);
+  on(
+    "session:forThread",
+    async (_c, { threadId }) => db.sessions.forThread(threadId),
+    ctx2
+  );
+  on(
+    "session:resolveRecovery",
+    async (_c, { sessionId, keep }) => {
+      await sessions.resolveRecovery(sessionId, keep);
+    },
+    ctx2
+  );
+  on(
+    "analytics:scope",
+    async (_c, { scope, anchor }) => analytics.summary(scope, anchor),
+    ctx2
+  );
+  on(
+    "analytics:rebuild",
+    async () => {
+      await analytics.rebuild();
+    },
+    ctx2
+  );
   on("settings:get", async () => db.settings.get(), ctx2);
-  on("settings:update", async (_c, { patch }) => {
-    const settings = await db.settings.update(patch);
-    ctx2.broadcastSettings(settings);
-    return settings;
-  }, ctx2);
-  on("data:repair", async () => {
-    const { quarantined, compacted } = await db.store.repair();
-    await analytics.rebuild();
-    return {
-      manifestRebuilt: true,
-      rollupsRebuilt: true,
-      shardsScanned: db.store.shardCount,
-      quarantined,
-      compactedFrom: compacted.before,
-      compactedTo: compacted.after
-    };
-  }, ctx2);
-  on("data:export", async () => {
-    const target = path.join(app.getPath("documents"), `thread-export-${Date.now()}.json`);
-    await db.store.exportTo(target);
-    return { path: target };
-  }, ctx2);
-  on("data:reveal", async () => {
-    shell.showItemInFolder(db.root);
-  }, ctx2);
-  on("window:mainReady", async () => {
-    ctx2.onMainReady();
-  }, ctx2);
-  on("hud:show", async () => {
-    ctx2.openHud();
-  }, ctx2);
-  on("hud:reset", async () => {
-    ctx2.resetHud();
-  }, ctx2);
-  on("hud:hide", async () => {
-    ctx2.hud?.hide();
-  }, ctx2);
-  on("celebration:done", async () => {
-    celebrations.stop();
-  }, ctx2);
+  on(
+    "settings:update",
+    async (_c, { patch }) => {
+      const settings = await db.settings.update(patch);
+      ctx2.broadcastSettings(settings);
+      return settings;
+    },
+    ctx2
+  );
+  on(
+    "data:repair",
+    async () => {
+      const { quarantined, compacted } = await db.store.repair();
+      await analytics.rebuild();
+      return {
+        manifestRebuilt: true,
+        rollupsRebuilt: true,
+        shardsScanned: db.store.shardCount,
+        quarantined,
+        compactedFrom: compacted.before,
+        compactedTo: compacted.after
+      };
+    },
+    ctx2
+  );
+  on(
+    "data:export",
+    async () => {
+      const target = path.join(
+        app.getPath("documents"),
+        `thread-export-${Date.now()}.json`
+      );
+      await db.store.exportTo(target);
+      return { path: target };
+    },
+    ctx2
+  );
+  on(
+    "data:reveal",
+    async () => {
+      shell.showItemInFolder(db.root);
+    },
+    ctx2
+  );
+  on(
+    "window:mainReady",
+    async () => {
+      ctx2.onMainReady();
+    },
+    ctx2
+  );
+  on(
+    "hud:show",
+    async () => {
+      ctx2.openHud();
+    },
+    ctx2
+  );
+  on(
+    "hud:reset",
+    async () => {
+      ctx2.resetHud();
+    },
+    ctx2
+  );
+  on(
+    "hud:hide",
+    async () => {
+      ctx2.hud?.hide();
+    },
+    ctx2
+  );
+  on(
+    "celebration:done",
+    async () => {
+      celebrations.stop();
+    },
+    ctx2
+  );
 }
 async function onThreadCompleted(ctx2, threadId) {
   const { db, sessions, analytics, celebrations } = ctx2;

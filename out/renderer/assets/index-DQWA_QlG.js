@@ -1,5 +1,5 @@
-import { R as React, r as reactExports, j as jsxRuntimeExports, e as formatMonth, g as formatCollapsedMonth, h as formatDayNumber, i as formatLocalDate, k as formatCollapsedDate, d as formatClock, f as formatDuration, l as formatLongDate, m as motion, n as formatTimeOfDay, o as commonjsGlobal, p as getDefaultExportFromCjs, c as createRoot } from "./format-Bb8cE7Pe.js";
-import { R as Ring } from "./Ring-DPWePrH8.js";
+import { R as React, r as reactExports, j as jsxRuntimeExports, e as formatLocalDate, g as formatMonth, h as formatCollapsedMonth, i as formatDayNumber, k as formatCollapsedDate, d as formatClock, f as formatDuration, l as formatLongDate, m as motion, n as formatTimeOfDay, o as commonjsGlobal, p as getDefaultExportFromCjs, c as createRoot } from "./format-nk-eI89E.js";
+import { R as Ring } from "./Ring-NFbTj05H.js";
 const createStoreImpl = (createState) => {
   let state;
   const listeners = /* @__PURE__ */ new Set();
@@ -50,8 +50,2062 @@ function initThreadStore() {
   });
   window.thread.on("threads:changed", (threads) => useThreadStore.getState().setThreads(threads));
 }
+const formatDistanceLocale = {
+  lessThanXSeconds: {
+    one: "less than a second",
+    other: "less than {{count}} seconds"
+  },
+  xSeconds: {
+    one: "1 second",
+    other: "{{count}} seconds"
+  },
+  halfAMinute: "half a minute",
+  lessThanXMinutes: {
+    one: "less than a minute",
+    other: "less than {{count}} minutes"
+  },
+  xMinutes: {
+    one: "1 minute",
+    other: "{{count}} minutes"
+  },
+  aboutXHours: {
+    one: "about 1 hour",
+    other: "about {{count}} hours"
+  },
+  xHours: {
+    one: "1 hour",
+    other: "{{count}} hours"
+  },
+  xDays: {
+    one: "1 day",
+    other: "{{count}} days"
+  },
+  aboutXWeeks: {
+    one: "about 1 week",
+    other: "about {{count}} weeks"
+  },
+  xWeeks: {
+    one: "1 week",
+    other: "{{count}} weeks"
+  },
+  aboutXMonths: {
+    one: "about 1 month",
+    other: "about {{count}} months"
+  },
+  xMonths: {
+    one: "1 month",
+    other: "{{count}} months"
+  },
+  aboutXYears: {
+    one: "about 1 year",
+    other: "about {{count}} years"
+  },
+  xYears: {
+    one: "1 year",
+    other: "{{count}} years"
+  },
+  overXYears: {
+    one: "over 1 year",
+    other: "over {{count}} years"
+  },
+  almostXYears: {
+    one: "almost 1 year",
+    other: "almost {{count}} years"
+  }
+};
+const formatDistance = (token, count, options) => {
+  let result;
+  const tokenValue = formatDistanceLocale[token];
+  if (typeof tokenValue === "string") {
+    result = tokenValue;
+  } else if (count === 1) {
+    result = tokenValue.one;
+  } else {
+    result = tokenValue.other.replace("{{count}}", count.toString());
+  }
+  if (options?.addSuffix) {
+    if (options.comparison && options.comparison > 0) {
+      return "in " + result;
+    } else {
+      return result + " ago";
+    }
+  }
+  return result;
+};
+function buildFormatLongFn(args) {
+  return (options = {}) => {
+    const width = options.width ? String(options.width) : args.defaultWidth;
+    const format2 = args.formats[width] || args.formats[args.defaultWidth];
+    return format2;
+  };
+}
+const dateFormats = {
+  full: "EEEE, MMMM do, y",
+  long: "MMMM do, y",
+  medium: "MMM d, y",
+  short: "MM/dd/yyyy"
+};
+const timeFormats = {
+  full: "h:mm:ss a zzzz",
+  long: "h:mm:ss a z",
+  medium: "h:mm:ss a",
+  short: "h:mm a"
+};
+const dateTimeFormats = {
+  full: "{{date}} 'at' {{time}}",
+  long: "{{date}} 'at' {{time}}",
+  medium: "{{date}}, {{time}}",
+  short: "{{date}}, {{time}}"
+};
+const formatLong = {
+  date: buildFormatLongFn({
+    formats: dateFormats,
+    defaultWidth: "full"
+  }),
+  time: buildFormatLongFn({
+    formats: timeFormats,
+    defaultWidth: "full"
+  }),
+  dateTime: buildFormatLongFn({
+    formats: dateTimeFormats,
+    defaultWidth: "full"
+  })
+};
+const formatRelativeLocale = {
+  lastWeek: "'last' eeee 'at' p",
+  yesterday: "'yesterday at' p",
+  today: "'today at' p",
+  tomorrow: "'tomorrow at' p",
+  nextWeek: "eeee 'at' p",
+  other: "P"
+};
+const formatRelative = (token, _date, _baseDate, _options) => formatRelativeLocale[token];
+function buildLocalizeFn(args) {
+  return (value, options) => {
+    const context = options?.context ? String(options.context) : "standalone";
+    let valuesArray;
+    if (context === "formatting" && args.formattingValues) {
+      const defaultWidth = args.defaultFormattingWidth || args.defaultWidth;
+      const width = options?.width ? String(options.width) : defaultWidth;
+      valuesArray = args.formattingValues[width] || args.formattingValues[defaultWidth];
+    } else {
+      const defaultWidth = args.defaultWidth;
+      const width = options?.width ? String(options.width) : args.defaultWidth;
+      valuesArray = args.values[width] || args.values[defaultWidth];
+    }
+    const index = args.argumentCallback ? args.argumentCallback(value) : value;
+    return valuesArray[index];
+  };
+}
+const eraValues = {
+  narrow: ["B", "A"],
+  abbreviated: ["BC", "AD"],
+  wide: ["Before Christ", "Anno Domini"]
+};
+const quarterValues = {
+  narrow: ["1", "2", "3", "4"],
+  abbreviated: ["Q1", "Q2", "Q3", "Q4"],
+  wide: ["1st quarter", "2nd quarter", "3rd quarter", "4th quarter"]
+};
+const monthValues = {
+  narrow: ["J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D"],
+  abbreviated: [
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec"
+  ],
+  wide: [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December"
+  ]
+};
+const dayValues = {
+  narrow: ["S", "M", "T", "W", "T", "F", "S"],
+  short: ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"],
+  abbreviated: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
+  wide: [
+    "Sunday",
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday"
+  ]
+};
+const dayPeriodValues = {
+  narrow: {
+    am: "a",
+    pm: "p",
+    midnight: "mi",
+    noon: "n",
+    morning: "morning",
+    afternoon: "afternoon",
+    evening: "evening",
+    night: "night"
+  },
+  abbreviated: {
+    am: "AM",
+    pm: "PM",
+    midnight: "midnight",
+    noon: "noon",
+    morning: "morning",
+    afternoon: "afternoon",
+    evening: "evening",
+    night: "night"
+  },
+  wide: {
+    am: "a.m.",
+    pm: "p.m.",
+    midnight: "midnight",
+    noon: "noon",
+    morning: "morning",
+    afternoon: "afternoon",
+    evening: "evening",
+    night: "night"
+  }
+};
+const formattingDayPeriodValues = {
+  narrow: {
+    am: "a",
+    pm: "p",
+    midnight: "mi",
+    noon: "n",
+    morning: "in the morning",
+    afternoon: "in the afternoon",
+    evening: "in the evening",
+    night: "at night"
+  },
+  abbreviated: {
+    am: "AM",
+    pm: "PM",
+    midnight: "midnight",
+    noon: "noon",
+    morning: "in the morning",
+    afternoon: "in the afternoon",
+    evening: "in the evening",
+    night: "at night"
+  },
+  wide: {
+    am: "a.m.",
+    pm: "p.m.",
+    midnight: "midnight",
+    noon: "noon",
+    morning: "in the morning",
+    afternoon: "in the afternoon",
+    evening: "in the evening",
+    night: "at night"
+  }
+};
+const ordinalNumber = (dirtyNumber, _options) => {
+  const number2 = Number(dirtyNumber);
+  const rem100 = number2 % 100;
+  if (rem100 > 20 || rem100 < 10) {
+    switch (rem100 % 10) {
+      case 1:
+        return number2 + "st";
+      case 2:
+        return number2 + "nd";
+      case 3:
+        return number2 + "rd";
+    }
+  }
+  return number2 + "th";
+};
+const localize = {
+  ordinalNumber,
+  era: buildLocalizeFn({
+    values: eraValues,
+    defaultWidth: "wide"
+  }),
+  quarter: buildLocalizeFn({
+    values: quarterValues,
+    defaultWidth: "wide",
+    argumentCallback: (quarter) => quarter - 1
+  }),
+  month: buildLocalizeFn({
+    values: monthValues,
+    defaultWidth: "wide"
+  }),
+  day: buildLocalizeFn({
+    values: dayValues,
+    defaultWidth: "wide"
+  }),
+  dayPeriod: buildLocalizeFn({
+    values: dayPeriodValues,
+    defaultWidth: "wide",
+    formattingValues: formattingDayPeriodValues,
+    defaultFormattingWidth: "wide"
+  })
+};
+function buildMatchFn(args) {
+  return (string2, options = {}) => {
+    const width = options.width;
+    const matchPattern = width && args.matchPatterns[width] || args.matchPatterns[args.defaultMatchWidth];
+    const matchResult = string2.match(matchPattern);
+    if (!matchResult) {
+      return null;
+    }
+    const matchedString = matchResult[0];
+    const parsePatterns = width && args.parsePatterns[width] || args.parsePatterns[args.defaultParseWidth];
+    const key = Array.isArray(parsePatterns) ? findIndex(parsePatterns, (pattern) => pattern.test(matchedString)) : (
+      // [TODO] -- I challenge you to fix the type
+      findKey(parsePatterns, (pattern) => pattern.test(matchedString))
+    );
+    let value;
+    value = args.valueCallback ? args.valueCallback(key) : key;
+    value = options.valueCallback ? (
+      // [TODO] -- I challenge you to fix the type
+      options.valueCallback(value)
+    ) : value;
+    const rest = string2.slice(matchedString.length);
+    return { value, rest };
+  };
+}
+function findKey(object2, predicate) {
+  for (const key in object2) {
+    if (Object.prototype.hasOwnProperty.call(object2, key) && predicate(object2[key])) {
+      return key;
+    }
+  }
+  return void 0;
+}
+function findIndex(array2, predicate) {
+  for (let key = 0; key < array2.length; key++) {
+    if (predicate(array2[key])) {
+      return key;
+    }
+  }
+  return void 0;
+}
+function buildMatchPatternFn(args) {
+  return (string2, options = {}) => {
+    const matchResult = string2.match(args.matchPattern);
+    if (!matchResult) return null;
+    const matchedString = matchResult[0];
+    const parseResult = string2.match(args.parsePattern);
+    if (!parseResult) return null;
+    let value = args.valueCallback ? args.valueCallback(parseResult[0]) : parseResult[0];
+    value = options.valueCallback ? options.valueCallback(value) : value;
+    const rest = string2.slice(matchedString.length);
+    return { value, rest };
+  };
+}
+const matchOrdinalNumberPattern = /^(\d+)(th|st|nd|rd)?/i;
+const parseOrdinalNumberPattern = /\d+/i;
+const matchEraPatterns = {
+  narrow: /^(b|a)/i,
+  abbreviated: /^(b\.?\s?c\.?|b\.?\s?c\.?\s?e\.?|a\.?\s?d\.?|c\.?\s?e\.?)/i,
+  wide: /^(before christ|before common era|anno domini|common era)/i
+};
+const parseEraPatterns = {
+  any: [/^b/i, /^(a|c)/i]
+};
+const matchQuarterPatterns = {
+  narrow: /^[1234]/i,
+  abbreviated: /^q[1234]/i,
+  wide: /^[1234](th|st|nd|rd)? quarter/i
+};
+const parseQuarterPatterns = {
+  any: [/1/i, /2/i, /3/i, /4/i]
+};
+const matchMonthPatterns = {
+  narrow: /^[jfmasond]/i,
+  abbreviated: /^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i,
+  wide: /^(january|february|march|april|may|june|july|august|september|october|november|december)/i
+};
+const parseMonthPatterns = {
+  narrow: [
+    /^j/i,
+    /^f/i,
+    /^m/i,
+    /^a/i,
+    /^m/i,
+    /^j/i,
+    /^j/i,
+    /^a/i,
+    /^s/i,
+    /^o/i,
+    /^n/i,
+    /^d/i
+  ],
+  any: [
+    /^ja/i,
+    /^f/i,
+    /^mar/i,
+    /^ap/i,
+    /^may/i,
+    /^jun/i,
+    /^jul/i,
+    /^au/i,
+    /^s/i,
+    /^o/i,
+    /^n/i,
+    /^d/i
+  ]
+};
+const matchDayPatterns = {
+  narrow: /^[smtwf]/i,
+  short: /^(su|mo|tu|we|th|fr|sa)/i,
+  abbreviated: /^(sun|mon|tue|wed|thu|fri|sat)/i,
+  wide: /^(sunday|monday|tuesday|wednesday|thursday|friday|saturday)/i
+};
+const parseDayPatterns = {
+  narrow: [/^s/i, /^m/i, /^t/i, /^w/i, /^t/i, /^f/i, /^s/i],
+  any: [/^su/i, /^m/i, /^tu/i, /^w/i, /^th/i, /^f/i, /^sa/i]
+};
+const matchDayPeriodPatterns = {
+  narrow: /^(a|p|mi|n|(in the|at) (morning|afternoon|evening|night))/i,
+  any: /^([ap]\.?\s?m\.?|midnight|noon|(in the|at) (morning|afternoon|evening|night))/i
+};
+const parseDayPeriodPatterns = {
+  any: {
+    am: /^a/i,
+    pm: /^p/i,
+    midnight: /^mi/i,
+    noon: /^no/i,
+    morning: /morning/i,
+    afternoon: /afternoon/i,
+    evening: /evening/i,
+    night: /night/i
+  }
+};
+const match = {
+  ordinalNumber: buildMatchPatternFn({
+    matchPattern: matchOrdinalNumberPattern,
+    parsePattern: parseOrdinalNumberPattern,
+    valueCallback: (value) => parseInt(value, 10)
+  }),
+  era: buildMatchFn({
+    matchPatterns: matchEraPatterns,
+    defaultMatchWidth: "wide",
+    parsePatterns: parseEraPatterns,
+    defaultParseWidth: "any"
+  }),
+  quarter: buildMatchFn({
+    matchPatterns: matchQuarterPatterns,
+    defaultMatchWidth: "wide",
+    parsePatterns: parseQuarterPatterns,
+    defaultParseWidth: "any",
+    valueCallback: (index) => index + 1
+  }),
+  month: buildMatchFn({
+    matchPatterns: matchMonthPatterns,
+    defaultMatchWidth: "wide",
+    parsePatterns: parseMonthPatterns,
+    defaultParseWidth: "any"
+  }),
+  day: buildMatchFn({
+    matchPatterns: matchDayPatterns,
+    defaultMatchWidth: "wide",
+    parsePatterns: parseDayPatterns,
+    defaultParseWidth: "any"
+  }),
+  dayPeriod: buildMatchFn({
+    matchPatterns: matchDayPeriodPatterns,
+    defaultMatchWidth: "any",
+    parsePatterns: parseDayPeriodPatterns,
+    defaultParseWidth: "any"
+  })
+};
+const enUS = {
+  code: "en-US",
+  formatDistance,
+  formatLong,
+  formatRelative,
+  localize,
+  match,
+  options: {
+    weekStartsOn: 0,
+    firstWeekContainsDate: 1
+  }
+};
+let defaultOptions = {};
+function getDefaultOptions$1() {
+  return defaultOptions;
+}
+const millisecondsInWeek = 6048e5;
+const millisecondsInDay = 864e5;
+const constructFromSymbol = Symbol.for("constructDateFrom");
+function constructFrom(date2, value) {
+  if (typeof date2 === "function") return date2(value);
+  if (date2 && typeof date2 === "object" && constructFromSymbol in date2)
+    return date2[constructFromSymbol](value);
+  if (date2 instanceof Date) return new date2.constructor(value);
+  return new Date(value);
+}
+function toDate$1(argument, context) {
+  return constructFrom(context || argument, argument);
+}
+function getTimezoneOffsetInMilliseconds$1(date2) {
+  const _date = toDate$1(date2);
+  const utcDate2 = new Date(
+    Date.UTC(
+      _date.getFullYear(),
+      _date.getMonth(),
+      _date.getDate(),
+      _date.getHours(),
+      _date.getMinutes(),
+      _date.getSeconds(),
+      _date.getMilliseconds()
+    )
+  );
+  utcDate2.setUTCFullYear(_date.getFullYear());
+  return +date2 - +utcDate2;
+}
+function normalizeDates(context, ...dates) {
+  const normalize2 = constructFrom.bind(
+    null,
+    dates.find((date2) => typeof date2 === "object")
+  );
+  return dates.map(normalize2);
+}
+function startOfDay(date2, options) {
+  const _date = toDate$1(date2, options?.in);
+  _date.setHours(0, 0, 0, 0);
+  return _date;
+}
+function differenceInCalendarDays(laterDate, earlierDate, options) {
+  const [laterDate_, earlierDate_] = normalizeDates(
+    options?.in,
+    laterDate,
+    earlierDate
+  );
+  const laterStartOfDay = startOfDay(laterDate_);
+  const earlierStartOfDay = startOfDay(earlierDate_);
+  const laterTimestamp = +laterStartOfDay - getTimezoneOffsetInMilliseconds$1(laterStartOfDay);
+  const earlierTimestamp = +earlierStartOfDay - getTimezoneOffsetInMilliseconds$1(earlierStartOfDay);
+  return Math.round((laterTimestamp - earlierTimestamp) / millisecondsInDay);
+}
+function startOfYear(date2, options) {
+  const date_ = toDate$1(date2, options?.in);
+  date_.setFullYear(date_.getFullYear(), 0, 1);
+  date_.setHours(0, 0, 0, 0);
+  return date_;
+}
+function getDayOfYear(date2, options) {
+  const _date = toDate$1(date2, options?.in);
+  const diff = differenceInCalendarDays(_date, startOfYear(_date));
+  const dayOfYear = diff + 1;
+  return dayOfYear;
+}
+function startOfWeek(date2, options) {
+  const defaultOptions2 = getDefaultOptions$1();
+  const weekStartsOn = options?.weekStartsOn ?? options?.locale?.options?.weekStartsOn ?? defaultOptions2.weekStartsOn ?? defaultOptions2.locale?.options?.weekStartsOn ?? 0;
+  const _date = toDate$1(date2, options?.in);
+  const day = _date.getDay();
+  const diff = (day < weekStartsOn ? 7 : 0) + day - weekStartsOn;
+  _date.setDate(_date.getDate() - diff);
+  _date.setHours(0, 0, 0, 0);
+  return _date;
+}
+function startOfISOWeek(date2, options) {
+  return startOfWeek(date2, { ...options, weekStartsOn: 1 });
+}
+function getISOWeekYear(date2, options) {
+  const _date = toDate$1(date2, options?.in);
+  const year = _date.getFullYear();
+  const fourthOfJanuaryOfNextYear = constructFrom(_date, 0);
+  fourthOfJanuaryOfNextYear.setFullYear(year + 1, 0, 4);
+  fourthOfJanuaryOfNextYear.setHours(0, 0, 0, 0);
+  const startOfNextYear = startOfISOWeek(fourthOfJanuaryOfNextYear);
+  const fourthOfJanuaryOfThisYear = constructFrom(_date, 0);
+  fourthOfJanuaryOfThisYear.setFullYear(year, 0, 4);
+  fourthOfJanuaryOfThisYear.setHours(0, 0, 0, 0);
+  const startOfThisYear = startOfISOWeek(fourthOfJanuaryOfThisYear);
+  if (_date.getTime() >= startOfNextYear.getTime()) {
+    return year + 1;
+  } else if (_date.getTime() >= startOfThisYear.getTime()) {
+    return year;
+  } else {
+    return year - 1;
+  }
+}
+function startOfISOWeekYear(date2, options) {
+  const year = getISOWeekYear(date2, options);
+  const fourthOfJanuary = constructFrom(date2, 0);
+  fourthOfJanuary.setFullYear(year, 0, 4);
+  fourthOfJanuary.setHours(0, 0, 0, 0);
+  return startOfISOWeek(fourthOfJanuary);
+}
+function getISOWeek(date2, options) {
+  const _date = toDate$1(date2, options?.in);
+  const diff = +startOfISOWeek(_date) - +startOfISOWeekYear(_date);
+  return Math.round(diff / millisecondsInWeek) + 1;
+}
+function getWeekYear(date2, options) {
+  const _date = toDate$1(date2, options?.in);
+  const year = _date.getFullYear();
+  const defaultOptions2 = getDefaultOptions$1();
+  const firstWeekContainsDate = options?.firstWeekContainsDate ?? options?.locale?.options?.firstWeekContainsDate ?? defaultOptions2.firstWeekContainsDate ?? defaultOptions2.locale?.options?.firstWeekContainsDate ?? 1;
+  const firstWeekOfNextYear = constructFrom(options?.in || date2, 0);
+  firstWeekOfNextYear.setFullYear(year + 1, 0, firstWeekContainsDate);
+  firstWeekOfNextYear.setHours(0, 0, 0, 0);
+  const startOfNextYear = startOfWeek(firstWeekOfNextYear, options);
+  const firstWeekOfThisYear = constructFrom(options?.in || date2, 0);
+  firstWeekOfThisYear.setFullYear(year, 0, firstWeekContainsDate);
+  firstWeekOfThisYear.setHours(0, 0, 0, 0);
+  const startOfThisYear = startOfWeek(firstWeekOfThisYear, options);
+  if (+_date >= +startOfNextYear) {
+    return year + 1;
+  } else if (+_date >= +startOfThisYear) {
+    return year;
+  } else {
+    return year - 1;
+  }
+}
+function startOfWeekYear(date2, options) {
+  const defaultOptions2 = getDefaultOptions$1();
+  const firstWeekContainsDate = options?.firstWeekContainsDate ?? options?.locale?.options?.firstWeekContainsDate ?? defaultOptions2.firstWeekContainsDate ?? defaultOptions2.locale?.options?.firstWeekContainsDate ?? 1;
+  const year = getWeekYear(date2, options);
+  const firstWeek = constructFrom(options?.in || date2, 0);
+  firstWeek.setFullYear(year, 0, firstWeekContainsDate);
+  firstWeek.setHours(0, 0, 0, 0);
+  const _date = startOfWeek(firstWeek, options);
+  return _date;
+}
+function getWeek(date2, options) {
+  const _date = toDate$1(date2, options?.in);
+  const diff = +startOfWeek(_date, options) - +startOfWeekYear(_date, options);
+  return Math.round(diff / millisecondsInWeek) + 1;
+}
+function addLeadingZeros$1(number2, targetLength) {
+  const sign2 = number2 < 0 ? "-" : "";
+  const output = Math.abs(number2).toString().padStart(targetLength, "0");
+  return sign2 + output;
+}
+const lightFormatters = {
+  // Year
+  y(date2, token) {
+    const signedYear = date2.getFullYear();
+    const year = signedYear > 0 ? signedYear : 1 - signedYear;
+    return addLeadingZeros$1(token === "yy" ? year % 100 : year, token.length);
+  },
+  // Month
+  M(date2, token) {
+    const month = date2.getMonth();
+    return token === "M" ? String(month + 1) : addLeadingZeros$1(month + 1, 2);
+  },
+  // Day of the month
+  d(date2, token) {
+    return addLeadingZeros$1(date2.getDate(), token.length);
+  },
+  // AM or PM
+  a(date2, token) {
+    const dayPeriodEnumValue = date2.getHours() / 12 >= 1 ? "pm" : "am";
+    switch (token) {
+      case "a":
+      case "aa":
+        return dayPeriodEnumValue.toUpperCase();
+      case "aaa":
+        return dayPeriodEnumValue;
+      case "aaaaa":
+        return dayPeriodEnumValue[0];
+      case "aaaa":
+      default:
+        return dayPeriodEnumValue === "am" ? "a.m." : "p.m.";
+    }
+  },
+  // Hour [1-12]
+  h(date2, token) {
+    return addLeadingZeros$1(date2.getHours() % 12 || 12, token.length);
+  },
+  // Hour [0-23]
+  H(date2, token) {
+    return addLeadingZeros$1(date2.getHours(), token.length);
+  },
+  // Minute
+  m(date2, token) {
+    return addLeadingZeros$1(date2.getMinutes(), token.length);
+  },
+  // Second
+  s(date2, token) {
+    return addLeadingZeros$1(date2.getSeconds(), token.length);
+  },
+  // Fraction of second
+  S(date2, token) {
+    const numberOfDigits = token.length;
+    const milliseconds = date2.getMilliseconds();
+    const fractionalSeconds = Math.trunc(
+      milliseconds * Math.pow(10, numberOfDigits - 3)
+    );
+    return addLeadingZeros$1(fractionalSeconds, token.length);
+  }
+};
+const dayPeriodEnum = {
+  midnight: "midnight",
+  noon: "noon",
+  morning: "morning",
+  afternoon: "afternoon",
+  evening: "evening",
+  night: "night"
+};
+const formatters$1 = {
+  // Era
+  G: function(date2, token, localize2) {
+    const era = date2.getFullYear() > 0 ? 1 : 0;
+    switch (token) {
+      case "G":
+      case "GG":
+      case "GGG":
+        return localize2.era(era, { width: "abbreviated" });
+      case "GGGGG":
+        return localize2.era(era, { width: "narrow" });
+      case "GGGG":
+      default:
+        return localize2.era(era, { width: "wide" });
+    }
+  },
+  // Year
+  y: function(date2, token, localize2) {
+    if (token === "yo") {
+      const signedYear = date2.getFullYear();
+      const year = signedYear > 0 ? signedYear : 1 - signedYear;
+      return localize2.ordinalNumber(year, { unit: "year" });
+    }
+    return lightFormatters.y(date2, token);
+  },
+  // Local week-numbering year
+  Y: function(date2, token, localize2, options) {
+    const signedWeekYear = getWeekYear(date2, options);
+    const weekYear = signedWeekYear > 0 ? signedWeekYear : 1 - signedWeekYear;
+    if (token === "YY") {
+      const twoDigitYear = weekYear % 100;
+      return addLeadingZeros$1(twoDigitYear, 2);
+    }
+    if (token === "Yo") {
+      return localize2.ordinalNumber(weekYear, { unit: "year" });
+    }
+    return addLeadingZeros$1(weekYear, token.length);
+  },
+  // ISO week-numbering year
+  R: function(date2, token) {
+    const isoWeekYear = getISOWeekYear(date2);
+    return addLeadingZeros$1(isoWeekYear, token.length);
+  },
+  // Extended year. This is a single number designating the year of this calendar system.
+  // The main difference between `y` and `u` localizers are B.C. years:
+  // | Year | `y` | `u` |
+  // |------|-----|-----|
+  // | AC 1 |   1 |   1 |
+  // | BC 1 |   1 |   0 |
+  // | BC 2 |   2 |  -1 |
+  // Also `yy` always returns the last two digits of a year,
+  // while `uu` pads single digit years to 2 characters and returns other years unchanged.
+  u: function(date2, token) {
+    const year = date2.getFullYear();
+    return addLeadingZeros$1(year, token.length);
+  },
+  // Quarter
+  Q: function(date2, token, localize2) {
+    const quarter = Math.ceil((date2.getMonth() + 1) / 3);
+    switch (token) {
+      case "Q":
+        return String(quarter);
+      case "QQ":
+        return addLeadingZeros$1(quarter, 2);
+      case "Qo":
+        return localize2.ordinalNumber(quarter, { unit: "quarter" });
+      case "QQQ":
+        return localize2.quarter(quarter, {
+          width: "abbreviated",
+          context: "formatting"
+        });
+      case "QQQQQ":
+        return localize2.quarter(quarter, {
+          width: "narrow",
+          context: "formatting"
+        });
+      case "QQQQ":
+      default:
+        return localize2.quarter(quarter, {
+          width: "wide",
+          context: "formatting"
+        });
+    }
+  },
+  // Stand-alone quarter
+  q: function(date2, token, localize2) {
+    const quarter = Math.ceil((date2.getMonth() + 1) / 3);
+    switch (token) {
+      case "q":
+        return String(quarter);
+      case "qq":
+        return addLeadingZeros$1(quarter, 2);
+      case "qo":
+        return localize2.ordinalNumber(quarter, { unit: "quarter" });
+      case "qqq":
+        return localize2.quarter(quarter, {
+          width: "abbreviated",
+          context: "standalone"
+        });
+      case "qqqqq":
+        return localize2.quarter(quarter, {
+          width: "narrow",
+          context: "standalone"
+        });
+      case "qqqq":
+      default:
+        return localize2.quarter(quarter, {
+          width: "wide",
+          context: "standalone"
+        });
+    }
+  },
+  // Month
+  M: function(date2, token, localize2) {
+    const month = date2.getMonth();
+    switch (token) {
+      case "M":
+      case "MM":
+        return lightFormatters.M(date2, token);
+      case "Mo":
+        return localize2.ordinalNumber(month + 1, { unit: "month" });
+      case "MMM":
+        return localize2.month(month, {
+          width: "abbreviated",
+          context: "formatting"
+        });
+      case "MMMMM":
+        return localize2.month(month, {
+          width: "narrow",
+          context: "formatting"
+        });
+      case "MMMM":
+      default:
+        return localize2.month(month, { width: "wide", context: "formatting" });
+    }
+  },
+  // Stand-alone month
+  L: function(date2, token, localize2) {
+    const month = date2.getMonth();
+    switch (token) {
+      case "L":
+        return String(month + 1);
+      case "LL":
+        return addLeadingZeros$1(month + 1, 2);
+      case "Lo":
+        return localize2.ordinalNumber(month + 1, { unit: "month" });
+      case "LLL":
+        return localize2.month(month, {
+          width: "abbreviated",
+          context: "standalone"
+        });
+      case "LLLLL":
+        return localize2.month(month, {
+          width: "narrow",
+          context: "standalone"
+        });
+      case "LLLL":
+      default:
+        return localize2.month(month, { width: "wide", context: "standalone" });
+    }
+  },
+  // Local week of year
+  w: function(date2, token, localize2, options) {
+    const week = getWeek(date2, options);
+    if (token === "wo") {
+      return localize2.ordinalNumber(week, { unit: "week" });
+    }
+    return addLeadingZeros$1(week, token.length);
+  },
+  // ISO week of year
+  I: function(date2, token, localize2) {
+    const isoWeek = getISOWeek(date2);
+    if (token === "Io") {
+      return localize2.ordinalNumber(isoWeek, { unit: "week" });
+    }
+    return addLeadingZeros$1(isoWeek, token.length);
+  },
+  // Day of the month
+  d: function(date2, token, localize2) {
+    if (token === "do") {
+      return localize2.ordinalNumber(date2.getDate(), { unit: "date" });
+    }
+    return lightFormatters.d(date2, token);
+  },
+  // Day of year
+  D: function(date2, token, localize2) {
+    const dayOfYear = getDayOfYear(date2);
+    if (token === "Do") {
+      return localize2.ordinalNumber(dayOfYear, { unit: "dayOfYear" });
+    }
+    return addLeadingZeros$1(dayOfYear, token.length);
+  },
+  // Day of week
+  E: function(date2, token, localize2) {
+    const dayOfWeek = date2.getDay();
+    switch (token) {
+      case "E":
+      case "EE":
+      case "EEE":
+        return localize2.day(dayOfWeek, {
+          width: "abbreviated",
+          context: "formatting"
+        });
+      case "EEEEE":
+        return localize2.day(dayOfWeek, {
+          width: "narrow",
+          context: "formatting"
+        });
+      case "EEEEEE":
+        return localize2.day(dayOfWeek, {
+          width: "short",
+          context: "formatting"
+        });
+      case "EEEE":
+      default:
+        return localize2.day(dayOfWeek, {
+          width: "wide",
+          context: "formatting"
+        });
+    }
+  },
+  // Local day of week
+  e: function(date2, token, localize2, options) {
+    const dayOfWeek = date2.getDay();
+    const localDayOfWeek = (dayOfWeek - options.weekStartsOn + 8) % 7 || 7;
+    switch (token) {
+      case "e":
+        return String(localDayOfWeek);
+      case "ee":
+        return addLeadingZeros$1(localDayOfWeek, 2);
+      case "eo":
+        return localize2.ordinalNumber(localDayOfWeek, { unit: "day" });
+      case "eee":
+        return localize2.day(dayOfWeek, {
+          width: "abbreviated",
+          context: "formatting"
+        });
+      case "eeeee":
+        return localize2.day(dayOfWeek, {
+          width: "narrow",
+          context: "formatting"
+        });
+      case "eeeeee":
+        return localize2.day(dayOfWeek, {
+          width: "short",
+          context: "formatting"
+        });
+      case "eeee":
+      default:
+        return localize2.day(dayOfWeek, {
+          width: "wide",
+          context: "formatting"
+        });
+    }
+  },
+  // Stand-alone local day of week
+  c: function(date2, token, localize2, options) {
+    const dayOfWeek = date2.getDay();
+    const localDayOfWeek = (dayOfWeek - options.weekStartsOn + 8) % 7 || 7;
+    switch (token) {
+      case "c":
+        return String(localDayOfWeek);
+      case "cc":
+        return addLeadingZeros$1(localDayOfWeek, token.length);
+      case "co":
+        return localize2.ordinalNumber(localDayOfWeek, { unit: "day" });
+      case "ccc":
+        return localize2.day(dayOfWeek, {
+          width: "abbreviated",
+          context: "standalone"
+        });
+      case "ccccc":
+        return localize2.day(dayOfWeek, {
+          width: "narrow",
+          context: "standalone"
+        });
+      case "cccccc":
+        return localize2.day(dayOfWeek, {
+          width: "short",
+          context: "standalone"
+        });
+      case "cccc":
+      default:
+        return localize2.day(dayOfWeek, {
+          width: "wide",
+          context: "standalone"
+        });
+    }
+  },
+  // ISO day of week
+  i: function(date2, token, localize2) {
+    const dayOfWeek = date2.getDay();
+    const isoDayOfWeek = dayOfWeek === 0 ? 7 : dayOfWeek;
+    switch (token) {
+      case "i":
+        return String(isoDayOfWeek);
+      case "ii":
+        return addLeadingZeros$1(isoDayOfWeek, token.length);
+      case "io":
+        return localize2.ordinalNumber(isoDayOfWeek, { unit: "day" });
+      case "iii":
+        return localize2.day(dayOfWeek, {
+          width: "abbreviated",
+          context: "formatting"
+        });
+      case "iiiii":
+        return localize2.day(dayOfWeek, {
+          width: "narrow",
+          context: "formatting"
+        });
+      case "iiiiii":
+        return localize2.day(dayOfWeek, {
+          width: "short",
+          context: "formatting"
+        });
+      case "iiii":
+      default:
+        return localize2.day(dayOfWeek, {
+          width: "wide",
+          context: "formatting"
+        });
+    }
+  },
+  // AM or PM
+  a: function(date2, token, localize2) {
+    const hours = date2.getHours();
+    const dayPeriodEnumValue = hours / 12 >= 1 ? "pm" : "am";
+    switch (token) {
+      case "a":
+      case "aa":
+        return localize2.dayPeriod(dayPeriodEnumValue, {
+          width: "abbreviated",
+          context: "formatting"
+        });
+      case "aaa":
+        return localize2.dayPeriod(dayPeriodEnumValue, {
+          width: "abbreviated",
+          context: "formatting"
+        }).toLowerCase();
+      case "aaaaa":
+        return localize2.dayPeriod(dayPeriodEnumValue, {
+          width: "narrow",
+          context: "formatting"
+        });
+      case "aaaa":
+      default:
+        return localize2.dayPeriod(dayPeriodEnumValue, {
+          width: "wide",
+          context: "formatting"
+        });
+    }
+  },
+  // AM, PM, midnight, noon
+  b: function(date2, token, localize2) {
+    const hours = date2.getHours();
+    let dayPeriodEnumValue;
+    if (hours === 12) {
+      dayPeriodEnumValue = dayPeriodEnum.noon;
+    } else if (hours === 0) {
+      dayPeriodEnumValue = dayPeriodEnum.midnight;
+    } else {
+      dayPeriodEnumValue = hours / 12 >= 1 ? "pm" : "am";
+    }
+    switch (token) {
+      case "b":
+      case "bb":
+        return localize2.dayPeriod(dayPeriodEnumValue, {
+          width: "abbreviated",
+          context: "formatting"
+        });
+      case "bbb":
+        return localize2.dayPeriod(dayPeriodEnumValue, {
+          width: "abbreviated",
+          context: "formatting"
+        }).toLowerCase();
+      case "bbbbb":
+        return localize2.dayPeriod(dayPeriodEnumValue, {
+          width: "narrow",
+          context: "formatting"
+        });
+      case "bbbb":
+      default:
+        return localize2.dayPeriod(dayPeriodEnumValue, {
+          width: "wide",
+          context: "formatting"
+        });
+    }
+  },
+  // in the morning, in the afternoon, in the evening, at night
+  B: function(date2, token, localize2) {
+    const hours = date2.getHours();
+    let dayPeriodEnumValue;
+    if (hours >= 17) {
+      dayPeriodEnumValue = dayPeriodEnum.evening;
+    } else if (hours >= 12) {
+      dayPeriodEnumValue = dayPeriodEnum.afternoon;
+    } else if (hours >= 4) {
+      dayPeriodEnumValue = dayPeriodEnum.morning;
+    } else {
+      dayPeriodEnumValue = dayPeriodEnum.night;
+    }
+    switch (token) {
+      case "B":
+      case "BB":
+      case "BBB":
+        return localize2.dayPeriod(dayPeriodEnumValue, {
+          width: "abbreviated",
+          context: "formatting"
+        });
+      case "BBBBB":
+        return localize2.dayPeriod(dayPeriodEnumValue, {
+          width: "narrow",
+          context: "formatting"
+        });
+      case "BBBB":
+      default:
+        return localize2.dayPeriod(dayPeriodEnumValue, {
+          width: "wide",
+          context: "formatting"
+        });
+    }
+  },
+  // Hour [1-12]
+  h: function(date2, token, localize2) {
+    if (token === "ho") {
+      let hours = date2.getHours() % 12;
+      if (hours === 0) hours = 12;
+      return localize2.ordinalNumber(hours, { unit: "hour" });
+    }
+    return lightFormatters.h(date2, token);
+  },
+  // Hour [0-23]
+  H: function(date2, token, localize2) {
+    if (token === "Ho") {
+      return localize2.ordinalNumber(date2.getHours(), { unit: "hour" });
+    }
+    return lightFormatters.H(date2, token);
+  },
+  // Hour [0-11]
+  K: function(date2, token, localize2) {
+    const hours = date2.getHours() % 12;
+    if (token === "Ko") {
+      return localize2.ordinalNumber(hours, { unit: "hour" });
+    }
+    return addLeadingZeros$1(hours, token.length);
+  },
+  // Hour [1-24]
+  k: function(date2, token, localize2) {
+    let hours = date2.getHours();
+    if (hours === 0) hours = 24;
+    if (token === "ko") {
+      return localize2.ordinalNumber(hours, { unit: "hour" });
+    }
+    return addLeadingZeros$1(hours, token.length);
+  },
+  // Minute
+  m: function(date2, token, localize2) {
+    if (token === "mo") {
+      return localize2.ordinalNumber(date2.getMinutes(), { unit: "minute" });
+    }
+    return lightFormatters.m(date2, token);
+  },
+  // Second
+  s: function(date2, token, localize2) {
+    if (token === "so") {
+      return localize2.ordinalNumber(date2.getSeconds(), { unit: "second" });
+    }
+    return lightFormatters.s(date2, token);
+  },
+  // Fraction of second
+  S: function(date2, token) {
+    return lightFormatters.S(date2, token);
+  },
+  // Timezone (ISO-8601. If offset is 0, output is always `'Z'`)
+  X: function(date2, token, _localize) {
+    const timezoneOffset = date2.getTimezoneOffset();
+    if (timezoneOffset === 0) {
+      return "Z";
+    }
+    switch (token) {
+      case "X":
+        return formatTimezoneWithOptionalMinutes$1(timezoneOffset);
+      case "XXXX":
+      case "XX":
+        return formatTimezone$1(timezoneOffset);
+      case "XXXXX":
+      case "XXX":
+      default:
+        return formatTimezone$1(timezoneOffset, ":");
+    }
+  },
+  // Timezone (ISO-8601. If offset is 0, output is `'+00:00'` or equivalent)
+  x: function(date2, token, _localize) {
+    const timezoneOffset = date2.getTimezoneOffset();
+    switch (token) {
+      case "x":
+        return formatTimezoneWithOptionalMinutes$1(timezoneOffset);
+      case "xxxx":
+      case "xx":
+        return formatTimezone$1(timezoneOffset);
+      case "xxxxx":
+      case "xxx":
+      default:
+        return formatTimezone$1(timezoneOffset, ":");
+    }
+  },
+  // Timezone (GMT)
+  O: function(date2, token, _localize) {
+    const timezoneOffset = date2.getTimezoneOffset();
+    switch (token) {
+      case "O":
+      case "OO":
+      case "OOO":
+        return "GMT" + formatTimezoneShort$1(timezoneOffset, ":");
+      case "OOOO":
+      default:
+        return "GMT" + formatTimezone$1(timezoneOffset, ":");
+    }
+  },
+  // Timezone (specific non-location)
+  z: function(date2, token, _localize) {
+    const timezoneOffset = date2.getTimezoneOffset();
+    switch (token) {
+      case "z":
+      case "zz":
+      case "zzz":
+        return "GMT" + formatTimezoneShort$1(timezoneOffset, ":");
+      case "zzzz":
+      default:
+        return "GMT" + formatTimezone$1(timezoneOffset, ":");
+    }
+  },
+  // Seconds timestamp
+  t: function(date2, token, _localize) {
+    const timestamp = Math.trunc(+date2 / 1e3);
+    return addLeadingZeros$1(timestamp, token.length);
+  },
+  // Milliseconds timestamp
+  T: function(date2, token, _localize) {
+    return addLeadingZeros$1(+date2, token.length);
+  }
+};
+function formatTimezoneShort$1(offset, delimiter = "") {
+  const sign2 = offset > 0 ? "-" : "+";
+  const absOffset = Math.abs(offset);
+  const hours = Math.trunc(absOffset / 60);
+  const minutes = absOffset % 60;
+  if (minutes === 0) {
+    return sign2 + String(hours);
+  }
+  return sign2 + String(hours) + delimiter + addLeadingZeros$1(minutes, 2);
+}
+function formatTimezoneWithOptionalMinutes$1(offset, delimiter) {
+  if (offset % 60 === 0) {
+    const sign2 = offset > 0 ? "-" : "+";
+    return sign2 + addLeadingZeros$1(Math.abs(offset) / 60, 2);
+  }
+  return formatTimezone$1(offset, delimiter);
+}
+function formatTimezone$1(offset, delimiter = "") {
+  const sign2 = offset > 0 ? "-" : "+";
+  const absOffset = Math.abs(offset);
+  const hours = addLeadingZeros$1(Math.trunc(absOffset / 60), 2);
+  const minutes = addLeadingZeros$1(absOffset % 60, 2);
+  return sign2 + hours + delimiter + minutes;
+}
+const dateLongFormatter = (pattern, formatLong2) => {
+  switch (pattern) {
+    case "P":
+      return formatLong2.date({ width: "short" });
+    case "PP":
+      return formatLong2.date({ width: "medium" });
+    case "PPP":
+      return formatLong2.date({ width: "long" });
+    case "PPPP":
+    default:
+      return formatLong2.date({ width: "full" });
+  }
+};
+const timeLongFormatter = (pattern, formatLong2) => {
+  switch (pattern) {
+    case "p":
+      return formatLong2.time({ width: "short" });
+    case "pp":
+      return formatLong2.time({ width: "medium" });
+    case "ppp":
+      return formatLong2.time({ width: "long" });
+    case "pppp":
+    default:
+      return formatLong2.time({ width: "full" });
+  }
+};
+const dateTimeLongFormatter = (pattern, formatLong2) => {
+  const matchResult = pattern.match(/(P+)(p+)?/) || [];
+  const datePattern = matchResult[1];
+  const timePattern = matchResult[2];
+  if (!timePattern) {
+    return dateLongFormatter(pattern, formatLong2);
+  }
+  let dateTimeFormat;
+  switch (datePattern) {
+    case "P":
+      dateTimeFormat = formatLong2.dateTime({ width: "short" });
+      break;
+    case "PP":
+      dateTimeFormat = formatLong2.dateTime({ width: "medium" });
+      break;
+    case "PPP":
+      dateTimeFormat = formatLong2.dateTime({ width: "long" });
+      break;
+    case "PPPP":
+    default:
+      dateTimeFormat = formatLong2.dateTime({ width: "full" });
+      break;
+  }
+  return dateTimeFormat.replace("{{date}}", dateLongFormatter(datePattern, formatLong2)).replace("{{time}}", timeLongFormatter(timePattern, formatLong2));
+};
+const longFormatters = {
+  p: timeLongFormatter,
+  P: dateTimeLongFormatter
+};
+const dayOfYearTokenRE = /^D+$/;
+const weekYearTokenRE = /^Y+$/;
+const throwTokens = ["D", "DD", "YY", "YYYY"];
+function isProtectedDayOfYearToken(token) {
+  return dayOfYearTokenRE.test(token);
+}
+function isProtectedWeekYearToken(token) {
+  return weekYearTokenRE.test(token);
+}
+function warnOrThrowProtectedError(token, format2, input) {
+  const _message = message(token, format2, input);
+  console.warn(_message);
+  if (throwTokens.includes(token)) throw new RangeError(_message);
+}
+function message(token, format2, input) {
+  const subject = token[0] === "Y" ? "years" : "days of the month";
+  return `Use \`${token.toLowerCase()}\` instead of \`${token}\` (in \`${format2}\`) for formatting ${subject} to the input \`${input}\`; see: https://github.com/date-fns/date-fns/blob/master/docs/unicodeTokens.md`;
+}
+function isDate(value) {
+  return value instanceof Date || typeof value === "object" && Object.prototype.toString.call(value) === "[object Date]";
+}
+function isValid(date2) {
+  return !(!isDate(date2) && typeof date2 !== "number" || isNaN(+toDate$1(date2)));
+}
+const formattingTokensRegExp = /[yYQqMLwIdDecihHKkms]o|(\w)\1*|''|'(''|[^'])+('|$)|./g;
+const longFormattingTokensRegExp = /P+p+|P+|p+|''|'(''|[^'])+('|$)|./g;
+const escapedStringRegExp = /^'([^]*?)'?$/;
+const doubleQuoteRegExp = /''/g;
+const unescapedLatinCharacterRegExp = /[a-zA-Z]/;
+function format$2(date2, formatStr, options) {
+  const defaultOptions2 = getDefaultOptions$1();
+  const locale2 = options?.locale ?? defaultOptions2.locale ?? enUS;
+  const firstWeekContainsDate = options?.firstWeekContainsDate ?? options?.locale?.options?.firstWeekContainsDate ?? defaultOptions2.firstWeekContainsDate ?? defaultOptions2.locale?.options?.firstWeekContainsDate ?? 1;
+  const weekStartsOn = options?.weekStartsOn ?? options?.locale?.options?.weekStartsOn ?? defaultOptions2.weekStartsOn ?? defaultOptions2.locale?.options?.weekStartsOn ?? 0;
+  const originalDate = toDate$1(date2, options?.in);
+  if (!isValid(originalDate)) {
+    throw new RangeError("Invalid time value");
+  }
+  let parts = formatStr.match(longFormattingTokensRegExp).map((substring) => {
+    const firstCharacter = substring[0];
+    if (firstCharacter === "p" || firstCharacter === "P") {
+      const longFormatter = longFormatters[firstCharacter];
+      return longFormatter(substring, locale2.formatLong);
+    }
+    return substring;
+  }).join("").match(formattingTokensRegExp).map((substring) => {
+    if (substring === "''") {
+      return { isToken: false, value: "'" };
+    }
+    const firstCharacter = substring[0];
+    if (firstCharacter === "'") {
+      return { isToken: false, value: cleanEscapedString(substring) };
+    }
+    if (formatters$1[firstCharacter]) {
+      return { isToken: true, value: substring };
+    }
+    if (firstCharacter.match(unescapedLatinCharacterRegExp)) {
+      throw new RangeError(
+        "Format string contains an unescaped latin alphabet character `" + firstCharacter + "`"
+      );
+    }
+    return { isToken: false, value: substring };
+  });
+  if (locale2.localize.preprocessor) {
+    parts = locale2.localize.preprocessor(originalDate, parts);
+  }
+  const formatterOptions = {
+    firstWeekContainsDate,
+    weekStartsOn,
+    locale: locale2
+  };
+  return parts.map((part) => {
+    if (!part.isToken) return part.value;
+    const token = part.value;
+    if (!options?.useAdditionalWeekYearTokens && isProtectedWeekYearToken(token) || !options?.useAdditionalDayOfYearTokens && isProtectedDayOfYearToken(token)) {
+      warnOrThrowProtectedError(token, formatStr, String(date2));
+    }
+    const formatter = formatters$1[token[0]];
+    return formatter(originalDate, token, locale2.localize, formatterOptions);
+  }).join("");
+}
+function cleanEscapedString(input) {
+  const matched = input.match(escapedStringRegExp);
+  if (!matched) {
+    return input;
+  }
+  return matched[1].replace(doubleQuoteRegExp, "'");
+}
+function getDefaultOptions() {
+  return Object.assign({}, getDefaultOptions$1());
+}
+function tzIntlTimeZoneName(length, date2, options) {
+  const defaultOptions2 = getDefaultOptions();
+  const dtf = getDTF(length, options.timeZone, options.locale ?? defaultOptions2.locale);
+  return "formatToParts" in dtf ? partsTimeZone(dtf, date2) : hackyTimeZone(dtf, date2);
+}
+function partsTimeZone(dtf, date2) {
+  const formatted = dtf.formatToParts(date2);
+  for (let i = formatted.length - 1; i >= 0; --i) {
+    if (formatted[i].type === "timeZoneName") {
+      return formatted[i].value;
+    }
+  }
+  return void 0;
+}
+function hackyTimeZone(dtf, date2) {
+  const formatted = dtf.format(date2).replace(/\u200E/g, "");
+  const tzNameMatch = / [\w-+ ]+$/.exec(formatted);
+  return tzNameMatch ? tzNameMatch[0].substr(1) : "";
+}
+function getDTF(length, timeZone, locale2) {
+  return new Intl.DateTimeFormat(locale2 ? [locale2.code, "en-US"] : void 0, {
+    timeZone,
+    timeZoneName: length
+  });
+}
+function tzTokenizeDate(date2, timeZone) {
+  const dtf = getDateTimeFormat(timeZone);
+  return "formatToParts" in dtf ? partsOffset(dtf, date2) : hackyOffset(dtf, date2);
+}
+const typeToPos = {
+  year: 0,
+  month: 1,
+  day: 2,
+  hour: 3,
+  minute: 4,
+  second: 5
+};
+function partsOffset(dtf, date2) {
+  try {
+    const formatted = dtf.formatToParts(date2);
+    const filled = [];
+    for (let i = 0; i < formatted.length; i++) {
+      const pos = typeToPos[formatted[i].type];
+      if (pos !== void 0) {
+        filled[pos] = parseInt(formatted[i].value, 10);
+      }
+    }
+    return filled;
+  } catch (error) {
+    if (error instanceof RangeError) {
+      return [NaN];
+    }
+    throw error;
+  }
+}
+function hackyOffset(dtf, date2) {
+  const formatted = dtf.format(date2);
+  const parsed = /(\d+)\/(\d+)\/(\d+),? (\d+):(\d+):(\d+)/.exec(formatted);
+  return [
+    parseInt(parsed[3], 10),
+    parseInt(parsed[1], 10),
+    parseInt(parsed[2], 10),
+    parseInt(parsed[4], 10),
+    parseInt(parsed[5], 10),
+    parseInt(parsed[6], 10)
+  ];
+}
+const dtfCache = {};
+const testDateFormatted = new Intl.DateTimeFormat("en-US", {
+  hourCycle: "h23",
+  timeZone: "America/New_York",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit"
+}).format(/* @__PURE__ */ new Date("2014-06-25T04:00:00.123Z"));
+const hourCycleSupported = testDateFormatted === "06/25/2014, 00:00:00" || testDateFormatted === "‎06‎/‎25‎/‎2014‎ ‎00‎:‎00‎:‎00";
+function getDateTimeFormat(timeZone) {
+  if (!dtfCache[timeZone]) {
+    dtfCache[timeZone] = hourCycleSupported ? new Intl.DateTimeFormat("en-US", {
+      hourCycle: "h23",
+      timeZone,
+      year: "numeric",
+      month: "numeric",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit"
+    }) : new Intl.DateTimeFormat("en-US", {
+      hour12: false,
+      timeZone,
+      year: "numeric",
+      month: "numeric",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit"
+    });
+  }
+  return dtfCache[timeZone];
+}
+function newDateUTC(fullYear, month, day, hour, minute, second2, millisecond2) {
+  const utcDate2 = /* @__PURE__ */ new Date(0);
+  utcDate2.setUTCFullYear(fullYear, month, day);
+  utcDate2.setUTCHours(hour, minute, second2, millisecond2);
+  return utcDate2;
+}
+const MILLISECONDS_IN_HOUR$1 = 36e5;
+const MILLISECONDS_IN_MINUTE$2 = 6e4;
+const patterns$1 = {
+  timezoneZ: /^(Z)$/,
+  timezoneHH: /^([+-]\d{2})$/,
+  timezoneHHMM: /^([+-])(\d{2}):?(\d{2})$/
+};
+function tzParseTimezone(timezoneString, date2, isUtcDate) {
+  if (!timezoneString) {
+    return 0;
+  }
+  let token = patterns$1.timezoneZ.exec(timezoneString);
+  if (token) {
+    return 0;
+  }
+  let hours;
+  let absoluteOffset;
+  token = patterns$1.timezoneHH.exec(timezoneString);
+  if (token) {
+    hours = parseInt(token[1], 10);
+    if (!validateTimezone(hours)) {
+      return NaN;
+    }
+    return -(hours * MILLISECONDS_IN_HOUR$1);
+  }
+  token = patterns$1.timezoneHHMM.exec(timezoneString);
+  if (token) {
+    hours = parseInt(token[2], 10);
+    const minutes = parseInt(token[3], 10);
+    if (!validateTimezone(hours, minutes)) {
+      return NaN;
+    }
+    absoluteOffset = Math.abs(hours) * MILLISECONDS_IN_HOUR$1 + minutes * MILLISECONDS_IN_MINUTE$2;
+    return token[1] === "+" ? -absoluteOffset : absoluteOffset;
+  }
+  if (isValidTimezoneIANAString(timezoneString)) {
+    date2 = new Date(date2 || Date.now());
+    const utcDate2 = isUtcDate ? date2 : toUtcDate(date2);
+    const offset = calcOffset(utcDate2, timezoneString);
+    const fixedOffset = isUtcDate ? offset : fixOffset(date2, offset, timezoneString);
+    return -fixedOffset;
+  }
+  return NaN;
+}
+function toUtcDate(date2) {
+  return newDateUTC(date2.getFullYear(), date2.getMonth(), date2.getDate(), date2.getHours(), date2.getMinutes(), date2.getSeconds(), date2.getMilliseconds());
+}
+function calcOffset(date2, timezoneString) {
+  const tokens = tzTokenizeDate(date2, timezoneString);
+  const asUTC = newDateUTC(tokens[0], tokens[1] - 1, tokens[2], tokens[3] % 24, tokens[4], tokens[5], 0).getTime();
+  let asTS = date2.getTime();
+  const over = asTS % 1e3;
+  asTS -= over >= 0 ? over : 1e3 + over;
+  return asUTC - asTS;
+}
+function fixOffset(date2, offset, timezoneString) {
+  const localTS = date2.getTime();
+  let utcGuess = localTS - offset;
+  const o2 = calcOffset(new Date(utcGuess), timezoneString);
+  if (offset === o2) {
+    return offset;
+  }
+  utcGuess -= o2 - offset;
+  const o3 = calcOffset(new Date(utcGuess), timezoneString);
+  if (o2 === o3) {
+    return o2;
+  }
+  return Math.max(o2, o3);
+}
+function validateTimezone(hours, minutes) {
+  return -23 <= hours && hours <= 23 && (minutes == null || 0 <= minutes && minutes <= 59);
+}
+const validIANATimezoneCache = {};
+function isValidTimezoneIANAString(timeZoneString) {
+  if (validIANATimezoneCache[timeZoneString])
+    return true;
+  try {
+    new Intl.DateTimeFormat(void 0, { timeZone: timeZoneString });
+    validIANATimezoneCache[timeZoneString] = true;
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+const MILLISECONDS_IN_MINUTE$1 = 60 * 1e3;
+const formatters = {
+  // Timezone (ISO-8601. If offset is 0, output is always `'Z'`)
+  X: function(date2, token, options) {
+    const timezoneOffset = getTimeZoneOffset(options.timeZone, date2);
+    if (timezoneOffset === 0) {
+      return "Z";
+    }
+    switch (token) {
+      case "X":
+        return formatTimezoneWithOptionalMinutes(timezoneOffset);
+      case "XXXX":
+      case "XX":
+        return formatTimezone(timezoneOffset);
+      case "XXXXX":
+      case "XXX":
+      default:
+        return formatTimezone(timezoneOffset, ":");
+    }
+  },
+  // Timezone (ISO-8601. If offset is 0, output is `'+00:00'` or equivalent)
+  x: function(date2, token, options) {
+    const timezoneOffset = getTimeZoneOffset(options.timeZone, date2);
+    switch (token) {
+      case "x":
+        return formatTimezoneWithOptionalMinutes(timezoneOffset);
+      case "xxxx":
+      case "xx":
+        return formatTimezone(timezoneOffset);
+      case "xxxxx":
+      case "xxx":
+      default:
+        return formatTimezone(timezoneOffset, ":");
+    }
+  },
+  // Timezone (GMT)
+  O: function(date2, token, options) {
+    const timezoneOffset = getTimeZoneOffset(options.timeZone, date2);
+    switch (token) {
+      case "O":
+      case "OO":
+      case "OOO":
+        return "GMT" + formatTimezoneShort(timezoneOffset, ":");
+      case "OOOO":
+      default:
+        return "GMT" + formatTimezone(timezoneOffset, ":");
+    }
+  },
+  // Timezone (specific non-location)
+  z: function(date2, token, options) {
+    switch (token) {
+      case "z":
+      case "zz":
+      case "zzz":
+        return tzIntlTimeZoneName("short", date2, options);
+      case "zzzz":
+      default:
+        return tzIntlTimeZoneName("long", date2, options);
+    }
+  }
+};
+function getTimeZoneOffset(timeZone, originalDate) {
+  const timeZoneOffset = timeZone ? tzParseTimezone(timeZone, originalDate, true) / MILLISECONDS_IN_MINUTE$1 : originalDate?.getTimezoneOffset() ?? 0;
+  if (Number.isNaN(timeZoneOffset)) {
+    throw new RangeError("Invalid time zone specified: " + timeZone);
+  }
+  return timeZoneOffset;
+}
+function addLeadingZeros(number2, targetLength) {
+  const sign2 = number2 < 0 ? "-" : "";
+  let output = Math.abs(number2).toString();
+  while (output.length < targetLength) {
+    output = "0" + output;
+  }
+  return sign2 + output;
+}
+function formatTimezone(offset, delimiter = "") {
+  const sign2 = offset > 0 ? "-" : "+";
+  const absOffset = Math.abs(offset);
+  const hours = addLeadingZeros(Math.floor(absOffset / 60), 2);
+  const minutes = addLeadingZeros(Math.floor(absOffset % 60), 2);
+  return sign2 + hours + delimiter + minutes;
+}
+function formatTimezoneWithOptionalMinutes(offset, delimiter) {
+  if (offset % 60 === 0) {
+    const sign2 = offset > 0 ? "-" : "+";
+    return sign2 + addLeadingZeros(Math.abs(offset) / 60, 2);
+  }
+  return formatTimezone(offset, delimiter);
+}
+function formatTimezoneShort(offset, delimiter = "") {
+  const sign2 = offset > 0 ? "-" : "+";
+  const absOffset = Math.abs(offset);
+  const hours = Math.floor(absOffset / 60);
+  const minutes = absOffset % 60;
+  if (minutes === 0) {
+    return sign2 + String(hours);
+  }
+  return sign2 + String(hours) + delimiter + addLeadingZeros(minutes, 2);
+}
+function getTimezoneOffsetInMilliseconds(date2) {
+  const utcDate2 = new Date(Date.UTC(date2.getFullYear(), date2.getMonth(), date2.getDate(), date2.getHours(), date2.getMinutes(), date2.getSeconds(), date2.getMilliseconds()));
+  utcDate2.setUTCFullYear(date2.getFullYear());
+  return +date2 - +utcDate2;
+}
+const tzPattern = /(Z|[+-]\d{2}(?::?\d{2})?| UTC| [a-zA-Z]+\/[a-zA-Z_]+(?:\/[a-zA-Z_]+)?)$/;
+const MILLISECONDS_IN_HOUR = 36e5;
+const MILLISECONDS_IN_MINUTE = 6e4;
+const DEFAULT_ADDITIONAL_DIGITS = 2;
+const patterns = {
+  dateTimePattern: /^([0-9W+-]+)(T| )(.*)/,
+  datePattern: /^([0-9W+-]+)(.*)/,
+  // year tokens
+  YY: /^(\d{2})$/,
+  YYY: [
+    /^([+-]\d{2})$/,
+    // 0 additional digits
+    /^([+-]\d{3})$/,
+    // 1 additional digit
+    /^([+-]\d{4})$/
+    // 2 additional digits
+  ],
+  YYYY: /^(\d{4})/,
+  YYYYY: [
+    /^([+-]\d{4})/,
+    // 0 additional digits
+    /^([+-]\d{5})/,
+    // 1 additional digit
+    /^([+-]\d{6})/
+    // 2 additional digits
+  ],
+  // date tokens
+  MM: /^-(\d{2})$/,
+  DDD: /^-?(\d{3})$/,
+  MMDD: /^-?(\d{2})-?(\d{2})$/,
+  Www: /^-?W(\d{2})$/,
+  WwwD: /^-?W(\d{2})-?(\d{1})$/,
+  HH: /^(\d{2}([.,]\d*)?)$/,
+  HHMM: /^(\d{2}):?(\d{2}([.,]\d*)?)$/,
+  HHMMSS: /^(\d{2}):?(\d{2}):?(\d{2}([.,]\d*)?)$/,
+  // time zone tokens (to identify the presence of a tz)
+  timeZone: tzPattern
+};
+function toDate(argument, options = {}) {
+  if (arguments.length < 1) {
+    throw new TypeError("1 argument required, but only " + arguments.length + " present");
+  }
+  if (argument === null) {
+    return /* @__PURE__ */ new Date(NaN);
+  }
+  const additionalDigits = options.additionalDigits == null ? DEFAULT_ADDITIONAL_DIGITS : Number(options.additionalDigits);
+  if (additionalDigits !== 2 && additionalDigits !== 1 && additionalDigits !== 0) {
+    throw new RangeError("additionalDigits must be 0, 1 or 2");
+  }
+  if (argument instanceof Date || typeof argument === "object" && Object.prototype.toString.call(argument) === "[object Date]") {
+    return new Date(argument.getTime());
+  } else if (typeof argument === "number" || Object.prototype.toString.call(argument) === "[object Number]") {
+    return new Date(argument);
+  } else if (!(Object.prototype.toString.call(argument) === "[object String]")) {
+    return /* @__PURE__ */ new Date(NaN);
+  }
+  const dateStrings = splitDateString(argument);
+  const { year, restDateString } = parseYear$1(dateStrings.date, additionalDigits);
+  const date2 = parseDate(restDateString, year);
+  if (date2 === null || isNaN(date2.getTime())) {
+    return /* @__PURE__ */ new Date(NaN);
+  }
+  if (date2) {
+    const timestamp = date2.getTime();
+    let time2 = 0;
+    let offset;
+    if (dateStrings.time) {
+      time2 = parseTime(dateStrings.time);
+      if (time2 === null || isNaN(time2)) {
+        return /* @__PURE__ */ new Date(NaN);
+      }
+    }
+    if (dateStrings.timeZone || options.timeZone) {
+      offset = tzParseTimezone(dateStrings.timeZone || options.timeZone, new Date(timestamp + time2));
+      if (isNaN(offset)) {
+        return /* @__PURE__ */ new Date(NaN);
+      }
+    } else {
+      offset = getTimezoneOffsetInMilliseconds(new Date(timestamp + time2));
+      offset = getTimezoneOffsetInMilliseconds(new Date(timestamp + time2 + offset));
+    }
+    return new Date(timestamp + time2 + offset);
+  } else {
+    return /* @__PURE__ */ new Date(NaN);
+  }
+}
+function splitDateString(dateString) {
+  const dateStrings = {};
+  let parts = patterns.dateTimePattern.exec(dateString);
+  let timeString;
+  if (!parts) {
+    parts = patterns.datePattern.exec(dateString);
+    if (parts) {
+      dateStrings.date = parts[1];
+      timeString = parts[2];
+    } else {
+      dateStrings.date = null;
+      timeString = dateString;
+    }
+  } else {
+    dateStrings.date = parts[1];
+    timeString = parts[3];
+  }
+  if (timeString) {
+    const token = patterns.timeZone.exec(timeString);
+    if (token) {
+      dateStrings.time = timeString.replace(token[1], "");
+      dateStrings.timeZone = token[1].trim();
+    } else {
+      dateStrings.time = timeString;
+    }
+  }
+  return dateStrings;
+}
+function parseYear$1(dateString, additionalDigits) {
+  if (dateString) {
+    const patternYYY = patterns.YYY[additionalDigits];
+    const patternYYYYY = patterns.YYYYY[additionalDigits];
+    let token = patterns.YYYY.exec(dateString) || patternYYYYY.exec(dateString);
+    if (token) {
+      const yearString = token[1];
+      return {
+        year: parseInt(yearString, 10),
+        restDateString: dateString.slice(yearString.length)
+      };
+    }
+    token = patterns.YY.exec(dateString) || patternYYY.exec(dateString);
+    if (token) {
+      const centuryString = token[1];
+      return {
+        year: parseInt(centuryString, 10) * 100,
+        restDateString: dateString.slice(centuryString.length)
+      };
+    }
+  }
+  return {
+    year: null
+  };
+}
+function parseDate(dateString, year) {
+  if (year === null) {
+    return null;
+  }
+  let date2;
+  let month;
+  let week;
+  if (!dateString || !dateString.length) {
+    date2 = /* @__PURE__ */ new Date(0);
+    date2.setUTCFullYear(year);
+    return date2;
+  }
+  let token = patterns.MM.exec(dateString);
+  if (token) {
+    date2 = /* @__PURE__ */ new Date(0);
+    month = parseInt(token[1], 10) - 1;
+    if (!validateDate(year, month)) {
+      return /* @__PURE__ */ new Date(NaN);
+    }
+    date2.setUTCFullYear(year, month);
+    return date2;
+  }
+  token = patterns.DDD.exec(dateString);
+  if (token) {
+    date2 = /* @__PURE__ */ new Date(0);
+    const dayOfYear = parseInt(token[1], 10);
+    if (!validateDayOfYearDate(year, dayOfYear)) {
+      return /* @__PURE__ */ new Date(NaN);
+    }
+    date2.setUTCFullYear(year, 0, dayOfYear);
+    return date2;
+  }
+  token = patterns.MMDD.exec(dateString);
+  if (token) {
+    date2 = /* @__PURE__ */ new Date(0);
+    month = parseInt(token[1], 10) - 1;
+    const day = parseInt(token[2], 10);
+    if (!validateDate(year, month, day)) {
+      return /* @__PURE__ */ new Date(NaN);
+    }
+    date2.setUTCFullYear(year, month, day);
+    return date2;
+  }
+  token = patterns.Www.exec(dateString);
+  if (token) {
+    week = parseInt(token[1], 10) - 1;
+    if (!validateWeekDate(week)) {
+      return /* @__PURE__ */ new Date(NaN);
+    }
+    return dayOfISOWeekYear(year, week);
+  }
+  token = patterns.WwwD.exec(dateString);
+  if (token) {
+    week = parseInt(token[1], 10) - 1;
+    const dayOfWeek = parseInt(token[2], 10) - 1;
+    if (!validateWeekDate(week, dayOfWeek)) {
+      return /* @__PURE__ */ new Date(NaN);
+    }
+    return dayOfISOWeekYear(year, week, dayOfWeek);
+  }
+  return null;
+}
+function parseTime(timeString) {
+  let hours;
+  let minutes;
+  let token = patterns.HH.exec(timeString);
+  if (token) {
+    hours = parseFloat(token[1].replace(",", "."));
+    if (!validateTime(hours)) {
+      return NaN;
+    }
+    return hours % 24 * MILLISECONDS_IN_HOUR;
+  }
+  token = patterns.HHMM.exec(timeString);
+  if (token) {
+    hours = parseInt(token[1], 10);
+    minutes = parseFloat(token[2].replace(",", "."));
+    if (!validateTime(hours, minutes)) {
+      return NaN;
+    }
+    return hours % 24 * MILLISECONDS_IN_HOUR + minutes * MILLISECONDS_IN_MINUTE;
+  }
+  token = patterns.HHMMSS.exec(timeString);
+  if (token) {
+    hours = parseInt(token[1], 10);
+    minutes = parseInt(token[2], 10);
+    const seconds = parseFloat(token[3].replace(",", "."));
+    if (!validateTime(hours, minutes, seconds)) {
+      return NaN;
+    }
+    return hours % 24 * MILLISECONDS_IN_HOUR + minutes * MILLISECONDS_IN_MINUTE + seconds * 1e3;
+  }
+  return null;
+}
+function dayOfISOWeekYear(isoWeekYear, week, day) {
+  week = week || 0;
+  day = day || 0;
+  const date2 = /* @__PURE__ */ new Date(0);
+  date2.setUTCFullYear(isoWeekYear, 0, 4);
+  const fourthOfJanuaryDay = date2.getUTCDay() || 7;
+  const diff = week * 7 + day + 1 - fourthOfJanuaryDay;
+  date2.setUTCDate(date2.getUTCDate() + diff);
+  return date2;
+}
+const DAYS_IN_MONTH = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+const DAYS_IN_MONTH_LEAP_YEAR = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+function isLeapYearIndex(year) {
+  return year % 400 === 0 || year % 4 === 0 && year % 100 !== 0;
+}
+function validateDate(year, month, date2) {
+  if (month < 0 || month > 11) {
+    return false;
+  }
+  if (date2 != null) {
+    if (date2 < 1) {
+      return false;
+    }
+    const isLeapYear = isLeapYearIndex(year);
+    if (isLeapYear && date2 > DAYS_IN_MONTH_LEAP_YEAR[month]) {
+      return false;
+    }
+    if (!isLeapYear && date2 > DAYS_IN_MONTH[month]) {
+      return false;
+    }
+  }
+  return true;
+}
+function validateDayOfYearDate(year, dayOfYear) {
+  if (dayOfYear < 1) {
+    return false;
+  }
+  const isLeapYear = isLeapYearIndex(year);
+  if (isLeapYear && dayOfYear > 366) {
+    return false;
+  }
+  if (!isLeapYear && dayOfYear > 365) {
+    return false;
+  }
+  return true;
+}
+function validateWeekDate(week, day) {
+  if (week < 0 || week > 52) {
+    return false;
+  }
+  if (day != null && (day < 0 || day > 6)) {
+    return false;
+  }
+  return true;
+}
+function validateTime(hours, minutes, seconds) {
+  if (hours < 0 || hours >= 25) {
+    return false;
+  }
+  if (minutes != null && (minutes < 0 || minutes >= 60)) {
+    return false;
+  }
+  if (seconds != null && (seconds < 0 || seconds >= 60)) {
+    return false;
+  }
+  return true;
+}
+const tzFormattingTokensRegExp = /([xXOz]+)|''|'(''|[^'])+('|$)/g;
+function format$1(date2, formatStr, options = {}) {
+  formatStr = String(formatStr);
+  const matches = formatStr.match(tzFormattingTokensRegExp);
+  if (matches) {
+    const d2 = toDate(options.originalDate || date2, options);
+    formatStr = matches.reduce(function(result, token) {
+      if (token[0] === "'") {
+        return result;
+      }
+      const pos = result.indexOf(token);
+      const precededByQuotedSection = result[pos - 1] === "'";
+      const replaced = result.replace(token, "'" + formatters[token[0]](d2, token, options) + "'");
+      return precededByQuotedSection ? replaced.substring(0, pos - 1) + replaced.substring(pos + 1) : replaced;
+    }, formatStr);
+  }
+  return format$2(date2, formatStr, options);
+}
+function toZonedTime(date2, timeZone, options) {
+  date2 = toDate(date2, options);
+  const offsetMilliseconds = tzParseTimezone(timeZone, date2, true);
+  const d2 = new Date(date2.getTime() - offsetMilliseconds);
+  const resultDate = /* @__PURE__ */ new Date(0);
+  resultDate.setFullYear(d2.getUTCFullYear(), d2.getUTCMonth(), d2.getUTCDate());
+  resultDate.setHours(d2.getUTCHours(), d2.getUTCMinutes(), d2.getUTCSeconds(), d2.getUTCMilliseconds());
+  return resultDate;
+}
+function localDateOf(instant, timezone) {
+  const date2 = typeof instant === "string" ? new Date(instant) : instant;
+  return format$1(toZonedTime(date2, timezone), "yyyy-MM-dd", { timeZone: timezone });
+}
+function todayLocalDate(timezone) {
+  return localDateOf(/* @__PURE__ */ new Date(), timezone);
+}
 const useDayStore = create((set, get2) => ({
   today: null,
+  todayDate: todayLocalDate(Intl.DateTimeFormat().resolvedOptions().timeZone),
   viewed: null,
   viewedDate: null,
   dates: [],
@@ -60,18 +2114,21 @@ const useDayStore = create((set, get2) => ({
     if (get2().viewedDate === day?.localDate) set({ viewed: day });
   },
   setViewed: (day, date2) => set({ viewed: day, viewedDate: date2 }),
-  setDates: (dates) => set({ dates })
+  setDates: (dates) => set({ dates }),
+  goToday: () => set({ viewed: null, viewedDate: null })
 }));
 async function initDayStore() {
-  const [today, dates] = await Promise.all([
+  const [today, dates, settings] = await Promise.all([
     window.thread.invoke["day:today"](void 0),
-    window.thread.invoke["day:list"](void 0)
+    window.thread.invoke["day:list"](void 0),
+    window.thread.invoke["settings:get"](void 0)
   ]);
+  useDayStore.setState({ todayDate: todayLocalDate(settings.timezone) });
   useDayStore.getState().setToday(today);
   useDayStore.getState().setDates(dates);
   window.thread.on("day:changed", (day) => {
     useDayStore.getState().setDates([.../* @__PURE__ */ new Set([...useDayStore.getState().dates, day.localDate])].sort());
-    if (day.localDate === (/* @__PURE__ */ new Date()).toISOString().slice(0, 10) || useDayStore.getState().today?.localDate === day.localDate) {
+    if (day.localDate === useDayStore.getState().todayDate) {
       useDayStore.getState().setToday(day);
     }
     if (useDayStore.getState().viewedDate === day.localDate) {
@@ -109,12 +2166,17 @@ const useUiStore = create((set) => ({
 function SideRail() {
   const dates = useDayStore((s2) => s2.dates);
   const viewedDate = useDayStore((s2) => s2.viewedDate);
-  const today = useDayStore((s2) => s2.today);
+  const todayDate = useDayStore((s2) => s2.todayDate);
+  const goToday = useDayStore((s2) => s2.goToday);
   const collapsed = useUiStore((s2) => s2.railCollapsed);
   const toggleRail = useUiStore((s2) => s2.toggleRail);
   const setTab = useUiStore((s2) => s2.setTab);
-  const months = reactExports.useMemo(() => groupByMonth(dates), [dates]);
+  const months = reactExports.useMemo(
+    () => groupByMonth(dates.filter((date2) => date2 !== todayDate)),
+    [dates, todayDate]
+  );
   const collapsedWidth = 108;
+  const onToday = viewedDate === null || viewedDate === todayDate;
   return /* @__PURE__ */ jsxRuntimeExports.jsxs(
     "div",
     {
@@ -144,29 +2206,53 @@ function SideRail() {
             children: collapsed ? "»" : "«"
           }
         ) }),
-        !collapsed && today ? /* @__PURE__ */ jsxRuntimeExports.jsx(
+        /* @__PURE__ */ jsxRuntimeExports.jsxs(
           "button",
           {
             onClick: () => {
               setTab("today");
-              void loadDay(today.localDate);
+              goToday();
             },
+            title: formatLocalDate(todayDate),
             style: {
+              display: "flex",
+              flexDirection: "column",
+              alignItems: collapsed ? "center" : "flex-start",
               margin: "0 12px 12px",
               padding: "8px 10px",
               borderRadius: 8,
               border: "1px solid var(--line)",
-              background: viewedDate === today.localDate ? "var(--surface-raised)" : "transparent",
+              background: onToday ? "var(--surface-raised)" : "transparent",
               color: "var(--amber)",
               textAlign: "left",
               cursor: "pointer",
               fontSize: 13
             },
-            children: "Today"
+            children: [
+              collapsed ? "•" : "Today",
+              !collapsed ? /* @__PURE__ */ jsxRuntimeExports.jsx(
+                "span",
+                {
+                  style: { fontSize: 11, color: "var(--text-faint)", marginTop: 1 },
+                  children: formatLocalDate(todayDate)
+                }
+              ) : null
+            ]
           }
-        ) : null,
+        ),
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { flex: 1, overflowY: "auto", padding: "0 8px" }, children: [
-          !collapsed && months.length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: { fontSize: 11, color: "var(--text-faint)", padding: "0 8px", lineHeight: 1.5 }, children: "Past days appear here once you’ve used them. Days you didn’t work are never created." }) : null,
+          !collapsed && months.length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "p",
+            {
+              style: {
+                fontSize: 11,
+                color: "var(--text-faint)",
+                padding: "0 8px",
+                lineHeight: 1.5
+              },
+              children: "Past days appear here once you’ve used them. Days you didn’t work are never created."
+            }
+          ) : null,
           months.map((month) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { marginBottom: 12 }, children: [
             !collapsed ? /* @__PURE__ */ jsxRuntimeExports.jsx(
               "div",
@@ -195,8 +2281,7 @@ function SideRail() {
               }
             ),
             month.days.map((date2) => {
-              const isToday = date2 === today?.localDate;
-              const isPastDate = today ? date2 < today.localDate : false;
+              const isPastDate = date2 < todayDate;
               return /* @__PURE__ */ jsxRuntimeExports.jsx(
                 "button",
                 {
@@ -215,13 +2300,24 @@ function SideRail() {
                     borderRadius: 8,
                     border: "none",
                     background: viewedDate === date2 ? "var(--surface-raised)" : "transparent",
-                    color: isToday ? "var(--text)" : isPastDate ? "var(--text-faint)" : "var(--text-muted)",
+                    color: isPastDate ? "var(--text-faint)" : "var(--text-muted)",
                     cursor: "pointer",
                     fontSize: 13,
                     textAlign: collapsed ? "center" : "left"
                   },
                   children: !collapsed ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-                    /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "mono", style: { width: 24, textAlign: "right", color: "var(--text-faint)" }, children: formatDayNumber(date2) }),
+                    /* @__PURE__ */ jsxRuntimeExports.jsx(
+                      "span",
+                      {
+                        className: "mono",
+                        style: {
+                          width: 24,
+                          textAlign: "right",
+                          color: "var(--text-faint)"
+                        },
+                        children: formatDayNumber(date2)
+                      }
+                    ),
                     /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { whiteSpace: "nowrap" }, children: formatLocalDate(date2) })
                   ] }) : /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { whiteSpace: "nowrap" }, children: formatCollapsedDate(date2) })
                 },
@@ -242,7 +2338,10 @@ function groupByMonth(dates) {
     if (list) list.push(date2);
     else groups.set(key, [date2]);
   }
-  return [...groups.entries()].map(([key, days]) => ({ key: `${key}-01`, days }));
+  return [...groups.entries()].map(([key, days]) => ({
+    key: `${key}-01`,
+    days
+  }));
 }
 const TABS = [
   { id: "today", label: "Today" },
@@ -580,7 +2679,9 @@ function Panel({
     }
   );
 }
-function NowPanel({ readOnly }) {
+function NowPanel({
+  readOnly
+}) {
   const state = useSessionStore((s2) => s2.state);
   const tick = useLiveClock(state?.session.id ?? null);
   const [picking, setPicking] = reactExports.useState(false);
@@ -590,7 +2691,15 @@ function NowPanel({ readOnly }) {
     {
       title: "Now",
       subtitle: state ? void 0 : "The one thing you are working on right now.",
-      children: !state ? readOnly ? /* @__PURE__ */ jsxRuntimeExports.jsx(EmptyState, { title: "Nothing was running." }) : picking ? /* @__PURE__ */ jsxRuntimeExports.jsx(ThreadPicker, { onPick: (id) => window.thread.invoke["session:start"]({ threadId: id }).then(() => setPicking(false)), onCancel: () => setPicking(false) }) : /* @__PURE__ */ jsxRuntimeExports.jsx(
+      children: !state ? readOnly ? /* @__PURE__ */ jsxRuntimeExports.jsx(EmptyState, { title: "Nothing was running." }) : picking ? /* @__PURE__ */ jsxRuntimeExports.jsx(
+        ThreadPicker,
+        {
+          onPick: (id) => window.thread.invoke["session:start"]({ threadId: id }).then(
+            () => setPicking(false)
+          ),
+          onCancel: () => setPicking(false)
+        }
+      ) : /* @__PURE__ */ jsxRuntimeExports.jsx(
         EmptyState,
         {
           title: "Nothing running.",
@@ -600,8 +2709,30 @@ function NowPanel({ readOnly }) {
       ) : /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 16 }, children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx(Ring, { value: tick?.progress ?? 0, size: 44, dim: state.paused, children: /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "mono", style: { fontSize: 10 }, children: formatClock(remaining) }) }),
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { flex: 1, minWidth: 0 }, children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { fontSize: 15, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, children: state.threadTitle }),
-          state.nextAction ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { fontSize: 11, color: "var(--text-muted)", marginTop: 2 }, children: state.nextAction }) : null
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "div",
+            {
+              style: {
+                fontSize: 15,
+                fontWeight: 500,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap"
+              },
+              children: state.threadTitle
+            }
+          ),
+          state.nextAction ? /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "div",
+            {
+              style: {
+                fontSize: 11,
+                color: "var(--text-muted)",
+                marginTop: 2
+              },
+              children: state.nextAction
+            }
+          ) : null
         ] }),
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", gap: 6 }, children: [
           /* @__PURE__ */ jsxRuntimeExports.jsx(
@@ -612,7 +2743,14 @@ function NowPanel({ readOnly }) {
               children: state.paused ? "Resume" : "Pause"
             }
           ),
-          /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { size: "sm", onClick: () => void window.thread.invoke["hud:show"](void 0), children: "Show HUD" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            Button,
+            {
+              size: "sm",
+              onClick: () => void window.thread.invoke["hud:show"](void 0),
+              children: "Show HUD"
+            }
+          ),
           /* @__PURE__ */ jsxRuntimeExports.jsx(
             Button,
             {
@@ -622,7 +2760,15 @@ function NowPanel({ readOnly }) {
               children: "I got distracted"
             }
           ),
-          /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { size: "sm", title: "Stop the timer. This does not finish the thread.", onClick: () => void window.thread.invoke["session:end"]({}), children: "Stop" })
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            Button,
+            {
+              size: "sm",
+              title: "Stop the timer. This does not finish the thread.",
+              onClick: () => void window.thread.invoke["session:end"]({}),
+              children: "Stop"
+            }
+          )
         ] })
       ] })
     }
@@ -649,7 +2795,10 @@ function PromoteToThread({ localDate: localDate2, todoId }) {
     }
   );
 }
-function TodoList({ day, readOnly }) {
+function TodoList({
+  day,
+  readOnly
+}) {
   const [text, setText] = reactExports.useState("");
   const todos = [...day?.todos ?? []].sort((a2, b2) => a2.order - b2.order);
   const add2 = async () => {
@@ -659,22 +2808,46 @@ function TodoList({ day, readOnly }) {
   };
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
     todos.map((todo) => /* @__PURE__ */ jsxRuntimeExports.jsx(TodoItem, { todo, readOnly }, todo.id)),
-    !readOnly ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 10, padding: "6px 0" }, children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { width: 14, height: 14, borderRadius: 4, border: "1px solid var(--line)" } }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx(
-        "input",
-        {
-          value: text,
-          placeholder: "Add a todo…",
-          onChange: (e3) => setText(e3.target.value),
-          onKeyDown: (e3) => e3.key === "Enter" && void add2(),
-          style: { flex: 1, fontSize: 13, padding: "4px 0" }
-        }
-      )
-    ] }) : null
+    !readOnly ? /* @__PURE__ */ jsxRuntimeExports.jsxs(
+      "div",
+      {
+        style: {
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          padding: "6px 0"
+        },
+        children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "span",
+            {
+              style: {
+                width: 14,
+                height: 14,
+                borderRadius: 4,
+                border: "1px solid var(--line)"
+              }
+            }
+          ),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "input",
+            {
+              value: text,
+              placeholder: "Add a todo…",
+              onChange: (e3) => setText(e3.target.value),
+              onKeyDown: (e3) => e3.key === "Enter" && void add2(),
+              style: { flex: 1, fontSize: 13, padding: "4px 0" }
+            }
+          )
+        ]
+      }
+    ) : null
   ] });
 }
-function TodoItem({ todo, readOnly }) {
+function TodoItem({
+  todo,
+  readOnly
+}) {
   const [editing, setEditing] = reactExports.useState(false);
   const [text, setText] = reactExports.useState(todo.text);
   const [hover, setHover] = reactExports.useState(false);
@@ -682,27 +2855,45 @@ function TodoItem({ todo, readOnly }) {
   const commit = async () => {
     setEditing(false);
     if (text.trim() && text !== todo.text) {
-      await window.thread.invoke["todo:update"]({ localDate: localDate2, todoId: todo.id, text: text.trim() });
+      await window.thread.invoke["todo:update"]({
+        localDate: localDate2,
+        todoId: todo.id,
+        text: text.trim()
+      });
     }
   };
   if (todo.promotedToThreadId) {
-    return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { padding: "6px 0", fontSize: 13, color: "var(--text-muted)" }, children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { color: "var(--text-faint)", marginRight: 6 }, children: "→" }),
-      todo.text
-    ] });
+    return /* @__PURE__ */ jsxRuntimeExports.jsxs(
+      "div",
+      {
+        style: { padding: "6px 0", fontSize: 13, color: "var(--text-muted)" },
+        children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { color: "var(--text-faint)", marginRight: 6 }, children: "→" }),
+          todo.text
+        ]
+      }
+    );
   }
   return /* @__PURE__ */ jsxRuntimeExports.jsxs(
     "div",
     {
       onMouseEnter: () => setHover(true),
       onMouseLeave: () => setHover(false),
-      style: { display: "flex", alignItems: "center", gap: 10, padding: "6px 0" },
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        padding: "6px 0"
+      },
       children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx(
           "button",
           {
             disabled: readOnly,
-            onClick: () => void window.thread.invoke["todo:toggle"]({ localDate: localDate2, todoId: todo.id }),
+            onClick: () => void window.thread.invoke["todo:toggle"]({
+              localDate: localDate2,
+              todoId: todo.id
+            }),
             style: {
               width: 14,
               height: 14,
@@ -742,7 +2933,10 @@ function TodoItem({ todo, readOnly }) {
           /* @__PURE__ */ jsxRuntimeExports.jsx(
             "button",
             {
-              onClick: () => void window.thread.invoke["todo:remove"]({ localDate: localDate2, todoId: todo.id }),
+              onClick: () => void window.thread.invoke["todo:remove"]({
+                localDate: localDate2,
+                todoId: todo.id
+              }),
               title: "Delete todo",
               style: {
                 background: "none",
@@ -945,55 +3139,75 @@ function LoggedPanel({ day }) {
       setThreads([]);
       return;
     }
-    Promise.all(ids.map((id) => window.thread.invoke["threads:get"]({ id }))).then(
+    Promise.all(
+      ids.map((id) => window.thread.invoke["threads:get"]({ id }))
+    ).then(
       (results) => setThreads(results.filter((t2) => t2 !== null))
     );
   }, [ids.join(",")]);
   const sessionCount = threads.reduce((sum, t2) => sum + t2.sessionCount, 0);
   const focusMs = threads.reduce((sum, t2) => sum + t2.totalFocusMs, 0);
-  return /* @__PURE__ */ jsxRuntimeExports.jsx(Panel, { title: "Logged today", subtitle: "Proof of what you actually did.", warm: true, children: threads.length === 0 && doneTodos.length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx(EmptyState, { title: "Nothing logged yet.", detail: "Finish a thread or complete a todo and it lands here on its own." }) : /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }, children: [
-      threads.map((thread) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
-        "button",
-        {
-          onClick: () => setTab("threads"),
-          style: {
-            textAlign: "left",
-            background: "none",
-            border: "none",
-            padding: "6px 4px",
-            cursor: "pointer",
-            fontSize: 13,
-            color: "var(--text)"
-          },
-          children: [
-            "✓ ",
-            thread.title
-          ]
+  return /* @__PURE__ */ jsxRuntimeExports.jsx(Panel, { title: "Logged today", subtitle: "Proof of what you actually did.", warm: true, children: threads.length === 0 && doneTodos.length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx(
+    EmptyState,
+    {
+      title: "Nothing logged yet.",
+      detail: "Finish a thread or complete a todo and it lands here on its own."
+    }
+  ) : /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs(
+      "div",
+      {
+        style: {
+          display: "flex",
+          flexDirection: "column",
+          gap: 6,
+          marginBottom: 12
         },
-        thread.id
-      )),
-      doneTodos.map((todo) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
-        "div",
-        {
-          style: {
-            padding: "6px 4px",
-            fontSize: 13,
-            color: "var(--text-muted)"
-          },
-          children: [
-            "✓ ",
-            todo.text
-          ]
-        },
-        todo.id
-      ))
-    ] }),
+        children: [
+          threads.map((thread) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
+            "button",
+            {
+              onClick: () => setTab("threads"),
+              style: {
+                textAlign: "left",
+                background: "none",
+                border: "none",
+                padding: "6px 4px",
+                cursor: "pointer",
+                fontSize: 13,
+                color: "var(--text)"
+              },
+              children: [
+                "✓ ",
+                thread.title
+              ]
+            },
+            thread.id
+          )),
+          doneTodos.map((todo) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
+            "div",
+            {
+              style: {
+                padding: "6px 4px",
+                fontSize: 13,
+                color: "var(--text-muted)"
+              },
+              children: [
+                "✓ ",
+                todo.text
+              ]
+            },
+            todo.id
+          ))
+        ]
+      }
+    ),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { fontSize: 11, color: "var(--text-muted)" }, children: [
       sessionCount,
       " session",
       sessionCount === 1 ? "" : "s",
-      " · ",
+      " ·",
+      " ",
       formatDuration(focusMs),
       " focused"
     ] })
@@ -1036,13 +3250,13 @@ function TodayView() {
     ] })
   ] });
 }
-const chip = "_chip_1t1ys_1";
-const amber = "_amber_1t1ys_14";
-const slate = "_slate_1t1ys_17";
-const moss = "_moss_1t1ys_20";
-const lavender = "_lavender_1t1ys_23";
-const danger = "_danger_1t1ys_26";
-const pulse = "_pulse_1t1ys_30";
+const chip = "_chip_yaxwv_1";
+const amber = "_amber_yaxwv_14";
+const slate = "_slate_yaxwv_17";
+const moss = "_moss_yaxwv_20";
+const lavender = "_lavender_yaxwv_23";
+const danger = "_danger_yaxwv_26";
+const pulse = "_pulse_yaxwv_30";
 const styles = {
   chip,
   amber,
@@ -1058,12 +3272,20 @@ const STATUS_META = {
   waiting: { label: "Waiting", icon: "◐", tone: "slate" },
   done: { label: "Done", icon: "✓", tone: "moss" }
 };
-function StatusChip({ status }) {
+function StatusChip({
+  status
+}) {
   const meta = STATUS_META[status];
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: `${styles.chip} ${styles[meta.tone]} ${status === "in_progress" ? styles.pulse : ""}`, children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx("span", { "aria-hidden": "true", children: meta.icon }),
-    meta.label
-  ] });
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(
+    "span",
+    {
+      className: `${styles.chip} ${styles[meta.tone]} ${status === "in_progress" ? styles.pulse : ""}`,
+      children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { "aria-hidden": "true", children: meta.icon }),
+        meta.label
+      ]
+    }
+  );
 }
 const OPTIONS = ["in_progress", "waiting", "idle", "done"];
 function StatusDropdown({
@@ -1238,7 +3460,11 @@ function ThreadCard({
     }
   };
   const setStatus = async (status, waitingOn) => {
-    await window.thread.invoke["threads:setStatus"]({ id: thread.id, status, waitingOn });
+    await window.thread.invoke["threads:setStatus"]({
+      id: thread.id,
+      status,
+      waitingOn
+    });
   };
   return /* @__PURE__ */ jsxRuntimeExports.jsxs(
     "div",
@@ -1259,12 +3485,30 @@ function ThreadCard({
       children: [
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { flex: 1, minWidth: 0 }, children: [
           /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 10 }, children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { fontSize: 15, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis" }, children: thread.title }),
-            thread.steps.length > 0 ? /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { className: "mono", style: { fontSize: 11, color: "var(--text-faint)" }, children: [
-              done,
-              "/",
-              thread.steps.length
-            ] }) : null
+            /* @__PURE__ */ jsxRuntimeExports.jsx(
+              "span",
+              {
+                style: {
+                  fontSize: 15,
+                  fontWeight: 500,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis"
+                },
+                children: thread.title
+              }
+            ),
+            thread.steps.length > 0 ? /* @__PURE__ */ jsxRuntimeExports.jsxs(
+              "span",
+              {
+                className: "mono",
+                style: { fontSize: 11, color: "var(--text-faint)" },
+                children: [
+                  done,
+                  "/",
+                  thread.steps.length
+                ]
+              }
+            ) : null
           ] }),
           /* @__PURE__ */ jsxRuntimeExports.jsx(NextAction, { thread }),
           thread.status === "waiting" && thread.waitingOn ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { fontSize: 11, color: "var(--slate)", marginTop: 2 }, children: [
@@ -1272,51 +3516,58 @@ function ThreadCard({
             thread.waitingOn
           ] }) : null
         ] }),
-        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { onClick: (e3) => e3.stopPropagation(), style: { display: "flex", alignItems: "center", gap: 10 }, children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx(StatusDropdown, { status: thread.status, onChange: setStatus }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx(
-            "button",
-            {
-              onClick: (e3) => {
-                e3.stopPropagation();
-                onToggle();
-              },
-              title: expanded ? "Hide details" : "Show details",
-              style: {
-                padding: "7px 10px",
-                borderRadius: 999,
-                border: "1px solid var(--line)",
-                background: "transparent",
-                color: "var(--text-muted)",
-                cursor: "pointer",
-                fontSize: 12
-              },
-              children: expanded ? "▴" : "📄"
-            }
-          ),
-          /* @__PURE__ */ jsxRuntimeExports.jsx(
-            "button",
-            {
-              onClick: focus,
-              disabled: starting,
-              title: "Start a timer on this thread",
-              style: {
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                padding: "7px 14px",
-                borderRadius: 999,
-                border: "none",
-                background: "var(--amber)",
-                color: "#201203",
-                fontWeight: 600,
-                fontSize: 12,
-                cursor: "pointer"
-              },
-              children: "▶ Focus"
-            }
-          )
-        ] })
+        /* @__PURE__ */ jsxRuntimeExports.jsxs(
+          "div",
+          {
+            onClick: (e3) => e3.stopPropagation(),
+            style: { display: "flex", alignItems: "center", gap: 10 },
+            children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx(StatusDropdown, { status: thread.status, onChange: setStatus }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx(
+                "button",
+                {
+                  onClick: (e3) => {
+                    e3.stopPropagation();
+                    onToggle();
+                  },
+                  title: expanded ? "Hide details" : "Show details",
+                  style: {
+                    padding: "7px 10px",
+                    borderRadius: 999,
+                    border: "1px solid var(--line)",
+                    background: "transparent",
+                    color: "var(--text-muted)",
+                    cursor: "pointer",
+                    fontSize: 12
+                  },
+                  children: expanded ? "▴" : "📄"
+                }
+              ),
+              /* @__PURE__ */ jsxRuntimeExports.jsx(
+                "button",
+                {
+                  onClick: focus,
+                  disabled: starting,
+                  title: "Start a timer on this thread",
+                  style: {
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    padding: "7px 14px",
+                    borderRadius: 999,
+                    border: "none",
+                    background: "var(--amber)",
+                    color: "#201203",
+                    fontWeight: 600,
+                    fontSize: 12,
+                    cursor: "pointer"
+                  },
+                  children: "▶ Focus"
+                }
+              )
+            ]
+          }
+        )
       ]
     }
   );
@@ -1363,7 +3614,10 @@ function Collapsible({
     open ? /* @__PURE__ */ jsxRuntimeExports.jsx(motion.div, { initial: { opacity: 0 }, animate: { opacity: 1 }, transition: { duration: 0.16 }, children }) : null
   ] });
 }
-function Checklist({ threadId, steps }) {
+function Checklist({
+  threadId,
+  steps
+}) {
   const [text, setText] = reactExports.useState("");
   const [draggingStepId, setDraggingStepId] = reactExports.useState(null);
   const [dragOverStepId, setDragOverStepId] = reactExports.useState(null);
@@ -1372,7 +3626,11 @@ function Checklist({ threadId, steps }) {
     const trimmed = text.trim();
     setText("");
     if (!trimmed) return;
-    await window.thread.invoke["steps:add"]({ threadId, text: trimmed, afterStepId });
+    await window.thread.invoke["steps:add"]({
+      threadId,
+      text: trimmed,
+      afterStepId
+    });
   };
   const moveStep = async (stepId, toIndex) => {
     setDragOverStepId(null);
@@ -1391,11 +3649,13 @@ function Checklist({ threadId, steps }) {
         onDragStart: () => setDraggingStepId(step.id),
         onDragOver: (event) => {
           event.preventDefault();
-          if (draggingStepId && draggingStepId !== step.id) setDragOverStepId(step.id);
+          if (draggingStepId && draggingStepId !== step.id)
+            setDragOverStepId(step.id);
         },
         onDrop: (event) => {
           event.preventDefault();
-          if (draggingStepId && draggingStepId !== step.id) moveStep(draggingStepId, index);
+          if (draggingStepId && draggingStepId !== step.id)
+            moveStep(draggingStepId, index);
         },
         onDragEnd: () => {
           setDraggingStepId(null);
@@ -1430,19 +3690,40 @@ function Checklist({ threadId, steps }) {
         children: dragOverStepId === "end" ? "Release to move to the end" : "Drag a step here to move it to the end"
       }
     ),
-    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 10, padding: "6px 0" }, children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { width: 16, height: 16, borderRadius: 4, border: "1px solid var(--line)" } }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx(
-        "input",
-        {
-          value: text,
-          placeholder: "Add a step…",
-          onChange: (e3) => setText(e3.target.value),
-          onKeyDown: (e3) => e3.key === "Enter" && void add2(),
-          style: { flex: 1, fontSize: 14, padding: "4px 0" }
-        }
-      )
-    ] })
+    /* @__PURE__ */ jsxRuntimeExports.jsxs(
+      "div",
+      {
+        style: {
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          padding: "6px 0"
+        },
+        children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "span",
+            {
+              style: {
+                width: 16,
+                height: 16,
+                borderRadius: 4,
+                border: "1px solid var(--line)"
+              }
+            }
+          ),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "input",
+            {
+              value: text,
+              placeholder: "Add a step…",
+              onChange: (e3) => setText(e3.target.value),
+              onKeyDown: (e3) => e3.key === "Enter" && void add2(),
+              style: { flex: 1, fontSize: 14, padding: "4px 0" }
+            }
+          )
+        ]
+      }
+    )
   ] });
 }
 function ChecklistItem({
@@ -1464,7 +3745,11 @@ function ChecklistItem({
   const commit = async (advance) => {
     setEditing(false);
     if (text.trim() && text !== step.text) {
-      await window.thread.invoke["steps:update"]({ threadId, stepId: step.id, text: text.trim() });
+      await window.thread.invoke["steps:update"]({
+        threadId,
+        stepId: step.id,
+        text: text.trim()
+      });
     }
     if (advance && isLast) onEnterAtEnd();
   };
@@ -1497,7 +3782,10 @@ function ChecklistItem({
         /* @__PURE__ */ jsxRuntimeExports.jsx(
           "button",
           {
-            onClick: () => void window.thread.invoke["steps:toggle"]({ threadId, stepId: step.id }),
+            onClick: () => void window.thread.invoke["steps:toggle"]({
+              threadId,
+              stepId: step.id
+            }),
             style: {
               width: 16,
               height: 16,
@@ -1541,8 +3829,17 @@ function ChecklistItem({
         hover && !editing ? /* @__PURE__ */ jsxRuntimeExports.jsx(
           "button",
           {
-            onClick: () => void window.thread.invoke["steps:remove"]({ threadId, stepId: step.id }),
-            style: { background: "none", border: "none", color: "var(--text-faint)", cursor: "pointer", fontSize: 12 },
+            onClick: () => void window.thread.invoke["steps:remove"]({
+              threadId,
+              stepId: step.id
+            }),
+            style: {
+              background: "none",
+              border: "none",
+              color: "var(--text-faint)",
+              cursor: "pointer",
+              fontSize: 12
+            },
             children: "✕"
           }
         ) : null
@@ -1769,15 +4066,22 @@ function ThreadsView() {
   const [expandedId, setExpandedId] = reactExports.useState(null);
   const [creating, setCreating] = reactExports.useState(false);
   const [title2, setTitle] = reactExports.useState("");
-  const board = reactExports.useMemo(() => threads.filter((t2) => t2.status !== "done"), [threads]);
-  const inProgressCount = board.filter((t2) => t2.status === "in_progress").length;
+  const board = reactExports.useMemo(
+    () => threads.filter((t2) => t2.status !== "done"),
+    [threads]
+  );
+  const inProgressCount = board.filter(
+    (t2) => t2.status === "in_progress"
+  ).length;
   const create2 = async () => {
     const trimmed = title2.trim();
     if (!trimmed) {
       setCreating(false);
       return;
     }
-    const thread = await window.thread.invoke["threads:create"]({ title: trimmed });
+    const thread = await window.thread.invoke["threads:create"]({
+      title: trimmed
+    });
     setTitle("");
     setCreating(false);
     setExpandedId(thread.id);
@@ -1792,7 +4096,12 @@ function ThreadsView() {
           "span",
           {
             title: `A gentle limit: at most ${WIP_IN_PROGRESS_CAP} threads marked "In progress" at once.`,
-            style: { fontSize: 12, color: "var(--text-faint)", whiteSpace: "nowrap", paddingTop: 6 },
+            style: {
+              fontSize: 12,
+              color: "var(--text-faint)",
+              whiteSpace: "nowrap",
+              paddingTop: 6
+            },
             children: [
               inProgressCount,
               " of ",
@@ -1803,51 +4112,79 @@ function ThreadsView() {
         )
       }
     ),
-    board.length > BOARD_SOFT_CAP ? /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { style: { fontSize: 12, color: "var(--text-muted)", margin: "0 0 12px" }, children: [
-      board.length,
-      " open threads — might be worth closing a few out. (Not a rule, just a nudge.)"
-    ] }) : null,
-    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { marginTop: 20, display: "flex", flexDirection: "column", gap: 10 }, children: [
-      board.length === 0 && !creating ? /* @__PURE__ */ jsxRuntimeExports.jsx(
-        EmptyState,
-        {
-          title: "Nothing on the board yet.",
-          detail: "A thread is one thing you're working on — a bug, an errand, a chapter.",
-          action: /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { variant: "primary", onClick: () => setCreating(true), children: "New thread" })
-        }
-      ) : board.sort(sortBoard).map((thread) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx(
-          ThreadCard,
-          {
-            thread,
-            expanded: expandedId === thread.id,
-            onToggle: () => setExpandedId(expandedId === thread.id ? null : thread.id)
-          }
-        ),
-        expandedId === thread.id ? /* @__PURE__ */ jsxRuntimeExports.jsx(ThreadExpanded, { thread }) : null
-      ] }, thread.id)),
-      creating ? /* @__PURE__ */ jsxRuntimeExports.jsx(
-        "input",
-        {
-          autoFocus: true,
-          value: title2,
-          placeholder: "What are you working on?",
-          onChange: (e3) => setTitle(e3.target.value),
-          onKeyDown: (e3) => {
-            if (e3.key === "Enter") void create2();
-            if (e3.key === "Escape") setCreating(false);
-          },
-          onBlur: () => void create2(),
-          style: {
-            padding: "12px 14px",
-            borderRadius: 10,
-            border: "1px solid var(--line)",
-            background: "var(--surface-raised)",
-            fontSize: 14
-          }
-        }
-      ) : board.length > 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { onClick: () => setCreating(true), style: { alignSelf: "flex-start" }, children: "+ New thread" }) : null
-    ] }),
+    board.length > BOARD_SOFT_CAP ? /* @__PURE__ */ jsxRuntimeExports.jsxs(
+      "p",
+      {
+        style: {
+          fontSize: 12,
+          color: "var(--text-muted)",
+          margin: "0 0 12px"
+        },
+        children: [
+          board.length,
+          " open threads — might be worth closing a few out. (Not a rule, just a nudge.)"
+        ]
+      }
+    ) : null,
+    /* @__PURE__ */ jsxRuntimeExports.jsxs(
+      "div",
+      {
+        style: {
+          marginTop: 20,
+          display: "flex",
+          flexDirection: "column",
+          gap: 10
+        },
+        children: [
+          board.length === 0 && !creating ? /* @__PURE__ */ jsxRuntimeExports.jsx(
+            EmptyState,
+            {
+              title: "Nothing on the board yet.",
+              detail: "A thread is one thing you're working on — a bug, an errand, a chapter.",
+              action: /* @__PURE__ */ jsxRuntimeExports.jsx(Button, { variant: "primary", onClick: () => setCreating(true), children: "New thread" })
+            }
+          ) : board.sort(sortBoard).map((thread) => /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx(
+              ThreadCard,
+              {
+                thread,
+                expanded: expandedId === thread.id,
+                onToggle: () => setExpandedId(expandedId === thread.id ? null : thread.id)
+              }
+            ),
+            expandedId === thread.id ? /* @__PURE__ */ jsxRuntimeExports.jsx(ThreadExpanded, { thread }) : null
+          ] }, thread.id)),
+          creating ? /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "input",
+            {
+              autoFocus: true,
+              value: title2,
+              placeholder: "What are you working on?",
+              onChange: (e3) => setTitle(e3.target.value),
+              onKeyDown: (e3) => {
+                if (e3.key === "Enter") void create2();
+                if (e3.key === "Escape") setCreating(false);
+              },
+              onBlur: () => void create2(),
+              style: {
+                padding: "12px 14px",
+                borderRadius: 10,
+                border: "1px solid var(--line)",
+                background: "var(--surface-raised)",
+                fontSize: 14
+              }
+            }
+          ) : board.length > 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx(
+            Button,
+            {
+              onClick: () => setCreating(true),
+              style: { alignSelf: "flex-start" },
+              children: "+ New thread"
+            }
+          ) : null
+        ]
+      }
+    ),
     /* @__PURE__ */ jsxRuntimeExports.jsx(DoneSection, {})
   ] });
 }
@@ -1858,7 +4195,10 @@ function ThreadExpanded({ thread }) {
   }, [thread.id, thread.notes]);
   const saveNotes = async () => {
     if (notes !== thread.notes) {
-      await window.thread.invoke["threads:update"]({ id: thread.id, patch: { notes } });
+      await window.thread.invoke["threads:update"]({
+        id: thread.id,
+        patch: { notes }
+      });
     }
   };
   return /* @__PURE__ */ jsxRuntimeExports.jsxs(
@@ -1874,7 +4214,19 @@ function ThreadExpanded({ thread }) {
       children: [
         /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { marginBottom: 18 }, children: /* @__PURE__ */ jsxRuntimeExports.jsx(Checklist, { threadId: thread.id, steps: thread.steps }) }),
         /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { fontSize: 11, color: "var(--text-faint)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }, children: "Notes" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "div",
+            {
+              style: {
+                fontSize: 11,
+                color: "var(--text-faint)",
+                textTransform: "uppercase",
+                letterSpacing: "0.05em",
+                marginBottom: 8
+              },
+              children: "Notes"
+            }
+          ),
           /* @__PURE__ */ jsxRuntimeExports.jsx(
             "textarea",
             {
@@ -1900,7 +4252,12 @@ function ThreadExpanded({ thread }) {
     }
   );
 }
-const STATUS_ORDER = { in_progress: 0, waiting: 1, idle: 2, done: 3 };
+const STATUS_ORDER = {
+  in_progress: 0,
+  waiting: 1,
+  idle: 2,
+  done: 3
+};
 function sortBoard(a2, b2) {
   return STATUS_ORDER[a2.status] - STATUS_ORDER[b2.status] || b2.updatedAt.localeCompare(a2.updatedAt);
 }
@@ -2343,8 +4700,8 @@ var stringToPath$1 = memoizeCapped(function(string2) {
   if (string2.charCodeAt(0) === 46) {
     result.push("");
   }
-  string2.replace(rePropName, function(match, number2, quote, subString) {
-    result.push(quote ? subString.replace(reEscapeChar, "$1") : number2 || match);
+  string2.replace(rePropName, function(match2, number2, quote, subString) {
+    result.push(quote ? subString.replace(reEscapeChar, "$1") : number2 || match2);
   });
   return result;
 });
@@ -8812,19 +11169,19 @@ function formatNumerals(numerals) {
 }
 var re = /^(?:(.)?([<>=^]))?([+\-( ])?([$#])?(0)?(\d+)?(,)?(\.\d+)?(~)?([a-z%])?$/i;
 function formatSpecifier(specifier) {
-  if (!(match = re.exec(specifier))) throw new Error("invalid format: " + specifier);
-  var match;
+  if (!(match2 = re.exec(specifier))) throw new Error("invalid format: " + specifier);
+  var match2;
   return new FormatSpecifier({
-    fill: match[1],
-    align: match[2],
-    sign: match[3],
-    symbol: match[4],
-    zero: match[5],
-    width: match[6],
-    comma: match[7],
-    precision: match[8] && match[8].slice(1),
-    trim: match[9],
-    type: match[10]
+    fill: match2[1],
+    align: match2[2],
+    sign: match2[3],
+    symbol: match2[4],
+    zero: match2[5],
+    width: match2[6],
+    comma: match2[7],
+    precision: match2[8] && match2[8].slice(1),
+    trim: match2[9],
+    type: match2[10]
   });
 }
 formatSpecifier.prototype = FormatSpecifier.prototype;
@@ -11838,7 +14195,7 @@ function getTickValuesFixedDomainFn(_ref7, tickCount) {
 var getNiceTickValues = memoize(getNiceTickValuesFn);
 var getTickValuesFixedDomain = memoize(getTickValuesFixedDomainFn);
 var prefix = "Invariant failed";
-function invariant(condition, message) {
+function invariant(condition, message2) {
   {
     throw new Error(prefix);
   }
@@ -19186,11 +21543,11 @@ _defineProperty$8(ReferenceArea, "renderRect", function(option, props) {
   }
   return rect;
 });
-function getEveryNthWithCondition(array2, n2, isValid) {
+function getEveryNthWithCondition(array2, n2, isValid2) {
   if (n2 < 1) {
     return [];
   }
-  if (n2 === 1 && isValid === void 0) {
+  if (n2 === 1 && isValid2 === void 0) {
     return array2;
   }
   var result = [];

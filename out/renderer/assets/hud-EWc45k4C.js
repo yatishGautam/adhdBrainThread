@@ -1,5 +1,5 @@
-import { r as reactExports, M as MotionConfigContext, j as jsxRuntimeExports, u as useConstant, P as PresenceContext, a as usePresence, b as useIsomorphicLayoutEffect, L as LayoutGroupContext, d as formatClock, m as motion, c as createRoot } from "./format-Bb8cE7Pe.js";
-import { R as Ring } from "./Ring-DPWePrH8.js";
+import { r as reactExports, M as MotionConfigContext, j as jsxRuntimeExports, u as useConstant, P as PresenceContext, a as usePresence, b as useIsomorphicLayoutEffect, L as LayoutGroupContext, m as motion, d as formatClock, c as createRoot } from "./format-nk-eI89E.js";
+import { R as Ring } from "./Ring-NFbTj05H.js";
 class PopChildMeasure extends reactExports.Component {
   getSnapshotBeforeUpdate(prevProps) {
     const element = this.props.childRef.current;
@@ -176,17 +176,42 @@ const AnimatePresence = ({ children, custom, initial = true, onExitComplete, pre
     return jsxRuntimeExports.jsx(PresenceChild, { isPresent, initial: !isInitialRender.current || initial ? void 0 : false, custom: isPresent ? void 0 : custom, presenceAffectsLayout, mode, onExitComplete: isPresent ? void 0 : onExit, children: child }, key);
   }) });
 };
-function MiniRing({ progress, paused }) {
-  return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { WebkitAppRegion: "no-drag" }, children: /* @__PURE__ */ jsxRuntimeExports.jsx(Ring, { value: progress, size: 20, strokeWidth: 2.5, dim: paused }) });
+function computeUrgency(progress) {
+  const remainingFraction = 1 - Math.max(0, Math.min(1, progress));
+  if (remainingFraction <= 0.15) return "urgent";
+  if (remainingFraction <= 0.4) return "building";
+  return "calm";
+}
+function urgencyColor(urgency) {
+  if (urgency === "calm") return "var(--amber)";
+  return "var(--amber-bright)";
+}
+function MiniRing({
+  progress,
+  paused,
+  urgency
+}) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { WebkitAppRegion: "no-drag", flexShrink: 0 }, children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+    Ring,
+    {
+      value: progress,
+      size: 22,
+      strokeWidth: 2.5,
+      dim: paused,
+      color: urgencyColor(urgency),
+      pulse: !paused && urgency === "urgent"
+    }
+  ) });
 }
 function ThreadLabel({ title, nextAction }) {
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { minWidth: 0 }, children: [
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { minWidth: 0, textAlign: "center" }, children: [
     /* @__PURE__ */ jsxRuntimeExports.jsx(
       "div",
       {
+        title,
         style: {
-          fontSize: 13,
-          fontWeight: 500,
+          fontSize: 14,
+          fontWeight: 600,
           whiteSpace: "nowrap",
           overflow: "hidden",
           textOverflow: "ellipsis"
@@ -197,22 +222,44 @@ function ThreadLabel({ title, nextAction }) {
     nextAction ? /* @__PURE__ */ jsxRuntimeExports.jsx(
       "div",
       {
+        title: nextAction,
         style: {
           fontSize: 11,
           color: "var(--text-muted)",
           whiteSpace: "nowrap",
           overflow: "hidden",
-          textOverflow: "ellipsis"
+          textOverflow: "ellipsis",
+          marginTop: 1
         },
         children: nextAction
       }
     ) : null
   ] });
 }
-function Countdown({ remainingMs, paused }) {
+function Countdown({
+  remainingMs,
+  paused,
+  urgency
+}) {
+  const pulsing = !paused && urgency === "urgent";
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "baseline", gap: 6 }, children: [
     paused ? /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { fontSize: 9, color: "var(--text-faint)" }, children: "PAUSED" }) : null,
-    /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "mono", style: { fontSize: 24, lineHeight: 1 }, children: formatClock(remainingMs) })
+    /* @__PURE__ */ jsxRuntimeExports.jsx(
+      motion.span,
+      {
+        className: "mono",
+        animate: pulsing ? { opacity: [1, 0.7, 1] } : { opacity: 1 },
+        transition: pulsing ? { duration: 1.1, repeat: Infinity, ease: "easeInOut" } : { duration: 0.2 },
+        style: {
+          fontSize: 26,
+          lineHeight: 1,
+          fontWeight: 600,
+          color: paused ? "var(--text-muted)" : urgencyColor(urgency),
+          display: "inline-block"
+        },
+        children: formatClock(remainingMs)
+      }
+    )
   ] });
 }
 function DistractionButton({
@@ -300,22 +347,49 @@ function ControlBar({
   paused,
   onPauseResume,
   onDistraction,
-  onSwitch,
+  onSkip,
   onEnd
 }) {
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", gap: 5, flexShrink: 0, flexWrap: "wrap", justifyContent: "flex-end", WebkitAppRegion: "no-drag" }, children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx(
-      HudButton,
-      {
-        onClick: onPauseResume,
-        title: paused ? "Resume the timer" : "Pause the timer",
-        label: paused ? "Resume" : "Pause"
-      }
-    ),
-    /* @__PURE__ */ jsxRuntimeExports.jsx(DistractionButton, { onDistraction }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx(HudButton, { onClick: onSwitch, title: "Work on a different thread instead", label: "Switch" }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx(HudButton, { onClick: onEnd, title: "Stop the timer (this does not finish the thread)", label: "Stop" })
-  ] });
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(
+    "div",
+    {
+      style: {
+        display: "flex",
+        gap: 5,
+        flexShrink: 0,
+        flexWrap: "wrap",
+        justifyContent: "flex-end",
+        WebkitAppRegion: "no-drag"
+      },
+      children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          HudButton,
+          {
+            onClick: onPauseResume,
+            title: paused ? "Resume the timer" : "Pause the timer",
+            label: paused ? "Resume" : "Pause"
+          }
+        ),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(DistractionButton, { onDistraction }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          HudButton,
+          {
+            onClick: onSkip,
+            title: "Finish this session right now — it still counts as complete, nothing is lost",
+            label: "Skip"
+          }
+        ),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          HudButton,
+          {
+            onClick: onEnd,
+            title: "Stop the timer without finishing it",
+            label: "Stop"
+          }
+        )
+      ]
+    }
+  );
 }
 function HudButton({
   onClick,
@@ -365,62 +439,6 @@ function Toast({ text }) {
 function HudToast({ text }) {
   return /* @__PURE__ */ jsxRuntimeExports.jsx(Toast, { text });
 }
-function SwitchPicker({ onDone }) {
-  const [threads, setThreads] = reactExports.useState([]);
-  reactExports.useEffect(() => {
-    window.thread.invoke["threads:list"](void 0).then(
-      (all) => setThreads(all.filter((t) => t.status !== "done"))
-    );
-  }, []);
-  const pick = async (threadId) => {
-    onDone();
-    await window.thread.invoke["session:switch"]({ threadId });
-  };
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs(
-    "div",
-    {
-      style: {
-        display: "flex",
-        gap: 6,
-        overflowX: "auto",
-        flex: 1,
-        WebkitAppRegion: "no-drag"
-      },
-      children: [
-        threads.slice(0, 6).map((thread) => /* @__PURE__ */ jsxRuntimeExports.jsx(
-          "button",
-          {
-            onClick: () => void pick(thread.id),
-            style: {
-              flexShrink: 0,
-              padding: "6px 10px",
-              borderRadius: 8,
-              border: "1px solid var(--line)",
-              background: "var(--surface-raised)",
-              color: "var(--text)",
-              fontSize: 12,
-              cursor: "pointer",
-              maxWidth: 120,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap"
-            },
-            children: thread.title
-          },
-          thread.id
-        )),
-        /* @__PURE__ */ jsxRuntimeExports.jsx(
-          "button",
-          {
-            onClick: onDone,
-            style: { background: "none", border: "none", color: "var(--text-faint)", cursor: "pointer", fontSize: 12 },
-            children: "✕"
-          }
-        )
-      ]
-    }
-  );
-}
 function EmptyHud() {
   return /* @__PURE__ */ jsxRuntimeExports.jsx(
     "div",
@@ -443,7 +461,6 @@ function HudApp() {
   const [state, setState] = reactExports.useState(null);
   const [tick, setTick] = reactExports.useState(null);
   const [toast, setToast] = reactExports.useState(null);
-  const [switching, setSwitching] = reactExports.useState(false);
   reactExports.useEffect(() => {
     window.thread.invoke["session:state"](void 0).then(setState);
     const offChanged = window.thread.on("session:changed", (next) => {
@@ -464,6 +481,7 @@ function HudApp() {
   const remainingMs = tick?.remainingMs ?? state?.remainingMs ?? 0;
   const progress = tick?.progress ?? 0;
   const paused = state?.paused ?? false;
+  const urgency = computeUrgency(progress);
   return /* @__PURE__ */ jsxRuntimeExports.jsxs(
     "div",
     {
@@ -472,30 +490,38 @@ function HudApp() {
         height: "100vh",
         position: "relative",
         display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        padding: "10px 12px",
-        gap: 10,
+        flexDirection: "column",
+        justifyContent: "center",
+        gap: 8,
+        padding: "10px 14px",
         background: "var(--surface)",
         border: "1px solid var(--line)",
         borderRadius: 22,
         opacity: paused ? 0.75 : 1,
         transition: "opacity var(--motion-slow) var(--ease-out)",
+        // The whole HUD doubles as its own drag handle; only interactive controls opt out.
         WebkitAppRegion: "drag"
       },
       children: [
-        !state ? /* @__PURE__ */ jsxRuntimeExports.jsx(EmptyHud, {}) : switching ? /* @__PURE__ */ jsxRuntimeExports.jsx(SwitchPicker, { onDone: () => setSwitching(false) }) : /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx(MiniRing, { progress, paused }),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { flex: 1, minWidth: 0, overflow: "hidden" }, children: /* @__PURE__ */ jsxRuntimeExports.jsx(ThreadLabel, { title: state.threadTitle, nextAction: state.nextAction }) }),
-          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6, flexShrink: 0, minWidth: 0 }, children: [
-            /* @__PURE__ */ jsxRuntimeExports.jsx(Countdown, { remainingMs, paused }),
+        !state ? /* @__PURE__ */ jsxRuntimeExports.jsx(EmptyHud, {}) : /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            ThreadLabel,
+            {
+              title: state.threadTitle,
+              nextAction: state.nextAction
+            }
+          ),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 10 }, children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx(MiniRing, { progress, paused, urgency }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx(Countdown, { remainingMs, paused, urgency }),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { flex: 1 } }),
             /* @__PURE__ */ jsxRuntimeExports.jsx(
               ControlBar,
               {
                 paused,
                 onPauseResume: () => void window.thread.invoke[paused ? "session:resume" : "session:pause"](void 0),
                 onDistraction: (kind, note) => void window.thread.invoke["session:distraction"]({ kind, note }),
-                onSwitch: () => setSwitching(true),
+                onSkip: () => void window.thread.invoke["session:end"]({ outcome: "completed" }),
                 onEnd: () => void window.thread.invoke["session:end"]({})
               }
             )

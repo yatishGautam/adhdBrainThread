@@ -1,3 +1,4 @@
+import { motion } from 'framer-motion';
 import type { BandId } from '@shared/analytics.js';
 
 /**
@@ -16,21 +17,27 @@ interface RingProps {
   value: number;
   size: number;
   band?: BandId;
+  /** Explicit color, takes precedence over `band`. Used by the HUD's urgency tiers. */
+  color?: string;
   strokeWidth?: number;
   dim?: boolean;
+  /** A slow, gentle scale breathing — reserved for "time is nearly up", nothing else. */
+  pulse?: boolean;
   children?: React.ReactNode;
 }
 
-export function Ring({ value, size, band, strokeWidth, dim, children }: RingProps): React.JSX.Element {
+export function Ring({ value, size, band, color, strokeWidth, dim, pulse, children }: RingProps): React.JSX.Element {
   const stroke = strokeWidth ?? Math.max(2, Math.round(size * 0.09));
   const radius = (size - stroke) / 2;
   const circumference = 2 * Math.PI * radius;
   const clamped = Math.max(0, Math.min(1, value));
   const offset = circumference * (1 - clamped);
-  const color = band ? BAND_COLOR[band] : 'var(--amber)';
+  const resolvedColor = color ?? (band ? BAND_COLOR[band] : 'var(--amber)');
 
   return (
-    <div
+    <motion.div
+      animate={pulse ? { scale: [1, 1.08, 1] } : { scale: 1 }}
+      transition={pulse ? { duration: 1.1, repeat: Infinity, ease: 'easeInOut' } : { duration: 0.2 }}
       style={{
         position: 'relative',
         width: size,
@@ -53,13 +60,15 @@ export function Ring({ value, size, band, strokeWidth, dim, children }: RingProp
           cy={size / 2}
           r={radius}
           fill="none"
-          stroke={color}
+          stroke={resolvedColor}
           strokeWidth={stroke}
           strokeLinecap="round"
           strokeDasharray={circumference}
           strokeDashoffset={offset}
           transform={`rotate(-90 ${size / 2} ${size / 2})`}
-          style={{ transition: 'stroke-dashoffset var(--motion-slow) var(--ease-out)' }}
+          style={{
+            transition: 'stroke-dashoffset var(--motion-slow) var(--ease-out), stroke var(--motion-slow) var(--ease-out)',
+          }}
         />
       </svg>
       {children ? (
@@ -75,6 +84,6 @@ export function Ring({ value, size, band, strokeWidth, dim, children }: RingProp
           {children}
         </div>
       ) : null}
-    </div>
+    </motion.div>
   );
 }

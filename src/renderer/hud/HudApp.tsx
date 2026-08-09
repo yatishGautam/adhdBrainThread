@@ -5,19 +5,19 @@ import { ThreadLabel } from "./ThreadLabel.js";
 import { Countdown } from "./Countdown.js";
 import { ControlBar } from "./ControlBar.js";
 import { HudToast } from "./HudToast.js";
-import { SwitchPicker } from "./SwitchPicker.js";
 import { EmptyHud } from "./EmptyHud.js";
+import { computeUrgency } from "./urgency.js";
 
 /**
- * Layout: momentum ring · thread title (next action beneath, 11px muted) · time remaining ·
- * buttons. Deliberately still while a session runs — no pulsing, no breathing animation. All
- * motion is reserved for transitions: start, distraction, switch, end, complete.
+ * Two rows: the thread title gets the full width to itself (it was being squeezed down to a
+ * single letter when it shared a row with the button strip), and the ring/clock/buttons sit
+ * below. Calm and still for most of the session — motion is reserved for the final stretch,
+ * where a slow pulse gives the clock a felt sense of closing in.
  */
 export function HudApp(): React.JSX.Element {
 	const [state, setState] = useState<SessionState | null>(null);
 	const [tick, setTick] = useState<SessionTick | null>(null);
 	const [toast, setToast] = useState<string | null>(null);
-	const [switching, setSwitching] = useState(false);
 
 	useEffect(() => {
 		window.thread.invoke["session:state"](undefined).then(setState);
@@ -40,6 +40,7 @@ export function HudApp(): React.JSX.Element {
 	const remainingMs = tick?.remainingMs ?? state?.remainingMs ?? 0;
 	const progress = tick?.progress ?? 0;
 	const paused = state?.paused ?? false;
+	const urgency = computeUrgency(progress);
 
 	return (
 		<div
@@ -49,43 +50,32 @@ export function HudApp(): React.JSX.Element {
 					height: "100vh",
 					position: "relative",
 					display: "flex",
-					alignItems: "center",
-					justifyContent: "space-between",
-					padding: "10px 12px",
-					gap: 10,
+					flexDirection: "column",
+					justifyContent: "center",
+					gap: 8,
+					padding: "10px 14px",
 					background: "var(--surface)",
 					border: "1px solid var(--line)",
 					borderRadius: 22,
 					opacity: paused ? 0.75 : 1,
 					transition: "opacity var(--motion-slow) var(--ease-out)",
+					// The whole HUD doubles as its own drag handle; only interactive controls opt out.
 					WebkitAppRegion: "drag",
 				} as React.CSSProperties
 			}
 		>
 			{!state ? (
 				<EmptyHud />
-			) : switching ? (
-				<SwitchPicker onDone={() => setSwitching(false)} />
 			) : (
 				<>
-					<MiniRing progress={progress} paused={paused} />
-					<div style={{ flex: 1, minWidth: 0, overflow: "hidden" }}>
-						<ThreadLabel
-							title={state.threadTitle}
-							nextAction={state.nextAction}
-						/>
-					</div>
-					<div
-						style={{
-							display: "flex",
-							flexDirection: "column",
-							alignItems: "flex-end",
-							gap: 6,
-							flexShrink: 0,
-							minWidth: 0,
-						}}
-					>
-						<Countdown remainingMs={remainingMs} paused={paused} />
+					<ThreadLabel
+						title={state.threadTitle}
+						nextAction={state.nextAction}
+					/>
+					<div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+						<MiniRing progress={progress} paused={paused} urgency={urgency} />
+						<Countdown remainingMs={remainingMs} paused={paused} urgency={urgency} />
+						<div style={{ flex: 1 }} />
 						<ControlBar
 							paused={paused}
 							onPauseResume={() =>
@@ -96,7 +86,9 @@ export function HudApp(): React.JSX.Element {
 							onDistraction={(kind, note) =>
 								void window.thread.invoke["session:distraction"]({ kind, note })
 							}
-							onSwitch={() => setSwitching(true)}
+							onSkip={() =>
+								void window.thread.invoke["session:end"]({ outcome: "completed" })
+							}
 							onEnd={() => void window.thread.invoke["session:end"]({})}
 						/>
 					</div>

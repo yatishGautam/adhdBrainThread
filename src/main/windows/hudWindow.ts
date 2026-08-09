@@ -6,11 +6,13 @@ import { BrowserWindow, screen } from "electron";
 import { loadRenderer, preloadPath } from "./urls.js";
 
 /**
- * Wider than the 360px in the original spec: the control buttons carry text labels rather than
- * bare glyphs, and a button whose meaning you have to remember is a button you stop using.
+ * Wider and taller than before. The control buttons carry text labels rather than bare glyphs
+ * (a button whose meaning you have to remember is a button you stop using), and the thread
+ * title now gets a full row to itself instead of sharing space with the button strip — that
+ * sharing is what was truncating titles down to a single letter.
  */
-export const HUD_WIDTH = 340;
-export const HUD_HEIGHT = 86;
+export const HUD_WIDTH = 470;
+export const HUD_HEIGHT = 106;
 
 export interface HudPosition {
 	x: number;
