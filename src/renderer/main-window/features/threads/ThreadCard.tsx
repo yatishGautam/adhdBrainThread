@@ -1,112 +1,137 @@
-import { useState } from 'react';
-import type { Thread, ThreadStatus } from '@shared/domain.js';
-import { StatusChip } from '../../../shared/components/Chip.js';
-import { StatusDropdown } from './StatusDropdown.js';
-import { NextAction } from './NextAction.js';
+import { useState } from "react";
+import type { Thread, ThreadStatus } from "@shared/domain.js";
+import { StatusChip } from "../../../shared/components/Chip.js";
+import { StatusDropdown } from "./StatusDropdown.js";
+import { NextAction } from "./NextAction.js";
 
 export function ThreadCard({
-  thread,
-  expanded,
-  onToggle,
+	thread,
+	expanded,
+	onToggle,
 }: {
-  thread: Thread;
-  expanded: boolean;
-  onToggle: () => void;
+	thread: Thread;
+	expanded: boolean;
+	onToggle: () => void;
 }): React.JSX.Element {
-  const [starting, setStarting] = useState(false);
-  const done = thread.steps.filter((s) => s.done).length;
-  const inProgress = thread.status === 'in_progress';
+	const [starting, setStarting] = useState(false);
+	const done = thread.steps.filter((s) => s.done).length;
+	const inProgress = thread.status === "in_progress";
 
-  const focus = async (e: React.MouseEvent): Promise<void> => {
-    e.stopPropagation();
-    setStarting(true);
-    try {
-      await window.thread.invoke['session:start']({ threadId: thread.id });
-    } finally {
-      setStarting(false);
-    }
-  };
+	const focus = async (e: React.MouseEvent): Promise<void> => {
+		e.stopPropagation();
+		setStarting(true);
+		try {
+			await window.thread.invoke["session:start"]({ threadId: thread.id });
+		} finally {
+			setStarting(false);
+		}
+	};
 
-  const setStatus = async (status: ThreadStatus, waitingOn?: string): Promise<void> => {
-    await window.thread.invoke['threads:setStatus']({ id: thread.id, status, waitingOn });
-  };
+	const setStatus = async (
+		status: ThreadStatus,
+		waitingOn?: string,
+	): Promise<void> => {
+		await window.thread.invoke["threads:setStatus"]({
+			id: thread.id,
+			status,
+			waitingOn,
+		});
+	};
 
-  return (
-    <div
-      onClick={onToggle}
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 14,
-        padding: '14px 16px',
-        borderRadius: 12,
-        border: `1px solid ${inProgress ? 'rgba(242, 166, 90, 0.6)' : 'var(--line)'}`,
-        background: 'var(--surface)',
-        cursor: 'pointer',
-        transition: 'border-color var(--motion-fast) var(--ease-out), box-shadow 260ms ease-in-out',
-        boxShadow: inProgress ? '0 0 0 1px rgba(242, 166, 90, 0.12)' : undefined,
-      }}
-    >
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ fontSize: 15, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            {thread.title}
-          </span>
-          {thread.steps.length > 0 ? (
-            <span className="mono" style={{ fontSize: 11, color: 'var(--text-faint)' }}>
-              {done}/{thread.steps.length}
-            </span>
-          ) : null}
-        </div>
-        <NextAction thread={thread} />
-        {thread.status === 'waiting' && thread.waitingOn ? (
-          <div style={{ fontSize: 11, color: 'var(--slate)', marginTop: 2 }}>Waiting on: {thread.waitingOn}</div>
-        ) : null}
-      </div>
+	return (
+		<div
+			onClick={onToggle}
+			style={{
+				display: "flex",
+				alignItems: "center",
+				gap: 14,
+				padding: "14px 16px",
+				borderRadius: 12,
+				border: `1px solid ${inProgress ? "rgba(242, 166, 90, 0.6)" : "var(--line)"}`,
+				background: "var(--surface)",
+				cursor: "pointer",
+				transition:
+					"border-color var(--motion-fast) var(--ease-out), box-shadow 260ms ease-in-out",
+				boxShadow: inProgress
+					? "0 0 0 1px rgba(242, 166, 90, 0.12)"
+					: undefined,
+			}}
+		>
+			<div style={{ flex: 1, minWidth: 0 }}>
+				<div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+					<span
+						style={{
+							fontSize: 15,
+							fontWeight: 500,
+							overflow: "hidden",
+							textOverflow: "ellipsis",
+						}}
+					>
+						{thread.title}
+					</span>
+					{thread.steps.length > 0 ? (
+						<span
+							className="mono"
+							style={{ fontSize: 11, color: "var(--text-faint)" }}
+						>
+							{done}/{thread.steps.length}
+						</span>
+					) : null}
+				</div>
+				<NextAction thread={thread} />
+				{thread.status === "waiting" && thread.waitingOn ? (
+					<div style={{ fontSize: 11, color: "var(--slate)", marginTop: 2 }}>
+						Waiting on: {thread.waitingOn}
+					</div>
+				) : null}
+			</div>
 
-      <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <StatusDropdown status={thread.status} onChange={setStatus} />
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onToggle();
-          }}
-          title={expanded ? 'Hide details' : 'Show details'}
-          style={{
-            padding: '7px 10px',
-            borderRadius: 999,
-            border: '1px solid var(--line)',
-            background: 'transparent',
-            color: 'var(--text-muted)',
-            cursor: 'pointer',
-            fontSize: 12,
-          }}
-        >
-          {expanded ? '▴' : '📄'}
-        </button>
-        <button
-          onClick={focus}
-          disabled={starting}
-          title="Start a timer on this thread"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            padding: '7px 14px',
-            borderRadius: 999,
-            border: 'none',
-            background: 'var(--amber)',
-            color: '#201203',
-            fontWeight: 600,
-            fontSize: 12,
-            cursor: 'pointer',
-          }}
-        >
-          ▶ Focus
-        </button>
-      </div>
-    </div>
-  );
+			<div
+				onClick={(e) => e.stopPropagation()}
+				style={{ display: "flex", alignItems: "center", gap: 10 }}
+			>
+				<StatusDropdown status={thread.status} onChange={setStatus} />
+				<button
+					onClick={(e) => {
+						e.stopPropagation();
+						onToggle();
+					}}
+					title={expanded ? "Hide details" : "Show details"}
+					style={{
+						padding: "7px 10px",
+						borderRadius: 999,
+						border: "1px solid var(--line)",
+						background: "transparent",
+						color: "var(--text-muted)",
+						cursor: "pointer",
+						fontSize: 12,
+					}}
+				>
+					{expanded ? "▴" : "📄"}
+				</button>
+				<button
+					onClick={focus}
+					disabled={starting}
+					title="Start a timer on this thread"
+					style={{
+						display: "flex",
+						alignItems: "center",
+						gap: 6,
+						padding: "7px 14px",
+						borderRadius: 999,
+						border: "none",
+						background: "var(--amber)",
+						color: "#201203",
+						fontWeight: 600,
+						fontSize: 12,
+						cursor: "pointer",
+					}}
+				>
+					▶ Focus
+				</button>
+			</div>
+		</div>
+	);
 }
 
 export { StatusChip };

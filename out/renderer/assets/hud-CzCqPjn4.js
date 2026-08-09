@@ -1,5 +1,5 @@
-import { r as reactExports, M as MotionConfigContext, j as jsxRuntimeExports, u as useConstant, P as PresenceContext, a as usePresence, b as useIsomorphicLayoutEffect, L as LayoutGroupContext, d as formatClock, m as motion, c as createRoot } from "./format-D_v_IbX5.js";
-import { R as Ring } from "./Ring-BA85kTrH.js";
+import { r as reactExports, M as MotionConfigContext, j as jsxRuntimeExports, u as useConstant, P as PresenceContext, a as usePresence, b as useIsomorphicLayoutEffect, L as LayoutGroupContext, d as formatClock, m as motion, c as createRoot } from "./format-Bb8cE7Pe.js";
+import { R as Ring } from "./Ring-DPWePrH8.js";
 class PopChildMeasure extends reactExports.Component {
   getSnapshotBeforeUpdate(prevProps) {
     const element = this.props.childRef.current;
@@ -435,7 +435,7 @@ function EmptyHud() {
         justifyContent: "center",
         cursor: "pointer"
       },
-      children: "Nothing running — open Thread to pick something"
+      children: "Nothing running — open ADHD Superpower to pick something"
     }
   );
 }

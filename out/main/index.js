@@ -2464,6 +2464,7 @@ function createMainWindow(hooks) {
     show: false,
     backgroundColor: "#0F1115",
     icon: appIconPath(),
+    title: "ADHD Superpower",
     titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
     webPreferences: {
       preload: preloadPath,
@@ -2493,19 +2494,19 @@ function createTray(hooks) {
   const image = nativeImage.createFromPath(path.join(here, "../../assets/trayTemplate.png"));
   image.setTemplateImage(true);
   const tray = new Tray(image.isEmpty() ? nativeImage.createEmpty() : image);
-  tray.setToolTip("Thread");
+  tray.setToolTip("ADHD Superpower");
   tray.on("click", hooks.onShow);
   return tray;
 }
 function updateTray(tray, state, hooks) {
   const title = state.running ? `${state.paused ? "❙❙" : "●"} ${formatClock(state.remainingMs)}` : "";
   if (process.platform === "darwin") tray.setTitle(title);
-  tray.setToolTip(state.threadTitle ? `Thread — ${state.threadTitle}` : "Thread");
+  tray.setToolTip(state.threadTitle ? `ADHD Superpower — ${state.threadTitle}` : "ADHD Superpower");
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: state.threadTitle ?? "Nothing running", enabled: false },
       { type: "separator" },
-      { label: "Open Thread", click: hooks.onShow },
+      { label: "Open ADHD Superpower", click: hooks.onShow },
       {
         label: state.paused ? "Resume" : "Pause",
         enabled: state.running,

@@ -28,21 +28,21 @@ nothing listens yet. Build `shared/lib/sound.ts` using WebAudio oscillators (no 
 - a soft session-start and session-end tone
 - one optional sting per celebration pack, gated on `settings.soundEnabled`
 
-Tune ticks *before* celebration audio — a tick fires dozens of times a day and matters more.
+Tune ticks _before_ celebration audio — a tick fires dozens of times a day and matters more.
 
 ## 3. Keyboard shortcuts
 
 Nothing is bound today. Minimum set:
 
-| Key | Action |
-|---|---|
-| `⌘1 / ⌘2 / ⌘3` | Today / Threads / Analytics |
-| `⌘N` | New thread |
-| `Space` | Pause/resume the running session (when not in an input) |
-| `⌘D` | Log a distraction |
-| `⌘.` | End session |
-| `⌘\` | Collapse/expand the side rail |
-| `Esc` | Close any picker/popover |
+| Key            | Action                                                  |
+| -------------- | ------------------------------------------------------- |
+| `⌘1 / ⌘2 / ⌘3` | Today / Threads / Analytics                             |
+| `⌘N`           | New thread                                              |
+| `Space`        | Pause/resume the running session (when not in an input) |
+| `⌘D`           | Log a distraction                                       |
+| `⌘.`           | End session                                             |
+| `⌘\`           | Collapse/expand the side rail                           |
+| `Esc`          | Close any picker/popover                                |
 
 Register renderer-level via a `useHotkeys` hook; register `⌘D`/`⌘.` as global shortcuts in main
 so they work while the HUD has focus.

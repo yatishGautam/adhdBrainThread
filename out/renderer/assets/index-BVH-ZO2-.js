@@ -1,5 +1,5 @@
-import { R as React, r as reactExports, j as jsxRuntimeExports, e as formatMonth, g as formatDayNumber, h as formatCollapsedDate, i as formatLocalDate, d as formatClock, f as formatDuration, k as formatLongDate, m as motion, l as formatTimeOfDay, n as commonjsGlobal, o as getDefaultExportFromCjs, c as createRoot } from "./format-D_v_IbX5.js";
-import { R as Ring } from "./Ring-BA85kTrH.js";
+import { R as React, r as reactExports, j as jsxRuntimeExports, e as formatMonth, g as formatCollapsedMonth, h as formatDayNumber, i as formatLocalDate, k as formatCollapsedDate, d as formatClock, f as formatDuration, l as formatLongDate, m as motion, n as formatTimeOfDay, o as commonjsGlobal, p as getDefaultExportFromCjs, c as createRoot } from "./format-Bb8cE7Pe.js";
+import { R as Ring } from "./Ring-DPWePrH8.js";
 const createStoreImpl = (createState) => {
   let state;
   const listeners = /* @__PURE__ */ new Set();
@@ -180,11 +180,24 @@ function SideRail() {
                 },
                 children: formatMonth(month.key)
               }
-            ) : null,
+            ) : /* @__PURE__ */ jsxRuntimeExports.jsx(
+              "div",
+              {
+                style: {
+                  padding: "4px 8px",
+                  fontSize: 11,
+                  color: "var(--text-faint)",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.04em",
+                  textAlign: "center"
+                },
+                children: formatCollapsedMonth(month.key)
+              }
+            ),
             month.days.map((date2) => {
               const isToday = date2 === today?.localDate;
               const isPastDate = today ? date2 < today.localDate : false;
-              return /* @__PURE__ */ jsxRuntimeExports.jsxs(
+              return /* @__PURE__ */ jsxRuntimeExports.jsx(
                 "button",
                 {
                   onClick: () => {
@@ -207,10 +220,10 @@ function SideRail() {
                     fontSize: 13,
                     textAlign: collapsed ? "center" : "left"
                   },
-                  children: [
+                  children: !collapsed ? /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
                     /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: "mono", style: { width: 24, textAlign: "right", color: "var(--text-faint)" }, children: formatDayNumber(date2) }),
-                    /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { whiteSpace: "nowrap" }, children: collapsed ? formatCollapsedDate(date2) : formatLocalDate(date2) })
-                  ]
+                    /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { whiteSpace: "nowrap" }, children: formatLocalDate(date2) })
+                  ] }) : /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { whiteSpace: "nowrap" }, children: formatCollapsedDate(date2) })
                 },
                 date2
               );

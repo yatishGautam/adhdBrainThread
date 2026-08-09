@@ -1,37 +1,42 @@
 .chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 9px;
-  border-radius: 999px;
-  font-size: var(--text-xs);
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  background: color-mix(in srgb, var(--tone-color) 16%, transparent);
-  color: var(--tone-color);
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	padding: 3px 9px;
+	border-radius: 999px;
+	font-size: var(--text-xs);
+	font-weight: 600;
+	letter-spacing: 0.01em;
+	background: color-mix(in srgb, var(--tone-color) 16%, transparent);
+	color: var(--tone-color);
 }
 
 .amber {
-  --tone-color: var(--amber);
+	--tone-color: var(--amber);
 }
 .slate {
-  --tone-color: var(--slate);
+	--tone-color: var(--slate);
 }
 .moss {
-  --tone-color: var(--moss);
+	--tone-color: var(--moss);
 }
 .lavender {
-  --tone-color: var(--lavender);
+	--tone-color: var(--lavender);
 }
 .danger {
-  --tone-color: var(--danger);
+	--tone-color: var(--danger);
 }
 
 .pulse {
-  animation: pulse 2.4s ease-in-out infinite;
+	animation: pulse 2.4s ease-in-out infinite;
 }
 
 @keyframes pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(242, 166, 90, 0.2); }
-  50% { box-shadow: 0 0 0 12px rgba(242, 166, 90, 0); }
+	0%,
+	100% {
+		box-shadow: 0 0 0 0 rgba(242, 166, 90, 0.2);
+	}
+	50% {
+		box-shadow: 0 0 0 12px rgba(242, 166, 90, 0);
+	}
 }

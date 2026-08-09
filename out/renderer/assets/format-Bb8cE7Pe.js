@@ -14110,9 +14110,13 @@ function formatMonth(localDate) {
   const { year, month } = parts(localDate);
   return `${MONTHS[month - 1]} ${year}`;
 }
+function formatCollapsedMonth(localDate) {
+  const { month } = parts(localDate);
+  return MONTHS[month - 1] ?? "";
+}
 function formatCollapsedDate(localDate) {
-  const { month, day } = parts(localDate);
-  return `${ordinal(day)} ${MONTHS[month - 1]?.slice(0, 3) ?? ""}`;
+  const { day, weekday } = parts(localDate);
+  return `${ordinal(day)} ${WEEKDAYS[weekday]}`;
 }
 function formatDayNumber(localDate) {
   return String(parts(localDate).day);
@@ -14146,15 +14150,16 @@ export {
   formatClock as d,
   formatMonth as e,
   formatDuration as f,
-  formatDayNumber as g,
-  formatCollapsedDate as h,
+  formatCollapsedMonth as g,
+  formatDayNumber as h,
   formatLocalDate as i,
   jsxRuntimeExports as j,
-  formatLongDate as k,
-  formatTimeOfDay as l,
+  formatCollapsedDate as k,
+  formatLongDate as l,
   motion as m,
-  commonjsGlobal as n,
-  getDefaultExportFromCjs as o,
+  formatTimeOfDay as n,
+  commonjsGlobal as o,
+  getDefaultExportFromCjs as p,
   reactExports as r,
   useConstant as u
 };
