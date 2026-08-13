@@ -287,6 +287,28 @@ export class DayRepo {
     });
   }
 
+  /** Every parked thought on record, newest first — the Park view's backing list. */
+  async allThoughts(): Promise<Thought[]> {
+    const all = await this.days.all();
+    const thoughts = all.flatMap((day) => day.thoughts);
+    return thoughts.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async noteThought(localDate: string, thoughtId: string, note: string): Promise<Day> {
+    return this.mutate(localDate, (day) => ({
+      ...day,
+      thoughts: day.thoughts.map((thought) => {
+        if (thought.id !== thoughtId) return thought;
+        const trimmed = note.trim();
+        if (!trimmed) {
+          const { note: _gone, ...rest } = thought;
+          return rest;
+        }
+        return { ...thought, note: trimmed };
+      }),
+    }));
+  }
+
   async removeThought(localDate: string, thoughtId: string): Promise<Day> {
     return this.mutate(localDate, (day) => ({
       ...day,

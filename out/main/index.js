@@ -83,7 +83,8 @@ const thoughtSchema = z.object({
   text: z.string(),
   createdAt: isoTimestamp,
   localDate,
-  processed: z.boolean()
+  processed: z.boolean(),
+  note: z.string().optional()
 });
 const blockerSchema = z.object({
   id: ulidLike,
@@ -1404,6 +1405,26 @@ class DayRepo {
       };
       return { ...day, thoughts: [thought, ...day.thoughts] };
     });
+  }
+  /** Every parked thought on record, newest first — the Park view's backing list. */
+  async allThoughts() {
+    const all = await this.days.all();
+    const thoughts = all.flatMap((day) => day.thoughts);
+    return thoughts.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+  async noteThought(localDate2, thoughtId, note) {
+    return this.mutate(localDate2, (day) => ({
+      ...day,
+      thoughts: day.thoughts.map((thought) => {
+        if (thought.id !== thoughtId) return thought;
+        const trimmed = note.trim();
+        if (!trimmed) {
+          const { note: _gone, ...rest } = thought;
+          return rest;
+        }
+        return { ...thought, note: trimmed };
+      })
+    }));
   }
   async removeThought(localDate2, thoughtId) {
     return this.mutate(localDate2, (day) => ({
@@ -3020,9 +3041,12 @@ class AppContext {
         })();
       },
       onEnd: () => void this.sessions.end(),
+      // Quit must quit. Closing the main window here left the app resident forever: the
+      // tray menu is rebuilt by every refresh, so this hook — not setupTray's — is the one
+      // the user's Quit click actually ran.
       onQuit: () => {
         markQuitting();
-        this.main?.close();
+        app.quit();
       }
     });
   }
@@ -3474,6 +3498,16 @@ function registerHandlers(ctx2) {
     ctx2
   );
   on(
+    "thought:note",
+    async (_c, { localDate: localDate2, thoughtId, note }) => {
+      const day = await db.days.noteThought(localDate2, thoughtId, note);
+      ctx2.broadcastDay(day);
+      return day;
+    },
+    ctx2
+  );
+  on("park:all", async () => db.days.allThoughts(), ctx2);
+  on(
     "thought:process",
     async (_c, { localDate: localDate2, thoughtId, action }) => {
       const thought = await db.days.findThought(localDate2, thoughtId);
@@ -3604,7 +3638,7 @@ function registerHandlers(ctx2) {
     async () => {
       const target = path.join(
         app.getPath("documents"),
-        `thread-export-${Date.now()}.json`
+        `adhd-superpower-export-${Date.now()}.json`
       );
       await db.store.exportTo(target);
       return { path: target };

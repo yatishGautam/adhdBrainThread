@@ -100,6 +100,8 @@ export interface Thought {
   createdAt: string;
   localDate: string;
   processed: boolean;
+  /** Added later, from the Park view — what you thought about it when you came back. */
+  note?: string;
 }
 
 export interface Day {

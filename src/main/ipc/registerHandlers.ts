@@ -352,6 +352,16 @@ export function registerHandlers(ctx: AppContext): void {
 		ctx,
 	);
 	on(
+		"thought:note",
+		async (_c, { localDate, thoughtId, note }) => {
+			const day = await db.days.noteThought(localDate, thoughtId, note);
+			ctx.broadcastDay(day);
+			return day;
+		},
+		ctx,
+	);
+	on("park:all", async () => db.days.allThoughts(), ctx);
+	on(
 		"thought:process",
 		async (_c, { localDate, thoughtId, action }) => {
 			const thought = await db.days.findThought(localDate, thoughtId);
@@ -507,7 +517,7 @@ export function registerHandlers(ctx: AppContext): void {
 		async () => {
 			const target = path.join(
 				app.getPath("documents"),
-				`thread-export-${Date.now()}.json`,
+				`adhd-superpower-export-${Date.now()}.json`,
 			);
 			await db.store.exportTo(target);
 			return { path: target };

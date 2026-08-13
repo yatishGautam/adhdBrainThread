@@ -9,6 +9,7 @@ import { Button } from "../../../shared/components/Button.js";
 import { Collapsible } from "../../../shared/components/Collapsible.js";
 import { PageHeader } from "../../../shared/components/PageHeader.js";
 import { ThreadDrawer } from "./ThreadDrawer.js";
+import { justStart, pickJustStart } from "../justStart.js";
 
 /**
  * Up to five active threads, then the dormant zone, then the done pile — both collapsed (§2).
@@ -111,17 +112,35 @@ export function ThreadsView(): React.JSX.Element {
 				title="Threads"
 				description="Everything you're working on. Each thread keeps its own checklist."
 				right={
-					<span
-						title={`At most ${ACTIVE_THREAD_CAP} active threads. Done and dormant ones are free.`}
-						style={{
-							fontSize: 12,
-							color: full ? "var(--amber)" : "var(--text-faint)",
-							whiteSpace: "nowrap",
-							paddingTop: 6,
-						}}
-					>
-						{active.length} of {ACTIVE_THREAD_CAP} active
-					</span>
+					<div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+						<span
+							title={`At most ${ACTIVE_THREAD_CAP} active threads. Done and dormant ones are free.`}
+							style={{
+								fontSize: 12,
+								color: full ? "var(--amber)" : "var(--text-faint)",
+								whiteSpace: "nowrap",
+							}}
+						>
+							{active.length} of {ACTIVE_THREAD_CAP} active
+						</span>
+						{pickJustStart(threads) ? (
+							<button
+								onClick={() => void justStart(threads)}
+								className="btn-launch"
+								title={`Start a Pomodoro on '${pickJustStart(threads)?.title}' — no choosing, just go`}
+								style={{
+									padding: "9px 18px",
+									borderRadius: 999,
+									fontWeight: 700,
+									fontSize: 13,
+									cursor: "pointer",
+									whiteSpace: "nowrap",
+								}}
+							>
+								⚡ Just start
+							</button>
+						) : null}
+					</div>
 				}
 			/>
 

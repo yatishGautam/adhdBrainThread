@@ -133,7 +133,10 @@ function Progress({ done, total }: { done: number; total: number }): React.JSX.E
 					style={{
 						width: `${Math.round(fraction * 100)}%`,
 						height: "100%",
-						background: done === total ? "var(--emerald)" : "var(--amber)",
+						// Fills with the ember gradient, then settles emerald when everything is done —
+						// progress burns, completion rests.
+						background: done === total ? "var(--emerald)" : "var(--grad-ember)",
+						boxShadow: done === total ? "none" : "0 0 8px rgba(242, 138, 78, 0.4)",
 						transition: "width var(--motion-slow) var(--ease-out)",
 					}}
 				/>

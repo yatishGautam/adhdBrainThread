@@ -12,6 +12,7 @@ import type {
 	Session,
 	SessionOutcome,
 	Settings,
+	Thought,
 	Thread,
 	ThreadStatus,
 	Todo,
@@ -174,6 +175,9 @@ export interface Requests {
 
 	"thought:add": [{ text: string; localDate?: string }, Day];
 	"thought:remove": [{ localDate: string; thoughtId: string }, Day];
+	"thought:note": [{ localDate: string; thoughtId: string; note: string }, Day];
+	/** Every parked thought from every day, for the Park view. */
+	"park:all": [void, Thought[]];
 	"thought:process": [
 		{ localDate: string; thoughtId: string; action: ThoughtAction },
 		{ day: Day; thread: Thread | null },
@@ -283,6 +287,8 @@ export const REQUEST_CHANNELS = [
 	"todo:promote",
 	"thought:add",
 	"thought:remove",
+	"thought:note",
+	"park:all",
 	"thought:process",
 	"session:start",
 	"session:pause",

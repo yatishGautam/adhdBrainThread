@@ -7,7 +7,6 @@ import { TodoList } from './TodoList.js';
 import { BlockerList } from './BlockerList.js';
 import { LogSection } from './LogSection.js';
 import { ThoughtCapture } from './ThoughtCapture.js';
-import { MeetingNotes } from './MeetingNotes.js';
 
 /**
  * The daily page, in the fixed order §3 sets: NOW, today's threads, to-do, blockers, log, park,
@@ -46,7 +45,6 @@ export function TodayView(): React.JSX.Element {
         <BlockerList localDate={localDate} />
         <LogSection day={day} localDate={localDate} />
         <ThoughtCapture day={day} localDate={localDate} />
-        <MeetingNotes day={day} localDate={localDate} />
       </div>
     </div>
   );

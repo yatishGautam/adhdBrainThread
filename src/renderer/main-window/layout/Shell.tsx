@@ -4,6 +4,7 @@ import { useUiStore } from '../stores/uiStore.js';
 import { TodayView } from '../features/today/TodayView.js';
 import { ThreadsView } from '../features/threads/ThreadsView.js';
 import { AnalyticsView } from '../features/analytics/AnalyticsView.js';
+import { ParkView } from '../features/park/ParkView.js';
 
 export function Shell(): React.JSX.Element {
   const tab = useUiStore((s) => s.tab);
@@ -17,6 +18,7 @@ export function Shell(): React.JSX.Element {
           {tab === 'today' ? <TodayView /> : null}
           {tab === 'threads' ? <ThreadsView /> : null}
           {tab === 'analytics' ? <AnalyticsView /> : null}
+          {tab === 'park' ? <ParkView /> : null}
         </div>
       </div>
     </div>
