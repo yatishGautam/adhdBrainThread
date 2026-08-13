@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { Day } from '@shared/domain.js';
+import { useUiStore } from '../../stores/uiStore.js';
 import { EmptyState } from '../../../shared/components/EmptyState.js';
 import { Panel } from './Panel.js';
 import { ThoughtList } from './ThoughtList.js';
@@ -13,6 +14,7 @@ import { ThoughtList } from './ThoughtList.js';
  */
 export function ThoughtCapture({ day, localDate }: { day: Day | null; localDate: string }): React.JSX.Element {
   const [text, setText] = useState('');
+  const setTab = useUiStore((s) => s.setTab);
 
   const add = async (): Promise<void> => {
     const trimmed = text.trim();
@@ -26,6 +28,22 @@ export function ThoughtCapture({ day, localDate }: { day: Day | null; localDate:
       accent="var(--slate)"
       subtitle="Somewhere to dump a thought so it stops interrupting you."
       hint="Type anything that pops into your head mid-task. Later you can turn each one into a thread, a to-do, or just delete it."
+      right={
+        <button
+          onClick={() => setTab('park')}
+          style={{
+            background: 'none',
+            border: 'none',
+            color: 'var(--amber)',
+            cursor: 'pointer',
+            fontSize: 12,
+            padding: 0,
+            whiteSpace: 'nowrap',
+          }}
+        >
+          View all →
+        </button>
+      }
     >
       <input
           value={text}

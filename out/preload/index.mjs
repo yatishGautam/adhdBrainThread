@@ -33,6 +33,8 @@ const REQUEST_CHANNELS = [
   "todo:promote",
   "thought:add",
   "thought:remove",
+  "thought:note",
+  "park:all",
   "thought:process",
   "session:start",
   "session:pause",

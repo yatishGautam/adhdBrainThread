@@ -19,6 +19,7 @@ export const thoughtSchema: z.ZodType<Thought> = z.object({
   createdAt: isoTimestamp,
   localDate,
   processed: z.boolean(),
+  note: z.string().optional(),
 });
 
 export const blockerSchema: z.ZodType<Blocker> = z.object({

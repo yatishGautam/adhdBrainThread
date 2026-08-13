@@ -34,7 +34,7 @@ export function Panel({
         background: warm
           ? 'color-mix(in srgb, var(--amber) 6%, var(--surface))'
           : 'var(--surface)',
-        boxShadow: '0 1px 2px rgba(0, 0, 0, 0.28)',
+        boxShadow: 'var(--shadow-card), var(--edge-light)',
         padding: 18,
       }}
     >

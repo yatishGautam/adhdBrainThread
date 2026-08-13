@@ -3,7 +3,7 @@
  * AppContext wires storage → services → windows → IPC broadcasts, and is the one object every
  * IPC handler closes over.
  */
-import { BrowserWindow, Notification, nativeTheme } from "electron";
+import { BrowserWindow, Notification, app, nativeTheme } from "electron";
 import type { Thread, Day } from "@shared/domain.js";
 import type { Settings } from "@shared/domain.js";
 import { formatDuration } from "@shared/format.js";
@@ -191,9 +191,12 @@ export class AppContext {
 				})();
 			},
 			onEnd: () => void this.sessions.end(),
+			// Quit must quit. Closing the main window here left the app resident forever: the
+			// tray menu is rebuilt by every refresh, so this hook — not setupTray's — is the one
+			// the user's Quit click actually ran.
 			onQuit: () => {
 				markQuitting();
-				this.main?.close();
+				app.quit();
 			},
 		});
 	}
