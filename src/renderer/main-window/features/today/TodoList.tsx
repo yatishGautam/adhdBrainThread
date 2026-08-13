@@ -1,65 +1,71 @@
 import { useState } from "react";
-import type { Day, Todo } from "@shared/domain.js";
+import type { Todo } from "@shared/domain.js";
+import { formatSince } from "@shared/format.js";
+import { useCarryStore } from "../../stores/carryStore.js";
+import { Checkbox } from "../../../shared/components/Checkbox.js";
+import { EmptyState } from "../../../shared/components/EmptyState.js";
 import { PromoteToThread } from "./PromoteToThread.js";
+import { Panel } from "./Panel.js";
 
-export function TodoList({
-	day,
-	readOnly,
-}: {
-	day: Day | null;
-	readOnly: boolean;
-}): React.JSX.Element {
+/**
+ * To-dos are global and carried forward (§5): they persist across days until they are done,
+ * and every daily page shows the same list. Each one carries the date it was raised, so a thing
+ * that has been sitting there since Aug 4 says so instead of quietly looking new every morning.
+ * Completing one drops it off here and lands in today's Log.
+ */
+export function TodoList({ localDate }: { localDate: string }): React.JSX.Element {
+	const todos = useCarryStore((s) => s.todos);
 	const [text, setText] = useState("");
-	const todos = [...(day?.todos ?? [])].sort((a, b) => a.order - b.order);
 
+	// Added to the day you are looking at, not always today — a to-do you jot down while
+	// reviewing Tuesday belongs to Tuesday.
 	const add = async (): Promise<void> => {
 		const trimmed = text.trim();
 		setText("");
-		if (trimmed) await window.thread.invoke["todo:add"]({ text: trimmed });
+		if (trimmed) await window.thread.invoke["todo:add"]({ text: trimmed, localDate });
 	};
 
 	return (
-		<div>
-			{todos.map((todo) => (
-				<TodoItem key={todo.id} todo={todo} readOnly={readOnly} />
-			))}
-			{!readOnly ? (
-				<div
+		<Panel
+			title="To-do"
+			accent="var(--lavender)"
+			subtitle="Carried forward until it's done. Not tied to any one day."
+		>
+			{todos.length === 0 ? (
+				<EmptyState title="Nothing outstanding." detail="A clean list is allowed to stay clean." />
+			) : (
+				todos.map((todo) => <TodoItem key={todo.id} todo={todo} />)
+			)}
+			<div
+				style={{
+					display: "flex",
+					alignItems: "center",
+					gap: 10,
+					padding: "6px 0",
+				}}
+			>
+				<span
 					style={{
-						display: "flex",
-						alignItems: "center",
-						gap: 10,
-						padding: "6px 0",
+						width: 18,
+						height: 18,
+						borderRadius: 5,
+						border: "1.5px dashed var(--line-strong)",
+						flexShrink: 0,
 					}}
-				>
-					<span
-						style={{
-							width: 14,
-							height: 14,
-							borderRadius: 4,
-							border: "1px solid var(--line)",
-						}}
-					/>
-					<input
-						value={text}
-						placeholder="Add a todo…"
-						onChange={(e) => setText(e.target.value)}
-						onKeyDown={(e) => e.key === "Enter" && void add()}
-						style={{ flex: 1, fontSize: 13, padding: "4px 0" }}
-					/>
-				</div>
-			) : null}
-		</div>
+				/>
+				<input
+					value={text}
+					placeholder="Add a to-do or reminder…"
+					onChange={(e) => setText(e.target.value)}
+					onKeyDown={(e) => e.key === "Enter" && void add()}
+					style={{ flex: 1, fontSize: 13, padding: "4px 0" }}
+				/>
+			</div>
+		</Panel>
 	);
 }
 
-function TodoItem({
-	todo,
-	readOnly,
-}: {
-	todo: Todo;
-	readOnly: boolean;
-}): React.JSX.Element {
+function TodoItem({ todo }: { todo: Todo }): React.JSX.Element {
 	const [editing, setEditing] = useState(false);
 	const [text, setText] = useState(todo.text);
 	const [hover, setHover] = useState(false);
@@ -76,17 +82,6 @@ function TodoItem({
 		}
 	};
 
-	if (todo.promotedToThreadId) {
-		return (
-			<div
-				style={{ padding: "6px 0", fontSize: 13, color: "var(--text-muted)" }}
-			>
-				<span style={{ color: "var(--text-faint)", marginRight: 6 }}>→</span>
-				{todo.text}
-			</div>
-		);
-	}
-
 	return (
 		<div
 			onMouseEnter={() => setHover(true)}
@@ -98,23 +93,15 @@ function TodoItem({
 				padding: "6px 0",
 			}}
 		>
-			<button
-				disabled={readOnly}
-				onClick={() =>
+			<Checkbox
+				checked={false}
+				title="Done — this drops off the list and lands in today's log"
+				onChange={() =>
 					void window.thread.invoke["todo:toggle"]({
 						localDate,
 						todoId: todo.id,
 					})
 				}
-				style={{
-					width: 14,
-					height: 14,
-					borderRadius: 4,
-					border: `1px solid ${todo.done ? "var(--moss)" : "var(--line)"}`,
-					background: todo.done ? "var(--moss)" : "transparent",
-					cursor: readOnly ? "default" : "pointer",
-					flexShrink: 0,
-				}}
 			/>
 			{editing ? (
 				<input
@@ -127,22 +114,21 @@ function TodoItem({
 				/>
 			) : (
 				<span
-					onDoubleClick={() => !readOnly && setEditing(true)}
-					style={{
-						flex: 1,
-						fontSize: 13,
-						textDecoration: todo.done ? "line-through" : "none",
-						color: todo.done ? "var(--text-faint)" : "var(--text)",
-					}}
+					onDoubleClick={() => setEditing(true)}
+					style={{ flex: 1, fontSize: 13, color: "var(--text)" }}
 				>
 					{todo.text}
 				</span>
 			)}
-			{hover && !editing && !readOnly ? (
+			<span
+				style={{ fontSize: 10, color: "var(--text-faint)", flexShrink: 0 }}
+				title={`Added ${todo.localDate}`}
+			>
+				{formatSince(todo.localDate)}
+			</span>
+			{hover && !editing ? (
 				<div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-					{!todo.promotedToThreadId ? (
-						<PromoteToThread localDate={localDate} todoId={todo.id} />
-					) : null}
+					<PromoteToThread localDate={localDate} todoId={todo.id} />
 					<button
 						onClick={() =>
 							void window.thread.invoke["todo:remove"]({
@@ -150,7 +136,7 @@ function TodoItem({
 								todoId: todo.id,
 							})
 						}
-						title="Delete todo"
+						title="Delete to-do"
 						style={{
 							background: "none",
 							border: "none",

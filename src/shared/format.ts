@@ -103,6 +103,29 @@ export function formatDayNumber(localDate: string): string {
 	return String(parts(localDate).day);
 }
 
+export function formatYear(localDate: string): string {
+	return String(parts(localDate).year);
+}
+
+/** Weekends get a ★ in the navigator — a Saturday with work on it should read differently. */
+export function isWeekend(localDate: string): boolean {
+	const { weekday } = parts(localDate);
+	return weekday === 0 || weekday === 6;
+}
+
+/** "since Aug 4" — how long a carried-forward todo or blocker has been open. */
+export function formatSince(localDate: string): string {
+	const { month, day } = parts(localDate);
+	return `since ${MONTHS[month - 1]?.slice(0, 3)} ${day}`;
+}
+
+export function formatHourOfDay(hour: number): string {
+	const wrapped = ((hour % 24) + 24) % 24;
+	const suffix = wrapped < 12 ? "am" : "pm";
+	const display = wrapped % 12 === 0 ? 12 : wrapped % 12;
+	return `${display}${suffix}`;
+}
+
 function ordinal(value: number): string {
 	const suffix = value % 100;
 	if (suffix >= 11 && suffix <= 13) return `${value}th`;

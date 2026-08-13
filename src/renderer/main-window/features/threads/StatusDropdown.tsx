@@ -2,7 +2,8 @@ import { useState } from 'react';
 import type { ThreadStatus } from '@shared/domain.js';
 import { StatusChip } from '../../../shared/components/Chip.js';
 
-const OPTIONS: ThreadStatus[] = ['in_progress', 'waiting', 'idle', 'done'];
+/** The five statuses (§2). `idle` is legacy: it renders where it exists, but is never offered. */
+const OPTIONS: ThreadStatus[] = ['in_progress', 'blocked', 'waiting', 'done', 'dormant'];
 
 export function StatusDropdown({
   status,
@@ -13,12 +14,14 @@ export function StatusDropdown({
 }): React.JSX.Element {
   const [open, setOpen] = useState(false);
   const [promptWaiting, setPromptWaiting] = useState(false);
+  const [pendingStatus, setPendingStatus] = useState<ThreadStatus>('waiting');
   const [waitingText, setWaitingText] = useState('');
 
   const pick = (next: ThreadStatus): void => {
     setOpen(false);
-    // A blocked thread with no recorded blocker is how things get lost — always ask.
-    if (next === 'waiting') {
+    // A blocked or waiting thread with nothing recorded is how things get lost — always ask.
+    if (next === 'waiting' || next === 'blocked') {
+      setPendingStatus(next);
       setPromptWaiting(true);
       return;
     }
@@ -29,19 +32,19 @@ export function StatusDropdown({
     return (
       <input
         autoFocus
-        placeholder="Waiting on…"
+        placeholder={pendingStatus === 'blocked' ? 'Blocked on…' : 'Waiting on…'}
         value={waitingText}
         onChange={(e) => setWaitingText(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === 'Enter') {
-            onChange('waiting', waitingText);
+            onChange(pendingStatus, waitingText);
             setPromptWaiting(false);
             setWaitingText('');
           }
           if (e.key === 'Escape') setPromptWaiting(false);
         }}
         onBlur={() => {
-          if (waitingText.trim()) onChange('waiting', waitingText);
+          if (waitingText.trim()) onChange(pendingStatus, waitingText);
           setPromptWaiting(false);
         }}
         style={{

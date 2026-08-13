@@ -6,6 +6,7 @@ import type {
   DayRollup,
   DistractionStats,
   MomentumScope,
+  ScopeDetail,
   ScopeSummary,
   TrendPoint,
 } from '@shared/analytics.js';
@@ -142,6 +143,51 @@ function buildDistractionStats(window: DayRollup[]): DistractionStats {
   };
 }
 
+/**
+ * Plain counts, derived from the rollups that already exist. Nothing here feeds the momentum
+ * chain — it is the "what did my week actually look like" half of the page.
+ */
+function buildDetail(present: DayRollup[], rollups: Record<string, DayRollup>): ScopeDetail {
+  const hourStarts = Array.from({ length: 24 }, () => 0);
+  let sessions = 0;
+  let focusMs = 0;
+  let longestSessionMs = 0;
+  let stepsCompleted = 0;
+
+  for (const day of present) {
+    sessions += day.sessionsStarted;
+    focusMs += day.focusMs;
+    stepsCompleted += day.stepsCompleted;
+    longestSessionMs = Math.max(longestSessionMs, day.longestSessionMs);
+    day.hourStarts.forEach((count, hour) => {
+      hourStarts[hour] = (hourStarts[hour] ?? 0) + count;
+    });
+  }
+
+  const busiest = hourStarts.reduce(
+    (best, count, hour) => (count > (hourStarts[best] ?? 0) ? hour : best),
+    0,
+  );
+
+  const every = Object.values(rollups);
+  return {
+    stepsCompleted,
+    avgSessionMs: sessions > 0 ? Math.round(focusMs / sessions) : 0,
+    longestSessionMs,
+    peakStartHour: (hourStarts[busiest] ?? 0) > 0 ? busiest : null,
+    hourStarts,
+    daysWorked: present.filter((day) => day.sessionsStarted > 0).length,
+    allTime: {
+      sessionsStarted: every.reduce((sum, day) => sum + day.sessionsStarted, 0),
+      focusMs: every.reduce((sum, day) => sum + day.focusMs, 0),
+      threadsCompleted: every.reduce((sum, day) => sum + day.threadsCompleted, 0),
+      stepsCompleted: every.reduce((sum, day) => sum + day.stepsCompleted, 0),
+      daysWorked: every.filter((day) => day.sessionsStarted > 0).length,
+      bestDayFocusMs: every.reduce((best, day) => Math.max(best, day.focusMs), 0),
+    },
+  };
+}
+
 export function buildScopeSummary(input: ScopeInput): ScopeSummary {
   const { from, to } = scopeBounds(input.scope, input.anchor);
   const dates = localDateRange(from, to);
@@ -171,6 +217,7 @@ export function buildScopeSummary(input: ScopeInput): ScopeSummary {
     sessionsStarted: present.reduce((sum, day) => sum + day.sessionsStarted, 0),
     focusMs: present.reduce((sum, day) => sum + day.focusMs, 0),
     threadsCompleted: present.reduce((sum, day) => sum + day.threadsCompleted, 0),
+    detail: buildDetail(present, input.rollups),
     trend: buildTrend(input, from, to),
     insight: pickInsight({ window, recent, threads: input.threads, today: input.today }),
     distractions: buildDistractionStats(present),

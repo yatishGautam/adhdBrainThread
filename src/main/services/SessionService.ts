@@ -17,6 +17,10 @@ export interface SessionServiceEvents {
   onToast: (text: string) => void;
   /** Fires with the local dates whose rollups need recomputing. */
   onDaysTouched: (localDates: string[]) => void;
+  /** A focus block ran to the end. Drives the 25/5 hand-off and the short celebration. */
+  onCompleted: (session: Session, threadTitle: string) => void;
+  /** A session began — anything the cycle was waiting on is now stale. */
+  onStarted: (session: Session) => void;
 }
 
 interface RunningSession {
@@ -78,6 +82,7 @@ export class SessionService {
 
     this.startTicker();
     const state = await this.describe(this.running);
+    this.events.onStarted(session);
     this.events.onChanged(state);
     this.events.onDaysTouched([session.localDate]);
     return state;
@@ -133,7 +138,7 @@ export class SessionService {
     await this.persist();
     const minutes = Math.round(grantedMs / 60_000);
     this.events.onToast(
-      minutes > 0 ? `Logged. ${minutes === 1 ? 'A minute' : `${minutes} minutes`} back on the clock.` : 'Logged.',
+      minutes > 0 ? `Parked. ${minutes === 1 ? 'A minute' : `${minutes} minutes`} back.` : 'Parked.',
     );
     this.events.onChanged(await this.describe(running));
     this.events.onDaysTouched([running.session.localDate]);
@@ -174,6 +179,9 @@ export class SessionService {
 
     this.events.onChanged(null);
     this.events.onDaysTouched([session.localDate]);
+    if (session.outcome === 'completed') {
+      this.events.onCompleted(session, thread?.title ?? 'Untitled');
+    }
   }
 
   /**

@@ -3,6 +3,7 @@ import type { RecoveryOffer, StorageBanner } from '@shared/ipc/channels.js';
 import { formatDuration } from '@shared/format.js';
 import { initThreadStore } from './stores/threadStore.js';
 import { initDayStore } from './stores/dayStore.js';
+import { initCarryStore } from './stores/carryStore.js';
 import { initSessionStore, useSessionStore } from './stores/sessionStore.js';
 import { Shell } from './layout/Shell.js';
 
@@ -20,7 +21,12 @@ export function App(): React.JSX.Element {
       return;
     }
     initialized = true;
-    Promise.all([initThreadStore(), initDayStore(), initSessionStore()]).then(() => setReady(true));
+    Promise.all([
+      initThreadStore(),
+      initDayStore(),
+      initCarryStore(),
+      initSessionStore(),
+    ]).then(() => setReady(true));
     window.thread.on('storage:banner', setBanner);
   }, []);
 

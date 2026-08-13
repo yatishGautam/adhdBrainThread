@@ -3,9 +3,10 @@
  * AppContext wires storage → services → windows → IPC broadcasts, and is the one object every
  * IPC handler closes over.
  */
-import { BrowserWindow, nativeTheme } from "electron";
+import { BrowserWindow, Notification, nativeTheme } from "electron";
 import type { Thread, Day } from "@shared/domain.js";
 import type { Settings } from "@shared/domain.js";
+import { formatDuration } from "@shared/format.js";
 import type {
 	Events,
 	RecoveryOffer,
@@ -14,6 +15,7 @@ import type {
 import { Database } from "./storage/Database.js";
 import { AnalyticsService } from "./services/AnalyticsService.js";
 import { SessionService } from "./services/SessionService.js";
+import { StageController } from "./services/StageController.js";
 import { CelebrationOrchestrator } from "./services/CelebrationOrchestrator.js";
 import { CelebrationOverlay } from "./windows/celebrationWindow.js";
 import { createHudWindow, defaultHudPosition } from "./windows/hudWindow.js";
@@ -30,6 +32,7 @@ let microTickVariant = 0;
 export class AppContext {
 	db!: Database;
 	sessions!: SessionService;
+	stages!: StageController;
 	analytics!: AnalyticsService;
 	celebrations!: CelebrationOrchestrator;
 	main: BrowserWindow | null = null;
@@ -64,9 +67,31 @@ export class AppContext {
 			},
 			onToast: (text) => ctx.broadcast("hud:toast", { text }),
 			onDaysTouched: (dates) => void ctx.analytics.touchDays(dates),
+			onStarted: () => ctx.stages.clear(),
+			onCompleted: (session, threadTitle) => {
+				// Fired from inside end(); a failure here must be visible, not an unhandled
+				// rejection that silently strands the cycle.
+				ctx.onFocusCompleted(
+					session.threadId,
+					threadTitle,
+					session.activeMs,
+				).catch((error: unknown) => console.error("[cycle]", error));
+			},
 		});
 
-		ctx.overlay = new CelebrationOverlay(() => ctx.hud);
+		ctx.stages = new StageController(
+			{
+				onChanged: (state) => ctx.broadcast("stage:changed", state),
+				onTick: (tick) => ctx.broadcast("stage:tick", tick),
+				onStageEnded: (finished, next) => ctx.announceStage(finished, next),
+				onStartFocus: async (threadId) => {
+					await ctx.sessions.start(threadId);
+				},
+			},
+			() => ctx.db.settings.get().defaultSessionMs,
+		);
+
+		ctx.overlay = new CelebrationOverlay();
 		ctx.celebrations = new CelebrationOrchestrator(
 			ctx.db,
 			ctx.overlay,
@@ -173,6 +198,57 @@ export class AppContext {
 		});
 	}
 
+	// ------------------------------------------------------------- the 25/5 cycle
+
+	/**
+	 * A focus block ran to the end: log it to today, mark it with the short celebration, then
+	 * park on the break and wait. A thread that was completed *by* this session is skipped —
+	 * it gets the full celebration instead, and there is nothing left to take a break from.
+	 */
+	private async onFocusCompleted(
+		threadId: string,
+		threadTitle: string,
+		activeMs: number,
+	): Promise<void> {
+		const thread = await this.db.threads.get(threadId);
+		if (thread?.status === "done") return;
+
+		// The break is parked first, before anything that can be slow or fail. It is what the
+		// user is staring at the HUD waiting for; a celebration that hangs must not be able to
+		// swallow the next stage of the cycle.
+		this.stages.awaitBreak(threadId, threadTitle);
+
+		const day = await this.db.days.addLogEntry(
+			`Focus block on ${threadTitle} — ${formatDuration(activeMs)}`,
+			"focus",
+		);
+		this.broadcastDay(day);
+		await this.celebrations.celebrateSession(threadTitle, activeMs);
+	}
+
+	/** Stage end: the HUD pops, glows and shakes, and the OS says so too (§4). */
+	private announceStage(finished: "focus" | "break", next: "focus" | "break"): void {
+		this.showHudNow();
+		this.broadcast("hud:attention", { stage: finished });
+
+		if (!Notification.isSupported()) return;
+		const body =
+			next === "break"
+				? "Five minutes. Press Resume when you want to start it."
+				: "Ready when you are — press Resume to start the next block.";
+		new Notification({
+			title: finished === "focus" ? "Focus block done" : "Break over",
+			body,
+			silent: true,
+		}).show();
+	}
+
+	/** Brings the HUD back into view without stealing keyboard focus from what you were doing. */
+	private showHudNow(): void {
+		this.openHud();
+		if (this.hud && !this.hud.isDestroyed()) this.hud.showInactive();
+	}
+
 	// -------------------------------------------------------------- lifecycle
 
 	onMainReady(): void {
@@ -195,6 +271,7 @@ export class AppContext {
 	}
 
 	async shutdown(): Promise<void> {
+		this.stages.destroy();
 		if (this.sessions.isRunning()) await this.sessions.end("ended_early");
 		await this.analytics.flush();
 		await this.db.close();

@@ -1,11 +1,13 @@
 import { useUiStore, type MainTab } from '../stores/uiStore.js';
 
+/** Threads · Daily · Dashboard, in that order (§1). One layout to keep in your head. */
 const TABS: { id: MainTab; label: string }[] = [
-  { id: 'today', label: 'Today' },
   { id: 'threads', label: 'Threads' },
-  { id: 'analytics', label: 'Analytics' },
+  { id: 'today', label: 'Daily' },
+  { id: 'analytics', label: 'Dashboard' },
 ];
 
+/** Segmented pills rather than underlines — the active tab is a raised object, not a hint. */
 export function TabBar(): React.JSX.Element {
   const tab = useUiStore((s) => s.tab);
   const setTab = useUiStore((s) => s.setTab);
@@ -14,31 +16,37 @@ export function TabBar(): React.JSX.Element {
     <div
       style={{
         display: 'flex',
-        gap: 4,
-        padding: '12px 20px 0',
+        gap: 6,
+        padding: '14px 20px 12px',
         borderBottom: '1px solid var(--line)',
         WebkitAppRegion: 'drag',
       } as React.CSSProperties}
     >
-      {TABS.map((item) => (
-        <button
-          key={item.id}
-          onClick={() => setTab(item.id)}
-          style={{
-            WebkitAppRegion: 'no-drag',
-            background: 'none',
-            border: 'none',
-            borderBottom: tab === item.id ? '2px solid var(--amber)' : '2px solid transparent',
-            color: tab === item.id ? 'var(--text)' : 'var(--text-muted)',
-            padding: '8px 14px',
-            fontSize: 14,
-            fontWeight: tab === item.id ? 600 : 400,
-            cursor: 'pointer',
-          } as React.CSSProperties}
-        >
-          {item.label}
-        </button>
-      ))}
+      {TABS.map((item) => {
+        const active = tab === item.id;
+        return (
+          <button
+            key={item.id}
+            onClick={() => setTab(item.id)}
+            style={{
+              WebkitAppRegion: 'no-drag',
+              padding: '7px 16px',
+              borderRadius: 999,
+              border: `1px solid ${active ? 'var(--line-strong)' : 'transparent'}`,
+              background: active ? 'var(--surface-raised)' : 'transparent',
+              boxShadow: active ? 'var(--shadow-card), var(--edge-light)' : 'none',
+              color: active ? 'var(--text)' : 'var(--text-muted)',
+              fontSize: 13,
+              fontWeight: active ? 600 : 400,
+              cursor: 'pointer',
+              transition:
+                'background var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out)',
+            } as React.CSSProperties}
+          >
+            {item.label}
+          </button>
+        );
+      })}
     </div>
   );
 }

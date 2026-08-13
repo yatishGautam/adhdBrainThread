@@ -1,17 +1,48 @@
 :root {
-  --ink: #0f1115;
-  --surface: #171a21;
-  --surface-raised: #1e222b;
-  --line: #262b35;
+  /*
+   * Lifted off near-black. The old ramp put three surfaces inside 15 levels of luminance, so
+   * cards, inputs and page all read as one flat black sheet and a 1px border had nothing to
+   * separate. Each step below is a visible step, and the page carries a slight blue cast so it
+   * reads as a surface rather than as an absence.
+   */
+  --ink: #14171e;
+  --surface: #1c212b;
+  --surface-raised: #252b38;
+  --surface-hover: #2d3444;
+  /* Borders you can actually see, plus a stronger one for controls that must be found. */
+  --line: #333c4d;
+  --line-strong: #4a566d;
   --amber: #f2a65a;
   --amber-bright: #ffbe72;
   --slate: #6e8ca8;
   --moss: #6fa287;
   --lavender: #9b8fb5;
   --danger: #c6584f;
-  --text: #e8eaee;
-  --text-muted: #98a0ae;
-  --text-faint: #5f6875;
+  /* Status palette (§9). Emerald = in progress, amber = waiting, clay = blocked, slate = dormant/done. */
+  --emerald: #4fb286;
+  /* Blocked is usually not your fault and is the status you can act on least, so it reads as a
+     muted clay rather than an alarm you cannot switch off. */
+  --clay: #b5705f;
+  --coral: #f0764a;
+
+  /*
+   * The signature. One gradient, used only for things that start or celebrate focus — the
+   * Start Focus button, Start Today, progress filling up. Everything else stays calm so that
+   * when this shows up, it reads as "this is the fun part".
+   */
+  --grad-ember: linear-gradient(135deg, #ffc47e 0%, var(--amber) 45%, var(--coral) 100%);
+  --glow-ember: 0 2px 14px rgba(242, 138, 78, 0.35);
+  --glow-ember-hover: 0 4px 22px rgba(242, 138, 78, 0.5);
+
+  /* Cards float a little instead of lying flat on the page. */
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 14px rgba(0, 0, 0, 0.18);
+  --shadow-card-hover: 0 2px 4px rgba(0, 0, 0, 0.3), 0 10px 26px rgba(0, 0, 0, 0.3);
+  /* A 1px light catch along the top edge sells the "raised glass" read on a dark UI. */
+  --edge-light: inset 0 1px 0 rgba(255, 255, 255, 0.045);
+  --text: #edf0f5;
+  --text-muted: #a8b1c1;
+  /* Was #5f6875 — under 3:1 on the page and used for real content, not just decoration. */
+  --text-faint: #7d8799;
 
   --font-display: 'Space Grotesk', 'Segoe UI', sans-serif;
   --font-body: 'IBM Plex Sans', 'Segoe UI', sans-serif;
@@ -50,6 +81,102 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/*
+ * A very slight warm lift behind the main window, so a full screen of dark UI has some depth.
+ * Deliberately a class rather than `#root`: the HUD and the celebration overlay share this
+ * stylesheet and both need their root to stay transparent.
+ */
+.app-bg {
+  background:
+    radial-gradient(1100px 620px at 78% -12%, rgba(242, 166, 90, 0.11), transparent 62%),
+    radial-gradient(700px 420px at 100% 30%, rgba(240, 118, 74, 0.05), transparent 60%),
+    radial-gradient(900px 520px at 8% 108%, rgba(139, 124, 182, 0.09), transparent 60%),
+    var(--ink);
+}
+
+/*
+ * The launch button. Gradient, glow, and a small lift on hover — pressing this is the whole
+ * point of the app, so it is the one control allowed to show off.
+ */
+.btn-launch {
+  background: var(--grad-ember);
+  color: #241103;
+  border: none;
+  box-shadow: var(--glow-ember), inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  transition:
+    transform var(--motion-fast) var(--ease-out),
+    box-shadow var(--motion-fast) var(--ease-out),
+    filter var(--motion-fast) var(--ease-out);
+}
+.btn-launch:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: var(--glow-ember-hover), inset 0 1px 0 rgba(255, 255, 255, 0.32);
+  filter: brightness(1.06);
+}
+.btn-launch:active:not(:disabled) {
+  transform: translateY(0);
+  filter: brightness(0.96);
+}
+
+/* Cards rise to meet the cursor. */
+.lift {
+  transition:
+    transform var(--motion-fast) var(--ease-out),
+    box-shadow var(--motion-fast) var(--ease-out),
+    background var(--motion-fast) var(--ease-out),
+    border-color var(--motion-fast) var(--ease-out);
+}
+.lift:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-card-hover), var(--edge-light);
+}
+
+/* The slow breathing glow around whatever is live — a session running is a fire lit. */
+@keyframes breath {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--amber) 35%, transparent),
+      0 0 18px rgba(242, 166, 90, 0.12);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--amber) 55%, transparent),
+      0 0 30px rgba(242, 166, 90, 0.28);
+  }
+}
+.breath {
+  animation: breath 3.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .breath {
+    animation: none;
+  }
+  .lift:hover,
+  .btn-launch:hover:not(:disabled) {
+    transform: none;
+  }
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--line-strong);
+  background-clip: content-box;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
 button {
   font-family: inherit;
   color: inherit;
@@ -62,6 +189,20 @@ textarea {
   background: transparent;
   border: none;
   outline: none;
+}
+
+/* Bare inputs had no visible edge at all until you guessed where they were. */
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-faint);
+}
+
+input:focus-visible,
+textarea:focus-visible,
+button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--amber) 70%, transparent);
+  outline-offset: 2px;
+  border-radius: 4px;
 }
 
 ::selection {

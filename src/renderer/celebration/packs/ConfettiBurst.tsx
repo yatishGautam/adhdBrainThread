@@ -4,7 +4,11 @@ import type { CelebrationPackProps } from '../registry.js';
 
 const COLORS = ['var(--amber)', 'var(--amber-bright)', 'var(--moss)', 'var(--lavender)', 'var(--slate)'];
 
-/** Physics particles bursting from the HUD's position — approximated here as top-center. */
+/**
+ * Confetti + shockwave — the default pack, and the one both builds ship with so they feel
+ * identical out of the box (§11). Particles burst from the top-center with an expanding ring
+ * underneath them.
+ */
 export function ConfettiBurst({ payload, onDone }: CelebrationPackProps): React.JSX.Element {
   useEffect(() => {
     const timer = setTimeout(onDone, 2200);
@@ -26,6 +30,19 @@ export function ConfettiBurst({ payload, onDone }: CelebrationPackProps): React.
 
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative' }}>
+      <motion.div
+        initial={{ width: 0, height: 0, opacity: 0.8 }}
+        animate={{ width: 620, height: 620, opacity: 0 }}
+        transition={{ duration: 0.9, ease: [0.16, 1, 0.3, 1] }}
+        style={{
+          position: 'absolute',
+          top: 60,
+          left: '50%',
+          transform: 'translate(-50%, -50%)',
+          borderRadius: '50%',
+          border: '2px solid var(--amber)',
+        }}
+      />
       {pieces.map((piece) => (
         <motion.div
           key={piece.id}

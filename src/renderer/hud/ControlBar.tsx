@@ -1,20 +1,17 @@
-import { DistractionButton } from "./DistractionButton.js";
-import type { DistractionKind } from "@shared/domain.js";
+import { ParkButton } from "./ParkButton.js";
 
 /**
- * Labelled rather than icon-only. The HUD sits beside real work all day, so a button whose
- * meaning you have to remember is a button you stop using.
+ * Pause/Resume · Park · Skip · Stop (§4). Labelled rather than icon-only: the HUD sits beside
+ * real work all day, so a button whose meaning you have to remember is a button you stop using.
  */
 export function ControlBar({
 	paused,
 	onPauseResume,
-	onDistraction,
 	onSkip,
 	onEnd,
 }: {
 	paused: boolean;
 	onPauseResume: () => void;
-	onDistraction: (kind: DistractionKind, note?: string) => void;
 	onSkip: () => void;
 	onEnd: () => void;
 }): React.JSX.Element {
@@ -36,10 +33,10 @@ export function ControlBar({
 				title={paused ? "Resume the timer" : "Pause the timer"}
 				label={paused ? "Resume" : "Pause"}
 			/>
-			<DistractionButton onDistraction={onDistraction} />
+			<ParkButton />
 			<HudButton
 				onClick={onSkip}
-				title="Finish this session right now — it still counts as complete, nothing is lost"
+				title="Finish this block right now — it still counts as complete, nothing is lost"
 				label="Skip"
 			/>
 			<HudButton

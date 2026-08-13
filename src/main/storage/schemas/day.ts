@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { Day, Thought, Todo } from '@shared/domain.js';
+import type { Blocker, Day, LogEntry, Thought, Todo } from '@shared/domain.js';
 import { isoTimestamp, localDate, ulidLike } from './common.js';
 
 export const todoSchema: z.ZodType<Todo> = z.object({
@@ -21,6 +21,23 @@ export const thoughtSchema: z.ZodType<Thought> = z.object({
   processed: z.boolean(),
 });
 
+export const blockerSchema: z.ZodType<Blocker> = z.object({
+  id: ulidLike,
+  text: z.string(),
+  resolved: z.boolean(),
+  localDate,
+  createdAt: isoTimestamp,
+  resolvedAt: isoTimestamp.optional(),
+});
+
+export const logEntrySchema: z.ZodType<LogEntry> = z.object({
+  id: ulidLike,
+  text: z.string(),
+  at: isoTimestamp,
+  localDate,
+  source: z.enum(['manual', 'todo', 'focus', 'thread']),
+});
+
 export const daySchema: z.ZodType<Day> = z.object({
   localDate,
   createdAt: isoTimestamp,
@@ -29,4 +46,8 @@ export const daySchema: z.ZodType<Day> = z.object({
   thoughts: z.array(thoughtSchema),
   loggedThreadIds: z.array(ulidLike),
   note: z.string().optional(),
+  // Optional throughout: day files written before these fields existed must keep parsing.
+  now: z.string().optional(),
+  blockers: z.array(blockerSchema).optional(),
+  log: z.array(logEntrySchema).optional(),
 });

@@ -20,10 +20,11 @@ export interface HudPosition {
 }
 
 export function defaultHudPosition(): HudPosition {
+	// Bottom-right (§4): the top-right corner is where notifications and menu-bar extras land.
 	const { workArea } = screen.getPrimaryDisplay();
 	return {
 		x: Math.round(workArea.x + workArea.width - HUD_WIDTH - 24),
-		y: Math.round(workArea.y + 24),
+		y: Math.round(workArea.y + workArea.height - HUD_HEIGHT - 24),
 	};
 }
 
@@ -71,10 +72,11 @@ export function createHudWindow(
 }
 
 function defaultPosition(): HudPosition {
+	// Bottom-right (§4): the top-right corner is where notifications and menu-bar extras land.
 	const { workArea } = screen.getPrimaryDisplay();
 	return {
 		x: Math.round(workArea.x + workArea.width - HUD_WIDTH - 24),
-		y: Math.round(workArea.y + 24),
+		y: Math.round(workArea.y + workArea.height - HUD_HEIGHT - 24),
 	};
 }
 

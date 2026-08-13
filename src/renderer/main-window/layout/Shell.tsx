@@ -9,7 +9,7 @@ export function Shell(): React.JSX.Element {
   const tab = useUiStore((s) => s.tab);
 
   return (
-    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
+    <div className="app-bg" style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
       <SideRail />
       <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
         <TabBar />

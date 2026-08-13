@@ -67,6 +67,32 @@ export interface DistractionStats {
   suggestedSessionMs: number | null;
 }
 
+/**
+ * Everything that is a plain count rather than part of the momentum system. Added so the page
+ * teaches you something about your own week; the momentum math above is untouched.
+ */
+export interface ScopeDetail {
+  stepsCompleted: number;
+  /** Mean focus per session in this scope — long sessions and many short ones read differently. */
+  avgSessionMs: number;
+  longestSessionMs: number;
+  /** Local hour you most often press start. `null` until there is anything to be typical about. */
+  peakStartHour: number | null;
+  /** Sessions bucketed by local hour, 24 entries — when your day actually happens. */
+  hourStarts: number[];
+  /** Days in this scope with at least one session. */
+  daysWorked: number;
+  /** Every day on record, so a week can be read against the whole history. */
+  allTime: {
+    sessionsStarted: number;
+    focusMs: number;
+    threadsCompleted: number;
+    stepsCompleted: number;
+    daysWorked: number;
+    bestDayFocusMs: number;
+  };
+}
+
 export interface ScopeSummary {
   scope: MomentumScope;
   /** Anchor date (YYYY-MM-DD) inside the period being viewed. */
@@ -77,6 +103,7 @@ export interface ScopeSummary {
   sessionsStarted: number;
   focusMs: number;
   threadsCompleted: number;
+  detail: ScopeDetail;
   trend: TrendPoint[];
   insight: Insight;
   distractions: DistractionStats;

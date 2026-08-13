@@ -11,7 +11,8 @@ interface UiStore {
 }
 
 export const useUiStore = create<UiStore>((set) => ({
-  tab: 'today',
+  // Threads is the first tab and the board is the inventory you open the app to look at.
+  tab: 'threads',
   railCollapsed: false,
   setTab: (tab) => set({ tab }),
   toggleRail: () =>

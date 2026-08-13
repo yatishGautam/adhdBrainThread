@@ -9,7 +9,18 @@
  *    that is how sessions land on the wrong side of a DST boundary.
  */
 
-export type ThreadStatus = 'idle' | 'in_progress' | 'waiting' | 'done';
+/**
+ * The five statuses the board offers (§2). `idle` is legacy-only: records written before the
+ * Blocked/Dormant split still carry it, so it stays readable and sorts as active, but it is not
+ * offered in the status picker.
+ */
+export type ThreadStatus =
+  | 'idle'
+  | 'in_progress'
+  | 'blocked'
+  | 'waiting'
+  | 'done'
+  | 'dormant';
 
 export interface Step {
   id: string;
@@ -31,6 +42,10 @@ export interface Thread {
   steps: Step[];
   /** Required when status === 'waiting'. A blocked thread with no recorded blocker gets lost. */
   waitingOn?: string;
+  /** A Notion link or a plain URL. Rendered as a chip; always opened externally (§6). */
+  link?: string;
+  /** Sparse manual ordering on the board, same scheme as steps. Absent = fall back to sort. */
+  order?: number;
   createdAt: string;
   updatedAt: string;
   completedAt?: string;
@@ -55,7 +70,30 @@ export interface Todo {
   order: number;
 }
 
-/** Inbox capture, unsorted. */
+/**
+ * Global and carried forward (§5), exactly like todos. Stored on the day it was raised so
+ * "since Aug 4" comes for free; the daily page reads every unresolved one, whatever day it
+ * belongs to.
+ */
+export interface Blocker {
+  id: string;
+  text: string;
+  resolved: boolean;
+  localDate: string;
+  createdAt: string;
+  resolvedAt?: string;
+}
+
+/** One timestamped line in a day's Log. Added by hand, or written by a completion. */
+export interface LogEntry {
+  id: string;
+  text: string;
+  at: string;
+  localDate: string;
+  source: 'manual' | 'todo' | 'focus' | 'thread';
+}
+
+/** Inbox capture, unsorted. Surfaced as "Park" — a scratch inbox, never a commitment. */
 export interface Thought {
   id: string;
   text: string;
@@ -74,7 +112,13 @@ export interface Day {
   thoughts: Thought[];
   /** Auto-filled on completion. */
   loggedThreadIds: string[];
+  /** Meeting notes. Markdown-friendly, auto-saving. */
   note?: string;
+  /** The one big "what am I doing right now" field at the top of the daily page. */
+  now?: string;
+  /** Optional so day files written before §5 still validate — no migration needed. */
+  blockers?: Blocker[];
+  log?: LogEntry[];
 }
 
 export type DistractionKind = 'internal' | 'external' | 'unspecified';

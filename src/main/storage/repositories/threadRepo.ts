@@ -1,4 +1,4 @@
-import { AUTO_ARCHIVE_AFTER_DAYS } from '@shared/constants.js';
+import { AUTO_ARCHIVE_AFTER_DAYS, ORDER_STEP } from '@shared/constants.js';
 import type { Step, Thread, ThreadStatus } from '@shared/domain.js';
 import type { DonePage, DoneQuery } from '@shared/ipc/channels.js';
 import { ulid } from '@shared/ids.js';
@@ -27,17 +27,31 @@ export class ThreadRepo {
     return threads.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
 
+  /** On the board (§2): not done, not dormant. This is the list the cap of 5 applies to. */
+  async activeList(): Promise<Thread[]> {
+    const threads = await this.list();
+    return threads.filter((thread) => thread.status !== 'done' && thread.status !== 'dormant');
+  }
+
+  async dormantList(): Promise<Thread[]> {
+    const threads = await this.list();
+    return threads.filter((thread) => thread.status === 'dormant');
+  }
+
   async get(id: string): Promise<Thread | null> {
     return (await this.active.get(id)) ?? (await this.archive.get(id));
   }
 
   async create(title: string, notes = ''): Promise<Thread> {
     const now = this.clock.now();
+    const board = await this.activeList();
     const thread: Thread = {
       id: ulid(),
       title: title.trim(),
       notes,
-      status: 'idle',
+      // A thread you just made is a thread you are on. Focus Tracker has no separate "idle".
+      status: 'in_progress',
+      order: nextOrder(withOrders(board)),
       steps: [],
       createdAt: now,
       updatedAt: now,
@@ -70,8 +84,21 @@ export class ThreadRepo {
   async setStatus(id: string, status: ThreadStatus, waitingOn?: string): Promise<Thread> {
     const thread = await this.require(id);
     const next: Thread = { ...thread, status };
-    if (status === 'waiting') next.waitingOn = waitingOn?.trim() || thread.waitingOn || '';
-    else delete next.waitingOn;
+    // Blocked and Waiting both record what they are stuck on — an unrecorded blocker gets lost.
+    if (status === 'waiting' || status === 'blocked') {
+      next.waitingOn = waitingOn?.trim() || thread.waitingOn || '';
+    } else {
+      delete next.waitingOn;
+    }
+
+    // Coming back onto the board from Done or Dormant means joining the end of the active list.
+    if (
+      status !== 'done' &&
+      status !== 'dormant' &&
+      (thread.status === 'done' || thread.status === 'dormant')
+    ) {
+      next.order = nextOrder(withOrders(await this.activeList()));
+    }
 
     if (status === 'done') {
       next.completedAt = this.clock.now();
@@ -132,6 +159,43 @@ export class ThreadRepo {
     return this.save({ ...thread, steps: items });
   }
 
+  // --------------------------------------------------------------- board order
+
+  /**
+   * Drag-and-drop (§2). Moving between Active and Dormant is the same gesture as reordering,
+   * so `status` and position are set in one write rather than two.
+   */
+  async reorderOnBoard(id: string, toIndex: number, status?: ThreadStatus): Promise<Thread[]> {
+    const thread = await this.require(id);
+    const target = status ?? thread.status;
+    const intoDormant = target === 'dormant';
+
+    // Everything already in the list the thread is landing in.
+    const siblings = boardOrder(
+      (await this.list()).filter(
+        (other) =>
+          other.id !== id &&
+          other.status !== 'done' &&
+          (other.status === 'dormant') === intoDormant,
+      ),
+    );
+
+    const moved: Thread = { ...thread, status: target };
+    const { items } = reorder(withOrders([...siblings, moved]), id, toIndex);
+    const orders = new Map(items.map((item) => [item.id, item.order]));
+
+    const written: Thread[] = [];
+    for (const candidate of [...siblings, moved]) {
+      const order = orders.get(candidate.id);
+      if (order === undefined) continue;
+      const current = await this.get(candidate.id);
+      // Only rewrite records that actually changed — a drag should not touch the whole board.
+      if (current && current.order === order && current.status === candidate.status) continue;
+      written.push(await this.save({ ...candidate, order }));
+    }
+    return written;
+  }
+
   // ------------------------------------------------------------- done + archive
 
   /**
@@ -176,4 +240,25 @@ export class ThreadRepo {
     if (!thread) throw new Error(`thread not found: ${id}`);
     return thread;
   }
+}
+
+/**
+ * Manual board order, with a stable fallback for threads written before `order` existed:
+ * most-recently-touched first, which is what the board sorted by anyway.
+ */
+export function boardOrder(threads: Thread[]): Thread[] {
+  return [...threads].sort((a, b) => {
+    if (a.order !== undefined && b.order !== undefined) return a.order - b.order;
+    if (a.order !== undefined) return -1;
+    if (b.order !== undefined) return 1;
+    return b.updatedAt.localeCompare(a.updatedAt);
+  });
+}
+
+/** Fills in an order for legacy records so `reorder()` has a total ordering to work with. */
+function withOrders(threads: Thread[]): { id: string; order: number }[] {
+  return boardOrder(threads).map((thread, index) => ({
+    id: thread.id,
+    order: thread.order ?? (index + 1) * ORDER_STEP,
+  }));
 }

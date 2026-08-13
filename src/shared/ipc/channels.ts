@@ -5,6 +5,7 @@
  */
 import type { MomentumScope, ScopeSummary } from "../analytics.js";
 import type {
+	Blocker,
 	Day,
 	Distraction,
 	DistractionKind,
@@ -13,6 +14,7 @@ import type {
 	Settings,
 	Thread,
 	ThreadStatus,
+	Todo,
 } from "../domain.js";
 
 /** What the HUD and the Now panel both render. Derived in main so they can never disagree. */
@@ -83,13 +85,39 @@ export interface DonePage {
 
 export type ThoughtAction = "thread" | "todo" | "dismiss";
 
+/**
+ * The 25/5 cycle's paused moment (§4). A stage never auto-starts: when one ends the timer
+ * parks here, showing what is next, until the user presses Resume. `kind` is the stage that is
+ * about to run, not the one that just finished.
+ */
+export interface StageState {
+	kind: "focus" | "break";
+	threadId: string;
+	threadTitle: string;
+	plannedMs: number;
+	remainingMs: number;
+	/** False while waiting for Resume — the HUD pulses gently in that state. */
+	running: boolean;
+}
+
+export interface StageTick {
+	remainingMs: number;
+	progress: number;
+}
+
+/** Global, carried-forward items (§5). Both lists are read whole, whatever day raised them. */
+export interface CarryForward {
+	todos: Todo[];
+	blockers: Blocker[];
+}
+
 /** [request, response] for every `invoke` channel. */
 export interface Requests {
 	"threads:list": [void, Thread[]];
 	"threads:get": [{ id: string }, Thread | null];
 	"threads:create": [{ title: string; notes?: string }, Thread];
 	"threads:update": [
-		{ id: string; patch: Partial<Pick<Thread, "title" | "notes">> },
+		{ id: string; patch: Partial<Pick<Thread, "title" | "notes" | "link">> },
 		Thread,
 	];
 	"threads:setStatus": [
@@ -98,6 +126,11 @@ export interface Requests {
 	];
 	"threads:remove": [{ id: string }, void];
 	"threads:done": [DoneQuery, DonePage];
+	/** Drag-and-drop: reorder within a list, or move between Active and Dormant. */
+	"threads:reorder": [
+		{ id: string; toIndex: number; status?: ThreadStatus },
+		Thread[],
+	];
 
 	"steps:add": [
 		{ threadId: string; text: string; afterStepId?: string },
@@ -116,8 +149,20 @@ export interface Requests {
 	"day:list": [void, string[]];
 	"day:setIntent": [{ threadIds: string[] }, Day];
 	"day:setNote": [{ localDate: string; note: string }, Day];
+	/** Every write below targets `localDate`, or today when it is omitted. */
+	"day:setNow": [{ now: string; localDate?: string }, Day];
 
-	"todo:add": [{ text: string }, Day];
+	/** Every unresolved todo and blocker, from every day. */
+	"carry:list": [void, CarryForward];
+
+	"blocker:add": [{ text: string; localDate?: string }, Day];
+	"blocker:resolve": [{ localDate: string; blockerId: string }, Day];
+	"blocker:remove": [{ localDate: string; blockerId: string }, Day];
+
+	"log:add": [{ text: string; localDate?: string }, Day];
+	"log:remove": [{ localDate: string; entryId: string }, Day];
+
+	"todo:add": [{ text: string; localDate?: string }, Day];
 	"todo:toggle": [{ localDate: string; todoId: string }, Day];
 	"todo:update": [{ localDate: string; todoId: string; text: string }, Day];
 	"todo:remove": [{ localDate: string; todoId: string }, Day];
@@ -127,7 +172,7 @@ export interface Requests {
 		{ day: Day; thread: Thread },
 	];
 
-	"thought:add": [{ text: string }, Day];
+	"thought:add": [{ text: string; localDate?: string }, Day];
 	"thought:remove": [{ localDate: string; thoughtId: string }, Day];
 	"thought:process": [
 		{ localDate: string; thoughtId: string; action: ThoughtAction },
@@ -146,12 +191,27 @@ export interface Requests {
 	"session:state": [void, SessionState | null];
 	"session:forThread": [{ threadId: string }, Session[]];
 	"session:resolveRecovery": [{ sessionId: string; keep: boolean }, void];
+	/**
+	 * One tap: logs the distraction, writes a line to today's Park list and adds the grace time
+	 * back to whichever stage is running. Never subtracts from anything.
+	 */
+	"session:park": [{ kind?: DistractionKind; note?: string }, void];
+
+	"stage:state": [void, StageState | null];
+	"stage:resume": [void, StageState | null];
+	"stage:skip": [void, StageState | null];
+	"stage:stop": [void, null];
 
 	"analytics:scope": [{ scope: MomentumScope; anchor: string }, ScopeSummary];
 	"analytics:rebuild": [void, void];
 
 	"settings:get": [void, Settings];
 	"settings:update": [{ patch: Partial<Settings> }, Settings];
+
+	/** Always external, never inside the app window (§6). */
+	"link:open": [{ url: string }, void];
+	"startup:get": [void, boolean];
+	"startup:set": [{ enabled: boolean }, boolean];
 
 	"data:repair": [void, RepairReport];
 	"data:export": [void, { path: string } | null];
@@ -178,6 +238,12 @@ export interface Events {
 	"storage:banner": StorageBanner;
 	"hud:toast": { text: string };
 	"micro:tick": { variant: number };
+	"stage:changed": StageState | null;
+	"stage:tick": StageTick;
+	/** A stage just ended: pop, glow, shake, chime. */
+	"hud:attention": { stage: "focus" | "break" };
+	/** A todo or blocker changed on some other day — the carried-forward lists need a refetch. */
+	"carry:changed": void;
 }
 
 export type RequestChannel = keyof Requests;
@@ -191,6 +257,7 @@ export const REQUEST_CHANNELS = [
 	"threads:setStatus",
 	"threads:remove",
 	"threads:done",
+	"threads:reorder",
 	"steps:add",
 	"steps:toggle",
 	"steps:update",
@@ -201,6 +268,13 @@ export const REQUEST_CHANNELS = [
 	"day:list",
 	"day:setIntent",
 	"day:setNote",
+	"day:setNow",
+	"carry:list",
+	"blocker:add",
+	"blocker:resolve",
+	"blocker:remove",
+	"log:add",
+	"log:remove",
 	"todo:add",
 	"todo:toggle",
 	"todo:update",
@@ -219,10 +293,18 @@ export const REQUEST_CHANNELS = [
 	"session:state",
 	"session:forThread",
 	"session:resolveRecovery",
+	"session:park",
+	"stage:state",
+	"stage:resume",
+	"stage:skip",
+	"stage:stop",
 	"analytics:scope",
 	"analytics:rebuild",
 	"settings:get",
 	"settings:update",
+	"link:open",
+	"startup:get",
+	"startup:set",
 	"data:repair",
 	"data:export",
 	"data:reveal",
@@ -246,6 +328,10 @@ export const EVENT_CHANNELS = [
 	"storage:banner",
 	"hud:toast",
 	"micro:tick",
+	"stage:changed",
+	"stage:tick",
+	"hud:attention",
+	"carry:changed",
 ] as const satisfies readonly EventChannel[];
 
 type MissingRequestChannels = Exclude<

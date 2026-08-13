@@ -12,8 +12,13 @@ export function DistractionSection({ stats }: { stats: DistractionStats }): Reac
         Attention
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12, marginBottom: 16 }}>
+      {/* The rate sits alongside the raw total: a total on its own punishes long sessions. */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 16 }}>
         <MiniStat label="Per focused hour" value={stats.perFocusedHour.toFixed(1)} />
+        <MiniStat
+          label="Parked in total"
+          value={String(stats.internal + stats.external + stats.untagged)}
+        />
         <MiniStat
           label="Median to first"
           value={stats.medianMsToFirst === null ? '—' : formatDuration(stats.medianMsToFirst)}

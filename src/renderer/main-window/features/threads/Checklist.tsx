@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { Step } from "@shared/domain.js";
+import { Checkbox } from "../../../shared/components/Checkbox.js";
 
 export function Checklist({
 	threadId,
@@ -30,8 +31,11 @@ export function Checklist({
 		await window.thread.invoke["steps:reorder"]({ threadId, stepId, toIndex });
 	};
 
+	const doneCount = sorted.filter((step) => step.done).length;
+
 	return (
 		<div>
+			{sorted.length > 0 ? <Progress done={doneCount} total={sorted.length} /> : null}
 			{sorted.map((step, index) => (
 				<ChecklistItem
 					key={step.id}
@@ -93,19 +97,49 @@ export function Checklist({
 			>
 				<span
 					style={{
-						width: 16,
-						height: 16,
-						borderRadius: 4,
-						border: "1px solid var(--line)",
+						width: 18,
+						height: 18,
+						borderRadius: 5,
+						flexShrink: 0,
+						border: "1.5px dashed var(--line-strong)",
 					}}
 				/>
 				<input
 					value={text}
-					placeholder="Add a step…"
+					placeholder="Add a step and press Enter…"
 					onChange={(e) => setText(e.target.value)}
 					onKeyDown={(e) => e.key === "Enter" && void add()}
 					style={{ flex: 1, fontSize: 14, padding: "4px 0" }}
 				/>
+			</div>
+		</div>
+	);
+}
+
+/** Live progress ("3/5 done"), so a half-finished checklist reads as progress, not as debt. */
+function Progress({ done, total }: { done: number; total: number }): React.JSX.Element {
+	const fraction = total > 0 ? done / total : 0;
+	return (
+		<div style={{ marginBottom: 10 }}>
+			<div
+				style={{
+					height: 4,
+					borderRadius: 999,
+					background: "var(--line)",
+					overflow: "hidden",
+				}}
+			>
+				<div
+					style={{
+						width: `${Math.round(fraction * 100)}%`,
+						height: "100%",
+						background: done === total ? "var(--emerald)" : "var(--amber)",
+						transition: "width var(--motion-slow) var(--ease-out)",
+					}}
+				/>
+			</div>
+			<div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 4 }}>
+				{done}/{total} done
 			</div>
 		</div>
 	);
@@ -178,22 +212,15 @@ function ChecklistItem({
 				cursor: editing ? "text" : "grab",
 			}}
 		>
-			<button
-				onClick={() =>
+			<Checkbox
+				checked={step.done}
+				title={step.done ? "Mark this step unfinished" : "Mark this step done"}
+				onChange={() =>
 					void window.thread.invoke["steps:toggle"]({
 						threadId,
 						stepId: step.id,
 					})
 				}
-				style={{
-					width: 16,
-					height: 16,
-					borderRadius: 4,
-					border: `1px solid ${step.done ? "var(--moss)" : "var(--line)"}`,
-					background: step.done ? "var(--moss)" : "transparent",
-					cursor: "pointer",
-					flexShrink: 0,
-				}}
 			/>
 			{editing ? (
 				<input

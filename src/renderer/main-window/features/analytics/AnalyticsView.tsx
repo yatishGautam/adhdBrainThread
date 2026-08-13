@@ -7,6 +7,7 @@ import { TrendChart } from './TrendChart.js';
 import { StatTile } from './StatTile.js';
 import { InsightCard } from './InsightCard.js';
 import { DistractionSection } from './DistractionSection.js';
+import { DetailSection } from './DetailSection.js';
 import { ActiveDays } from './ActiveDays.js';
 import { PageHeader } from '../../../shared/components/PageHeader.js';
 
@@ -35,7 +36,7 @@ export function AnalyticsView(): React.JSX.Element {
   return (
     <div style={{ padding: '20px 28px 40px', maxWidth: 900, margin: '0 auto' }}>
       <PageHeader
-        title="Analytics"
+        title="Dashboard"
         description="Patterns, not scores. Nothing here can be failed or broken."
         right={<ScopeToggle scope={scope} onChange={(next) => setScope(next)} />}
       />
@@ -67,6 +68,7 @@ export function AnalyticsView(): React.JSX.Element {
       </div>
 
       <InsightCard insight={summary.insight} />
+      <DetailSection detail={summary.detail} scopeLabel={scope} />
       <DistractionSection stats={summary.distractions} />
     </div>
   );

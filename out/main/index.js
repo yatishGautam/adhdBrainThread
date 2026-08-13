@@ -1,4 +1,4 @@
-import { BrowserWindow, screen, app, nativeImage, shell, Tray, Menu, nativeTheme, ipcMain, powerMonitor } from "electron";
+import { BrowserWindow, screen, app, nativeImage, shell, Tray, Menu, nativeTheme, Notification, ipcMain, powerMonitor } from "electron";
 import { z } from "zod";
 import { toZonedTime, format } from "date-fns-tz";
 import path from "node:path";
@@ -10,6 +10,61 @@ import __cjs_mod__ from "node:module";
 const __filename = import.meta.filename;
 const __dirname = import.meta.dirname;
 const require2 = __cjs_mod__.createRequire(import.meta.url);
+function formatClock(ms) {
+  const total = Math.max(0, Math.round(ms / 1e3));
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+function formatDuration(ms) {
+  const minutes = Math.round(ms / 6e4);
+  if (minutes < 1) return "under a minute";
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  if (hours === 0) return `${rest}m`;
+  if (rest === 0) return `${hours}h`;
+  return `${hours}h ${rest}m`;
+}
+const WEEKDAYS = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday"
+];
+const MONTHS = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December"
+];
+function parts(localDate2) {
+  const [year, month, day] = localDate2.split("-").map(Number);
+  return {
+    year,
+    month,
+    day,
+    weekday: new Date(Date.UTC(year, month - 1, day)).getUTCDay()
+  };
+}
+function formatLocalDate(localDate2) {
+  const { month, day, weekday } = parts(localDate2);
+  return `${WEEKDAYS[weekday]?.slice(0, 3)} ${day} ${MONTHS[month - 1]?.slice(0, 3)}`;
+}
+function formatMonth(localDate2) {
+  const { year, month } = parts(localDate2);
+  return `${MONTHS[month - 1]} ${year}`;
+}
 const isoTimestamp = z.string().refine((value) => !Number.isNaN(Date.parse(value)), "expected an ISO-8601 timestamp");
 const localDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "expected YYYY-MM-DD");
 const ulidLike = z.string().min(1);
@@ -30,6 +85,21 @@ const thoughtSchema = z.object({
   localDate,
   processed: z.boolean()
 });
+const blockerSchema = z.object({
+  id: ulidLike,
+  text: z.string(),
+  resolved: z.boolean(),
+  localDate,
+  createdAt: isoTimestamp,
+  resolvedAt: isoTimestamp.optional()
+});
+const logEntrySchema = z.object({
+  id: ulidLike,
+  text: z.string(),
+  at: isoTimestamp,
+  localDate,
+  source: z.enum(["manual", "todo", "focus", "thread"])
+});
 const daySchema = z.object({
   localDate,
   createdAt: isoTimestamp,
@@ -37,7 +107,11 @@ const daySchema = z.object({
   todos: z.array(todoSchema),
   thoughts: z.array(thoughtSchema),
   loggedThreadIds: z.array(ulidLike),
-  note: z.string().optional()
+  note: z.string().optional(),
+  // Optional throughout: day files written before these fields existed must keep parsing.
+  now: z.string().optional(),
+  blockers: z.array(blockerSchema).optional(),
+  log: z.array(logEntrySchema).optional()
 });
 const distractionSchema = z.object({
   id: ulidLike,
@@ -76,9 +150,12 @@ const threadSchema = z.object({
   id: ulidLike,
   title: z.string(),
   notes: z.string(),
-  status: z.enum(["idle", "in_progress", "waiting", "done"]),
+  // 'idle' is legacy — kept so day-one thread files keep parsing after the Blocked/Dormant split.
+  status: z.enum(["idle", "in_progress", "blocked", "waiting", "done", "dormant"]),
   steps: z.array(stepSchema),
   waitingOn: z.string().optional(),
+  link: z.string().optional(),
+  order: z.number().optional(),
   createdAt: isoTimestamp,
   updatedAt: isoTimestamp,
   completedAt: isoTimestamp.optional(),
@@ -192,13 +269,14 @@ const SEALED_OVERFLOW_FACTOR = 2;
 const SHARD_CACHE_LIMIT = 6;
 const FLUSH_DEBOUNCE_MS = 500;
 const COMPACT_FILL_RATIO = 0.4;
-const WIP_IN_PROGRESS_CAP = 3;
+const ACTIVE_THREAD_CAP = 5;
 const DEFAULT_SESSION_MS = 25 * 60 * 1e3;
 const DEFAULT_DISTRACTION_GRACE_MS = 120 * 1e3;
 const DISTRACTION_GRACE_MIN_MS = 0;
 const DISTRACTION_GRACE_MAX_MS = 300 * 1e3;
 const SESSION_CHECKPOINT_MS = 5e3;
 const HUD_TICK_MS = 1e3;
+const BREAK_MS = 5 * 60 * 1e3;
 const ORDER_STEP = 1e3;
 const ORDER_MIN_GAP = 1;
 const DMS_WEIGHTS = {
@@ -1136,13 +1214,17 @@ class DayRepo {
   async today() {
     return this.get(this.clock.today());
   }
-  /** The only path that brings a day into existence. */
-  async ensureToday() {
-    const localDate2 = this.clock.today();
-    const existing = await this.get(localDate2);
+  /**
+   * The only path that brings a day into existence — and any real interaction can do it. A day
+   * becomes real because you wrote a to-do, a reminder, a log line or a note on it. Threads
+   * have nothing to do with it: plenty of days are only a couple of errands.
+   */
+  async ensure(localDate2) {
+    const date = localDate2 ?? this.clock.today();
+    const existing = await this.get(date);
     if (existing) return existing;
     const day = {
-      localDate: localDate2,
+      localDate: date,
       createdAt: this.clock.now(),
       intentThreadIds: [],
       todos: [],
@@ -1151,6 +1233,9 @@ class DayRepo {
     };
     await this.write(day);
     return day;
+  }
+  async ensureToday() {
+    return this.ensure();
   }
   async write(day) {
     await this.days.put(day);
@@ -1163,8 +1248,12 @@ class DayRepo {
   async persistIndex() {
     await atomicWriteFile(this.indexFile, serialise(this.dates));
   }
+  /** Writes land on `localDate` when given, otherwise today. Creates the day if it is new. */
+  async mutateDay(localDate2, change) {
+    return this.write(change(await this.ensure(localDate2)));
+  }
   async mutateToday(change) {
-    return this.write(change(await this.ensureToday()));
+    return this.mutateDay(void 0, change);
   }
   async mutate(localDate2, change) {
     const day = await this.get(localDate2);
@@ -1172,8 +1261,8 @@ class DayRepo {
     return this.write(change(day));
   }
   // ------------------------------------------------------------------ todos
-  async addTodo(text) {
-    return this.mutateToday((day) => {
+  async addTodo(text, localDate2) {
+    return this.mutateDay(localDate2, (day) => {
       const todo = {
         id: ulid(),
         text: text.trim(),
@@ -1225,9 +1314,87 @@ class DayRepo {
       )
     }));
   }
+  // --------------------------------------------------------------- blockers
+  async addBlocker(text, localDate2) {
+    return this.mutateDay(localDate2, (day) => {
+      const blocker = {
+        id: ulid(),
+        text: text.trim(),
+        resolved: false,
+        localDate: day.localDate,
+        createdAt: this.clock.now()
+      };
+      return { ...day, blockers: [...day.blockers ?? [], blocker] };
+    });
+  }
+  /** Resolving drops it off every daily page. The record stays — the history stays honest. */
+  async resolveBlocker(localDate2, blockerId) {
+    return this.mutate(localDate2, (day) => ({
+      ...day,
+      blockers: (day.blockers ?? []).map((blocker) => {
+        if (blocker.id !== blockerId) return blocker;
+        if (blocker.resolved) {
+          const { resolvedAt: _was, ...rest } = blocker;
+          return { ...rest, resolved: false };
+        }
+        return { ...blocker, resolved: true, resolvedAt: this.clock.now() };
+      })
+    }));
+  }
+  async removeBlocker(localDate2, blockerId) {
+    return this.mutate(localDate2, (day) => ({
+      ...day,
+      blockers: (day.blockers ?? []).filter((blocker) => blocker.id !== blockerId)
+    }));
+  }
+  async findBlocker(localDate2, blockerId) {
+    const day = await this.get(localDate2);
+    return day?.blockers?.find((blocker) => blocker.id === blockerId) ?? null;
+  }
+  // -------------------------------------------------------------------- log
+  async addLogEntry(text, source = "manual", localDate2) {
+    return this.mutateDay(localDate2, (day) => {
+      const entry = {
+        id: ulid(),
+        text: text.trim(),
+        at: this.clock.now(),
+        localDate: day.localDate,
+        source
+      };
+      return { ...day, log: [...day.log ?? [], entry] };
+    });
+  }
+  async removeLogEntry(localDate2, entryId) {
+    return this.mutate(localDate2, (day) => ({
+      ...day,
+      log: (day.log ?? []).filter((entry) => entry.id !== entryId)
+    }));
+  }
+  // ------------------------------------------------------ global carry-forward
+  /**
+   * To-dos and blockers are global (§5): they live on the day that raised them, but every daily
+   * page reads all of them until they are completed or resolved. The day index is small and the
+   * shards are already cached, so a full scan here is cheaper than a second storage location.
+   */
+  async carryForward() {
+    const all = await this.days.all();
+    const todos = [];
+    const blockers = [];
+    for (const day of all) {
+      for (const todo of day.todos) {
+        if (!todo.done && !todo.promotedToThreadId) todos.push(todo);
+      }
+      for (const blocker of day.blockers ?? []) {
+        if (!blocker.resolved) blockers.push(blocker);
+      }
+    }
+    todos.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    blockers.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    return { todos, blockers };
+  }
   // --------------------------------------------------------------- thoughts
-  async addThought(text) {
-    return this.mutateToday((day) => {
+  async addThought(text, localDate2) {
+    return this.mutateDay(localDate2, (day) => {
       const thought = {
         id: ulid(),
         text: text.trim(),
@@ -1265,8 +1432,12 @@ class DayRepo {
   async setIntent(threadIds) {
     return this.mutateToday((day) => ({ ...day, intentThreadIds: threadIds }));
   }
+  /** Typing a note is a real interaction, so it is allowed to bring that day into existence. */
   async setNote(localDate2, note) {
-    return this.mutate(localDate2, (day) => ({ ...day, note }));
+    return this.mutateDay(localDate2, (day) => ({ ...day, note }));
+  }
+  async setNow(now, localDate2) {
+    return this.mutateDay(localDate2, (day) => ({ ...day, now }));
   }
   /** Auto-filled on completion — this panel is the day's evidence, not something to curate. */
   async logThread(threadId) {
@@ -1396,16 +1567,28 @@ class ThreadRepo {
     const threads = await this.active.all();
     return threads.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
+  /** On the board (§2): not done, not dormant. This is the list the cap of 5 applies to. */
+  async activeList() {
+    const threads = await this.list();
+    return threads.filter((thread) => thread.status !== "done" && thread.status !== "dormant");
+  }
+  async dormantList() {
+    const threads = await this.list();
+    return threads.filter((thread) => thread.status === "dormant");
+  }
   async get(id) {
     return await this.active.get(id) ?? await this.archive.get(id);
   }
   async create(title, notes = "") {
     const now = this.clock.now();
+    const board = await this.activeList();
     const thread = {
       id: ulid(),
       title: title.trim(),
       notes,
-      status: "idle",
+      // A thread you just made is a thread you are on. Focus Tracker has no separate "idle".
+      status: "in_progress",
+      order: nextOrder(withOrders(board)),
       steps: [],
       createdAt: now,
       updatedAt: now,
@@ -1435,8 +1618,14 @@ class ThreadRepo {
   async setStatus(id, status, waitingOn) {
     const thread = await this.require(id);
     const next = { ...thread, status };
-    if (status === "waiting") next.waitingOn = waitingOn?.trim() || thread.waitingOn || "";
-    else delete next.waitingOn;
+    if (status === "waiting" || status === "blocked") {
+      next.waitingOn = waitingOn?.trim() || thread.waitingOn || "";
+    } else {
+      delete next.waitingOn;
+    }
+    if (status !== "done" && status !== "dormant" && (thread.status === "done" || thread.status === "dormant")) {
+      next.order = nextOrder(withOrders(await this.activeList()));
+    }
     if (status === "done") {
       next.completedAt = this.clock.now();
       next.completedLocalDate = this.clock.today();
@@ -1488,6 +1677,33 @@ class ThreadRepo {
     const { items } = reorder(thread.steps, stepId, toIndex);
     return this.save({ ...thread, steps: items });
   }
+  // --------------------------------------------------------------- board order
+  /**
+   * Drag-and-drop (§2). Moving between Active and Dormant is the same gesture as reordering,
+   * so `status` and position are set in one write rather than two.
+   */
+  async reorderOnBoard(id, toIndex, status) {
+    const thread = await this.require(id);
+    const target = status ?? thread.status;
+    const intoDormant = target === "dormant";
+    const siblings = boardOrder(
+      (await this.list()).filter(
+        (other) => other.id !== id && other.status !== "done" && other.status === "dormant" === intoDormant
+      )
+    );
+    const moved = { ...thread, status: target };
+    const { items } = reorder(withOrders([...siblings, moved]), id, toIndex);
+    const orders = new Map(items.map((item) => [item.id, item.order]));
+    const written = [];
+    for (const candidate of [...siblings, moved]) {
+      const order = orders.get(candidate.id);
+      if (order === void 0) continue;
+      const current = await this.get(candidate.id);
+      if (current && current.order === order && current.status === candidate.status) continue;
+      written.push(await this.save({ ...candidate, order }));
+    }
+    return written;
+  }
   // ------------------------------------------------------------- done + archive
   /**
    * Walks archive shards newest-first rather than loading the whole archive, so "load more"
@@ -1524,6 +1740,20 @@ class ThreadRepo {
     if (!thread) throw new Error(`thread not found: ${id}`);
     return thread;
   }
+}
+function boardOrder(threads) {
+  return [...threads].sort((a, b) => {
+    if (a.order !== void 0 && b.order !== void 0) return a.order - b.order;
+    if (a.order !== void 0) return -1;
+    if (b.order !== void 0) return 1;
+    return b.updatedAt.localeCompare(a.updatedAt);
+  });
+}
+function withOrders(threads) {
+  return boardOrder(threads).map((thread, index) => ({
+    id: thread.id,
+    order: thread.order ?? (index + 1) * ORDER_STEP
+  }));
 }
 class Database {
   constructor(root, store, clock, threads, days, sessions, settings, initReport) {
@@ -1675,61 +1905,6 @@ function datesTouched(sessions, threads) {
     }
   }
   return [...dates].sort();
-}
-function formatClock(ms) {
-  const total = Math.max(0, Math.round(ms / 1e3));
-  const minutes = Math.floor(total / 60);
-  const seconds = total % 60;
-  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-}
-function formatDuration(ms) {
-  const minutes = Math.round(ms / 6e4);
-  if (minutes < 1) return "under a minute";
-  const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
-  if (hours === 0) return `${rest}m`;
-  if (rest === 0) return `${hours}h`;
-  return `${hours}h ${rest}m`;
-}
-const WEEKDAYS = [
-  "Sunday",
-  "Monday",
-  "Tuesday",
-  "Wednesday",
-  "Thursday",
-  "Friday",
-  "Saturday"
-];
-const MONTHS = [
-  "January",
-  "February",
-  "March",
-  "April",
-  "May",
-  "June",
-  "July",
-  "August",
-  "September",
-  "October",
-  "November",
-  "December"
-];
-function parts(localDate2) {
-  const [year, month, day] = localDate2.split("-").map(Number);
-  return {
-    year,
-    month,
-    day,
-    weekday: new Date(Date.UTC(year, month - 1, day)).getUTCDay()
-  };
-}
-function formatLocalDate(localDate2) {
-  const { month, day, weekday } = parts(localDate2);
-  return `${WEEKDAYS[weekday]?.slice(0, 3)} ${day} ${MONTHS[month - 1]?.slice(0, 3)}`;
-}
-function formatMonth(localDate2) {
-  const { year, month } = parts(localDate2);
-  return `${MONTHS[month - 1]} ${year}`;
 }
 function hourLabel(hour) {
   if (hour === 0) return "12am";
@@ -1918,6 +2093,43 @@ function buildDistractionStats(window) {
     suggestedSessionMs: medianMsToFirst === null ? null : Math.ceil(medianMsToFirst / 3e5) * 3e5
   };
 }
+function buildDetail(present, rollups) {
+  const hourStarts = Array.from({ length: 24 }, () => 0);
+  let sessions = 0;
+  let focusMs = 0;
+  let longestSessionMs = 0;
+  let stepsCompleted = 0;
+  for (const day of present) {
+    sessions += day.sessionsStarted;
+    focusMs += day.focusMs;
+    stepsCompleted += day.stepsCompleted;
+    longestSessionMs = Math.max(longestSessionMs, day.longestSessionMs);
+    day.hourStarts.forEach((count, hour) => {
+      hourStarts[hour] = (hourStarts[hour] ?? 0) + count;
+    });
+  }
+  const busiest = hourStarts.reduce(
+    (best, count, hour) => count > (hourStarts[best] ?? 0) ? hour : best,
+    0
+  );
+  const every = Object.values(rollups);
+  return {
+    stepsCompleted,
+    avgSessionMs: sessions > 0 ? Math.round(focusMs / sessions) : 0,
+    longestSessionMs,
+    peakStartHour: (hourStarts[busiest] ?? 0) > 0 ? busiest : null,
+    hourStarts,
+    daysWorked: present.filter((day) => day.sessionsStarted > 0).length,
+    allTime: {
+      sessionsStarted: every.reduce((sum, day) => sum + day.sessionsStarted, 0),
+      focusMs: every.reduce((sum, day) => sum + day.focusMs, 0),
+      threadsCompleted: every.reduce((sum, day) => sum + day.threadsCompleted, 0),
+      stepsCompleted: every.reduce((sum, day) => sum + day.stepsCompleted, 0),
+      daysWorked: every.filter((day) => day.sessionsStarted > 0).length,
+      bestDayFocusMs: every.reduce((best, day) => Math.max(best, day.focusMs), 0)
+    }
+  };
+}
 function buildScopeSummary(input) {
   const { from, to } = scopeBounds(input.scope, input.anchor);
   const dates = localDateRange(from, to);
@@ -1935,6 +2147,7 @@ function buildScopeSummary(input) {
     sessionsStarted: present.reduce((sum, day) => sum + day.sessionsStarted, 0),
     focusMs: present.reduce((sum, day) => sum + day.focusMs, 0),
     threadsCompleted: present.reduce((sum, day) => sum + day.threadsCompleted, 0),
+    detail: buildDetail(present, input.rollups),
     trend: buildTrend(input, from, to),
     insight: pickInsight({ window, recent, threads: input.threads, today: input.today }),
     distractions: buildDistractionStats(present),
@@ -2084,6 +2297,7 @@ class SessionService {
     await this.db.settings.update({ lastOpenSessionId: session.id });
     this.startTicker();
     const state = await this.describe(this.running);
+    this.events.onStarted(session);
     this.events.onChanged(state);
     this.events.onDaysTouched([session.localDate]);
     return state;
@@ -2133,7 +2347,7 @@ class SessionService {
     await this.persist();
     const minutes = Math.round(grantedMs / 6e4);
     this.events.onToast(
-      minutes > 0 ? `Logged. ${minutes === 1 ? "A minute" : `${minutes} minutes`} back on the clock.` : "Logged."
+      minutes > 0 ? `Parked. ${minutes === 1 ? "A minute" : `${minutes} minutes`} back.` : "Parked."
     );
     this.events.onChanged(await this.describe(running));
     this.events.onDaysTouched([running.session.localDate]);
@@ -2168,6 +2382,9 @@ class SessionService {
     await this.db.store.flush();
     this.events.onChanged(null);
     this.events.onDaysTouched([session.localDate]);
+    if (session.outcome === "completed") {
+      this.events.onCompleted(session, thread?.title ?? "Untitled");
+    }
   }
   /**
    * Crash recovery. Time that was actually spent is never silently discarded — the user is
@@ -2257,6 +2474,106 @@ class SessionService {
     await this.db.sessions.save({ ...this.running.session });
   }
 }
+class StageController {
+  constructor(events, focusMs) {
+    this.events = events;
+    this.focusMs = focusMs;
+  }
+  state = null;
+  ticker = null;
+  current() {
+    return this.state ? { ...this.state } : null;
+  }
+  /** Called when a focus block completes: park on the break, paused, waiting for Resume. */
+  awaitBreak(threadId, threadTitle) {
+    this.park({ kind: "break", threadId, threadTitle, plannedMs: BREAK_MS });
+    this.events.onStageEnded("focus", "break");
+  }
+  /** Any new session starting supersedes whatever the cycle was waiting on. */
+  clear() {
+    this.stopTicker();
+    if (!this.state) return;
+    this.state = null;
+    this.events.onChanged(null);
+  }
+  async resume() {
+    const state = this.state;
+    if (!state) return null;
+    if (state.kind === "focus") {
+      const { threadId } = state;
+      this.clear();
+      await this.events.onStartFocus(threadId);
+      return null;
+    }
+    this.state = { ...state, running: true };
+    this.startTicker();
+    this.events.onChanged(this.current());
+    return this.current();
+  }
+  /** Skip the break and go straight to the next focus block, still waiting for Resume. */
+  async skip() {
+    const state = this.state;
+    if (!state) return null;
+    if (state.kind === "focus") return this.resume();
+    this.finishBreak();
+    return this.current();
+  }
+  stop() {
+    this.clear();
+  }
+  /** Park during a break: the same two minutes back, applied to the break's clock. */
+  grant(ms) {
+    const state = this.state;
+    if (!state || state.kind !== "break") return false;
+    this.state = {
+      ...state,
+      plannedMs: state.plannedMs + ms,
+      remainingMs: state.remainingMs + ms
+    };
+    this.events.onChanged(this.current());
+    return true;
+  }
+  destroy() {
+    this.stopTicker();
+    this.state = null;
+  }
+  // ---------------------------------------------------------------- internals
+  park(next) {
+    this.stopTicker();
+    this.state = { ...next, remainingMs: next.plannedMs, running: false };
+    this.events.onChanged(this.current());
+  }
+  finishBreak() {
+    const state = this.state;
+    if (!state) return;
+    this.park({
+      kind: "focus",
+      threadId: state.threadId,
+      threadTitle: state.threadTitle,
+      plannedMs: this.focusMs()
+    });
+    this.events.onStageEnded("break", "focus");
+  }
+  startTicker() {
+    this.stopTicker();
+    this.ticker = setInterval(() => this.tick(), HUD_TICK_MS);
+  }
+  stopTicker() {
+    if (this.ticker) clearInterval(this.ticker);
+    this.ticker = null;
+  }
+  tick() {
+    const state = this.state;
+    if (!state || !state.running) return;
+    const remainingMs = Math.max(0, state.remainingMs - HUD_TICK_MS);
+    this.state = { ...state, remainingMs };
+    this.events.onTick({
+      remainingMs,
+      progress: state.plannedMs > 0 ? 1 - remainingMs / state.plannedMs : 1
+    });
+    if (remainingMs <= 0) this.finishBreak();
+  }
+}
 function isMilestone(steps, personalBest2) {
   return personalBest2 || steps >= MILESTONE_STEP_COUNT;
 }
@@ -2285,6 +2602,7 @@ function selectPack(registry, context) {
 function rememberPack(recentIds, packId) {
   return [packId, ...recentIds.filter((id) => id !== packId)].slice(0, CELEBRATION_ANTI_REPEAT);
 }
+const DEFAULT_PACK_ID = "confetti-burst";
 const PACK_REGISTRY = [
   { id: "confetti-burst", weight: 4, tier: "common", reducedMotionSafe: false },
   { id: "ink-bloom", weight: 3, tier: "common", reducedMotionSafe: true },
@@ -2330,6 +2648,29 @@ class CelebrationOrchestrator {
     };
     this.overlay.play(cue);
   }
+  /**
+   * The short one (§7). A finished focus block is worth marking, but not with the full pack
+   * roulette — it always uses the default confetti so a completed 25 minutes feels the same
+   * every time, and so it never eats the anti-repeat memory the thread celebration depends on.
+   */
+  async celebrateSession(threadTitle, focusMs) {
+    const settings = this.db.settings.get();
+    if (!settings.celebrationsEnabled) return;
+    const scope = await this.getMomentum();
+    this.overlay.play({
+      packId: DEFAULT_PACK_ID,
+      payload: {
+        threadTitle,
+        steps: 0,
+        focusMs,
+        sessionCount: 1,
+        momentum: scope.momentum,
+        band: scope.band.label
+      },
+      reducedMotion: this.getReducedMotion(),
+      soundEnabled: settings.soundEnabled
+    });
+  }
   stop() {
     this.overlay.stop();
   }
@@ -2344,13 +2685,77 @@ function loadRenderer(window, page) {
     void window.loadFile(path.join(here$2, `../renderer/${page}.html`));
   }
 }
+class CelebrationOverlay {
+  windows = /* @__PURE__ */ new Map();
+  timeout = null;
+  /** Dedupe guard: overlapping triggers must not stack overlays (§7). */
+  playing = false;
+  ensure(display) {
+    const existing = this.windows.get(display.id);
+    if (existing && !existing.isDestroyed()) return existing;
+    const window = new BrowserWindow({
+      transparent: true,
+      frame: false,
+      resizable: false,
+      hasShadow: false,
+      skipTaskbar: true,
+      focusable: false,
+      fullscreenable: false,
+      show: false,
+      webPreferences: {
+        preload: preloadPath,
+        sandbox: false,
+        contextIsolation: true,
+        nodeIntegration: false
+      }
+    });
+    window.setIgnoreMouseEvents(true);
+    window.setAlwaysOnTop(true, "screen-saver");
+    window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    loadRenderer(window, "celebration");
+    this.windows.set(display.id, window);
+    return window;
+  }
+  play(cue) {
+    if (this.playing) return;
+    this.playing = true;
+    for (const display of screen.getAllDisplays()) {
+      const window = this.ensure(display);
+      window.setBounds(display.bounds);
+      window.setIgnoreMouseEvents(true);
+      window.showInactive();
+      window.webContents.send("celebration:play", cue);
+    }
+    if (this.timeout) clearTimeout(this.timeout);
+    this.timeout = setTimeout(() => this.stop(), CELEBRATION_HARD_TIMEOUT_MS);
+  }
+  stop() {
+    if (this.timeout) {
+      clearTimeout(this.timeout);
+      this.timeout = null;
+    }
+    this.playing = false;
+    for (const window of this.windows.values()) {
+      if (window.isDestroyed()) continue;
+      window.webContents.send("celebration:stop");
+      window.hide();
+    }
+  }
+  destroy() {
+    this.stop();
+    for (const window of this.windows.values()) {
+      if (!window.isDestroyed()) window.destroy();
+    }
+    this.windows.clear();
+  }
+}
 const HUD_WIDTH = 470;
 const HUD_HEIGHT = 106;
 function defaultHudPosition() {
   const { workArea } = screen.getPrimaryDisplay();
   return {
     x: Math.round(workArea.x + workArea.width - HUD_WIDTH - 24),
-    y: Math.round(workArea.y + 24)
+    y: Math.round(workArea.y + workArea.height - HUD_HEIGHT - 24)
   };
 }
 function createHudWindow(saved, onMoved) {
@@ -2391,70 +2796,8 @@ function defaultPosition() {
   const { workArea } = screen.getPrimaryDisplay();
   return {
     x: Math.round(workArea.x + workArea.width - HUD_WIDTH - 24),
-    y: Math.round(workArea.y + 24)
+    y: Math.round(workArea.y + workArea.height - HUD_HEIGHT - 24)
   };
-}
-function displayContainingHud(hud) {
-  if (!hud || hud.isDestroyed()) return screen.getPrimaryDisplay();
-  const [x, y] = hud.getPosition();
-  return screen.getDisplayNearestPoint({ x: x ?? 0, y: y ?? 0 });
-}
-class CelebrationOverlay {
-  constructor(hud) {
-    this.hud = hud;
-  }
-  window = null;
-  timeout = null;
-  /** Created lazily on the first celebration, then hidden and reused. */
-  ensure() {
-    if (this.window && !this.window.isDestroyed()) return this.window;
-    const window = new BrowserWindow({
-      transparent: true,
-      frame: false,
-      resizable: false,
-      hasShadow: false,
-      skipTaskbar: true,
-      focusable: false,
-      fullscreenable: false,
-      show: false,
-      webPreferences: {
-        preload: preloadPath,
-        sandbox: false,
-        contextIsolation: true,
-        nodeIntegration: false
-      }
-    });
-    window.setIgnoreMouseEvents(true);
-    window.setAlwaysOnTop(true, "screen-saver");
-    window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-    loadRenderer(window, "celebration");
-    this.window = window;
-    return window;
-  }
-  play(cue) {
-    const window = this.ensure();
-    window.setBounds(displayContainingHud(this.hud()).bounds);
-    window.setIgnoreMouseEvents(true);
-    window.showInactive();
-    window.webContents.send("celebration:play", cue);
-    if (this.timeout) clearTimeout(this.timeout);
-    this.timeout = setTimeout(() => this.stop(), CELEBRATION_HARD_TIMEOUT_MS);
-  }
-  stop() {
-    if (this.timeout) {
-      clearTimeout(this.timeout);
-      this.timeout = null;
-    }
-    if (this.window && !this.window.isDestroyed()) {
-      this.window.webContents.send("celebration:stop");
-      this.window.hide();
-    }
-  }
-  destroy() {
-    this.stop();
-    if (this.window && !this.window.isDestroyed()) this.window.destroy();
-    this.window = null;
-  }
 }
 const here$1 = path.dirname(fileURLToPath(import.meta.url));
 function appIconPath() {
@@ -2545,6 +2888,7 @@ let microTickVariant = 0;
 class AppContext {
   db;
   sessions;
+  stages;
   analytics;
   celebrations;
   main = null;
@@ -2576,9 +2920,28 @@ class AppContext {
         ctx2.refreshTray();
       },
       onToast: (text) => ctx2.broadcast("hud:toast", { text }),
-      onDaysTouched: (dates) => void ctx2.analytics.touchDays(dates)
+      onDaysTouched: (dates) => void ctx2.analytics.touchDays(dates),
+      onStarted: () => ctx2.stages.clear(),
+      onCompleted: (session, threadTitle) => {
+        ctx2.onFocusCompleted(
+          session.threadId,
+          threadTitle,
+          session.activeMs
+        ).catch((error) => console.error("[cycle]", error));
+      }
     });
-    ctx2.overlay = new CelebrationOverlay(() => ctx2.hud);
+    ctx2.stages = new StageController(
+      {
+        onChanged: (state) => ctx2.broadcast("stage:changed", state),
+        onTick: (tick) => ctx2.broadcast("stage:tick", tick),
+        onStageEnded: (finished, next) => ctx2.announceStage(finished, next),
+        onStartFocus: async (threadId) => {
+          await ctx2.sessions.start(threadId);
+        }
+      },
+      () => ctx2.db.settings.get().defaultSessionMs
+    );
+    ctx2.overlay = new CelebrationOverlay();
     ctx2.celebrations = new CelebrationOrchestrator(
       ctx2.db,
       ctx2.overlay,
@@ -2663,6 +3026,40 @@ class AppContext {
       }
     });
   }
+  // ------------------------------------------------------------- the 25/5 cycle
+  /**
+   * A focus block ran to the end: log it to today, mark it with the short celebration, then
+   * park on the break and wait. A thread that was completed *by* this session is skipped —
+   * it gets the full celebration instead, and there is nothing left to take a break from.
+   */
+  async onFocusCompleted(threadId, threadTitle, activeMs) {
+    const thread = await this.db.threads.get(threadId);
+    if (thread?.status === "done") return;
+    this.stages.awaitBreak(threadId, threadTitle);
+    const day = await this.db.days.addLogEntry(
+      `Focus block on ${threadTitle} — ${formatDuration(activeMs)}`,
+      "focus"
+    );
+    this.broadcastDay(day);
+    await this.celebrations.celebrateSession(threadTitle, activeMs);
+  }
+  /** Stage end: the HUD pops, glows and shakes, and the OS says so too (§4). */
+  announceStage(finished, next) {
+    this.showHudNow();
+    this.broadcast("hud:attention", { stage: finished });
+    if (!Notification.isSupported()) return;
+    const body = next === "break" ? "Five minutes. Press Resume when you want to start it." : "Ready when you are — press Resume to start the next block.";
+    new Notification({
+      title: finished === "focus" ? "Focus block done" : "Break over",
+      body,
+      silent: true
+    }).show();
+  }
+  /** Brings the HUD back into view without stealing keyboard focus from what you were doing. */
+  showHudNow() {
+    this.openHud();
+    if (this.hud && !this.hud.isDestroyed()) this.hud.showInactive();
+  }
   // -------------------------------------------------------------- lifecycle
   onMainReady() {
     this.mainReady = true;
@@ -2682,6 +3079,7 @@ class AppContext {
     if (this.mainReady) this.broadcast("session:recovery", offer);
   }
   async shutdown() {
+    this.stages.destroy();
     if (this.sessions.isRunning()) await this.sessions.end("ended_early");
     await this.analytics.flush();
     await this.db.close();
@@ -2711,6 +3109,69 @@ class AppContext {
 function preferReducedMotion() {
   return false;
 }
+function classifyLink(raw) {
+  const value = raw.trim();
+  if (!value) return "invalid";
+  if (value.startsWith("notion://")) return "notion";
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return "url";
+    const host = url.hostname.toLowerCase();
+    if (host === "notion.so" || host.endsWith(".notion.so") || host.endsWith("notion.site")) {
+      return "notion";
+    }
+    return "url";
+  } catch {
+    return "invalid";
+  }
+}
+function notionDesktopUrl(raw) {
+  const value = raw.trim();
+  if (value.startsWith("notion://")) return value;
+  if (classifyLink(value) !== "notion") return null;
+  try {
+    const url = new URL(value);
+    return `notion://${url.host}${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    return null;
+  }
+}
+function normaliseLink(raw) {
+  const value = raw.trim();
+  if (!value) return "";
+  if (/^[a-z][a-z0-9+.-]*:/i.test(value)) return value;
+  return `https://${value}`;
+}
+const DESKTOP_HANDOFF_MS = 1200;
+async function openLink(raw) {
+  const url = normaliseLink(raw);
+  if (!url) return;
+  if (classifyLink(url) === "invalid") return;
+  const desktop = notionDesktopUrl(url);
+  if (!desktop) {
+    await shell.openExternal(url);
+    return;
+  }
+  try {
+    await Promise.race([
+      shell.openExternal(desktop),
+      new Promise(
+        (_resolve, reject) => setTimeout(() => reject(new Error("notion handoff timed out")), DESKTOP_HANDOFF_MS)
+      )
+    ]);
+  } catch {
+    if (desktop !== url) await shell.openExternal(url);
+  }
+}
+function launchesAtStartup() {
+  if (!app.isPackaged) return false;
+  return app.getLoginItemSettings().openAtLogin;
+}
+function setLaunchAtStartup(enabled) {
+  if (!app.isPackaged) return false;
+  app.setLoginItemSettings({ openAtLogin: enabled, openAsHidden: true });
+  return launchesAtStartup();
+}
 function on(channel, handler, ctx2) {
   ipcMain.handle(
     channel,
@@ -2724,6 +3185,12 @@ function registerHandlers(ctx2) {
   on(
     "threads:create",
     async (_c, { title, notes }) => {
+      const board = await db.threads.activeList();
+      if (board.length >= ACTIVE_THREAD_CAP) {
+        throw new Error(
+          `At most ${ACTIVE_THREAD_CAP} active threads. Finish one, or move one to the dormant zone.`
+        );
+      }
       const thread = await db.threads.create(title, notes);
       ctx2.broadcastThreads();
       return thread;
@@ -2744,13 +3211,11 @@ function registerHandlers(ctx2) {
   on(
     "threads:setStatus",
     async (_c, { id, status, waitingOn }) => {
-      if (status === "in_progress") {
-        const active = (await db.threads.list()).filter(
-          (t) => t.status === "in_progress" && t.id !== id
-        );
-        if (active.length >= WIP_IN_PROGRESS_CAP) {
+      if (status !== "done" && status !== "dormant") {
+        const board = await db.threads.activeList();
+        if (board.length >= ACTIVE_THREAD_CAP && !board.some((t) => t.id === id)) {
           throw new Error(
-            `At most ${WIP_IN_PROGRESS_CAP} threads can be in progress at once.`
+            `At most ${ACTIVE_THREAD_CAP} active threads. Finish one, or move one to the dormant zone.`
           );
         }
       }
@@ -2775,6 +3240,23 @@ function registerHandlers(ctx2) {
     ctx2
   );
   on("threads:done", async (_c, query) => db.threads.donePage(query), ctx2);
+  on(
+    "threads:reorder",
+    async (_c, { id, toIndex, status }) => {
+      if (status && status !== "dormant") {
+        const board = await db.threads.activeList();
+        if (board.length >= ACTIVE_THREAD_CAP && !board.some((t) => t.id === id)) {
+          throw new Error(
+            `At most ${ACTIVE_THREAD_CAP} active threads. Finish one, or move one to the dormant zone.`
+          );
+        }
+      }
+      const written = await db.threads.reorderOnBoard(id, toIndex, status);
+      ctx2.broadcastThreads();
+      return written;
+    },
+    ctx2
+  );
   on(
     "steps:add",
     async (_c, { threadId, text, afterStepId }) => {
@@ -2844,10 +3326,74 @@ function registerHandlers(ctx2) {
     ctx2
   );
   on(
-    "todo:add",
-    async (_c, { text }) => {
-      const day = await db.days.addTodo(text);
+    "day:setNow",
+    async (_c, { now, localDate: localDate2 }) => {
+      const day = await db.days.setNow(now, localDate2);
       ctx2.broadcastDay(day);
+      return day;
+    },
+    ctx2
+  );
+  on("carry:list", async () => db.days.carryForward(), ctx2);
+  on(
+    "blocker:add",
+    async (_c, { text, localDate: localDate2 }) => {
+      const day = await db.days.addBlocker(text, localDate2);
+      ctx2.broadcastDay(day);
+      ctx2.broadcast("carry:changed", void 0);
+      return day;
+    },
+    ctx2
+  );
+  on(
+    "blocker:resolve",
+    async (_c, { localDate: localDate2, blockerId }) => {
+      const blocker = await db.days.findBlocker(localDate2, blockerId);
+      const day = await db.days.resolveBlocker(localDate2, blockerId);
+      if (blocker && !blocker.resolved) {
+        ctx2.broadcastDay(await db.days.addLogEntry(`Unblocked: ${blocker.text}`, "manual"));
+      }
+      ctx2.broadcastDay(day);
+      ctx2.broadcast("carry:changed", void 0);
+      ctx2.microTick();
+      return day;
+    },
+    ctx2
+  );
+  on(
+    "blocker:remove",
+    async (_c, { localDate: localDate2, blockerId }) => {
+      const day = await db.days.removeBlocker(localDate2, blockerId);
+      ctx2.broadcastDay(day);
+      ctx2.broadcast("carry:changed", void 0);
+      return day;
+    },
+    ctx2
+  );
+  on(
+    "log:add",
+    async (_c, { text, localDate: localDate2 }) => {
+      const day = await db.days.addLogEntry(text, "manual", localDate2);
+      ctx2.broadcastDay(day);
+      return day;
+    },
+    ctx2
+  );
+  on(
+    "log:remove",
+    async (_c, { localDate: localDate2, entryId }) => {
+      const day = await db.days.removeLogEntry(localDate2, entryId);
+      ctx2.broadcastDay(day);
+      return day;
+    },
+    ctx2
+  );
+  on(
+    "todo:add",
+    async (_c, { text, localDate: localDate2 }) => {
+      const day = await db.days.addTodo(text, localDate2);
+      ctx2.broadcastDay(day);
+      ctx2.broadcast("carry:changed", void 0);
       return day;
     },
     ctx2
@@ -2855,8 +3401,13 @@ function registerHandlers(ctx2) {
   on(
     "todo:toggle",
     async (_c, { localDate: localDate2, todoId }) => {
+      const before = await db.days.findTodo(localDate2, todoId);
       const day = await db.days.toggleTodo(localDate2, todoId);
+      if (before && !before.done) {
+        ctx2.broadcastDay(await db.days.addLogEntry(before.text, "todo"));
+      }
       ctx2.broadcastDay(day);
+      ctx2.broadcast("carry:changed", void 0);
       ctx2.microTick();
       return day;
     },
@@ -2876,6 +3427,7 @@ function registerHandlers(ctx2) {
     async (_c, { localDate: localDate2, todoId }) => {
       const day = await db.days.removeTodo(localDate2, todoId);
       ctx2.broadcastDay(day);
+      ctx2.broadcast("carry:changed", void 0);
       return day;
     },
     ctx2
@@ -2898,14 +3450,15 @@ function registerHandlers(ctx2) {
       const day = await db.days.linkPromotedTodo(localDate2, todoId, thread.id);
       ctx2.broadcastDay(day);
       ctx2.broadcastThreads();
+      ctx2.broadcast("carry:changed", void 0);
       return { day, thread };
     },
     ctx2
   );
   on(
     "thought:add",
-    async (_c, { text }) => {
-      const day = await db.days.addThought(text);
+    async (_c, { text, localDate: localDate2 }) => {
+      const day = await db.days.addThought(text, localDate2);
       ctx2.broadcastDay(day);
       return day;
     },
@@ -2978,6 +3531,34 @@ function registerHandlers(ctx2) {
     ctx2
   );
   on(
+    "session:park",
+    async (_c, { kind, note }) => {
+      const grantMs = db.settings.get().distractionGraceMs;
+      const text = note?.trim() || "Distracted";
+      if (sessions.isRunning()) {
+        await sessions.logDistraction(kind, note);
+      } else if (ctx2.stages.grant(grantMs)) {
+        ctx2.broadcast("hud:toast", { text: parkToast(grantMs) });
+      } else {
+        ctx2.broadcast("hud:toast", { text: "Parked." });
+      }
+      const day = await db.days.addThought(text);
+      ctx2.broadcastDay(day);
+    },
+    ctx2
+  );
+  on("stage:state", async () => ctx2.stages.current(), ctx2);
+  on("stage:resume", async () => ctx2.stages.resume(), ctx2);
+  on("stage:skip", async () => ctx2.stages.skip(), ctx2);
+  on(
+    "stage:stop",
+    async () => {
+      ctx2.stages.stop();
+      return null;
+    },
+    ctx2
+  );
+  on(
     "analytics:scope",
     async (_c, { scope, anchor }) => analytics.summary(scope, anchor),
     ctx2
@@ -2999,6 +3580,9 @@ function registerHandlers(ctx2) {
     },
     ctx2
   );
+  on("link:open", async (_c, { url }) => openLink(url), ctx2);
+  on("startup:get", async () => launchesAtStartup(), ctx2);
+  on("startup:set", async (_c, { enabled }) => setLaunchAtStartup(enabled), ctx2);
   on(
     "data:repair",
     async () => {
@@ -3070,6 +3654,11 @@ function registerHandlers(ctx2) {
     ctx2
   );
 }
+function parkToast(grantMs) {
+  const minutes = Math.round(grantMs / 6e4);
+  if (minutes <= 0) return "Parked.";
+  return `Parked. ${minutes === 1 ? "A minute" : `${minutes} minutes`} back.`;
+}
 async function onThreadCompleted(ctx2, threadId) {
   const { db, sessions, analytics, celebrations } = ctx2;
   if (sessions.currentThreadId() === threadId) await sessions.end("completed");
@@ -3077,6 +3666,7 @@ async function onThreadCompleted(ctx2, threadId) {
   await analytics.touchDays([db.clock.today()]);
   const thread = await db.threads.get(threadId);
   if (!thread) return;
+  ctx2.broadcastDay(await db.days.addLogEntry(`Finished ${thread.title}`, "thread"));
   await celebrations.celebrate(thread);
 }
 function claimSingleInstance(onSecondInstance) {

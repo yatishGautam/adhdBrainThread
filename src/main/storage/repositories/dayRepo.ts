@@ -1,6 +1,6 @@
 import path from 'node:path';
-import type { Day, Thought, Todo } from '@shared/domain.js';
-import type { ThoughtAction } from '@shared/ipc/channels.js';
+import type { Blocker, Day, LogEntry, Thought, Todo } from '@shared/domain.js';
+import type { CarryForward, ThoughtAction } from '@shared/ipc/channels.js';
 import { ulid } from '@shared/ids.js';
 import { COLLECTION } from '../collections.js';
 import { atomicWriteFile, readFileIfExists } from '../atomicWrite.js';
@@ -65,13 +65,17 @@ export class DayRepo {
     return this.get(this.clock.today());
   }
 
-  /** The only path that brings a day into existence. */
-  async ensureToday(): Promise<Day> {
-    const localDate = this.clock.today();
-    const existing = await this.get(localDate);
+  /**
+   * The only path that brings a day into existence — and any real interaction can do it. A day
+   * becomes real because you wrote a to-do, a reminder, a log line or a note on it. Threads
+   * have nothing to do with it: plenty of days are only a couple of errands.
+   */
+  async ensure(localDate?: string): Promise<Day> {
+    const date = localDate ?? this.clock.today();
+    const existing = await this.get(date);
     if (existing) return existing;
     const day: Day = {
-      localDate,
+      localDate: date,
       createdAt: this.clock.now(),
       intentThreadIds: [],
       todos: [],
@@ -80,6 +84,10 @@ export class DayRepo {
     };
     await this.write(day);
     return day;
+  }
+
+  async ensureToday(): Promise<Day> {
+    return this.ensure();
   }
 
   private async write(day: Day): Promise<Day> {
@@ -95,8 +103,13 @@ export class DayRepo {
     await atomicWriteFile(this.indexFile, serialise(this.dates));
   }
 
+  /** Writes land on `localDate` when given, otherwise today. Creates the day if it is new. */
+  private async mutateDay(localDate: string | undefined, change: (day: Day) => Day): Promise<Day> {
+    return this.write(change(await this.ensure(localDate)));
+  }
+
   private async mutateToday(change: (day: Day) => Day): Promise<Day> {
-    return this.write(change(await this.ensureToday()));
+    return this.mutateDay(undefined, change);
   }
 
   private async mutate(localDate: string, change: (day: Day) => Day): Promise<Day> {
@@ -107,8 +120,8 @@ export class DayRepo {
 
   // ------------------------------------------------------------------ todos
 
-  async addTodo(text: string): Promise<Day> {
-    return this.mutateToday((day) => {
+  async addTodo(text: string, localDate?: string): Promise<Day> {
+    return this.mutateDay(localDate, (day) => {
       const todo: Todo = {
         id: ulid(),
         text: text.trim(),
@@ -166,10 +179,103 @@ export class DayRepo {
     }));
   }
 
+  // --------------------------------------------------------------- blockers
+
+  async addBlocker(text: string, localDate?: string): Promise<Day> {
+    return this.mutateDay(localDate, (day) => {
+      const blocker: Blocker = {
+        id: ulid(),
+        text: text.trim(),
+        resolved: false,
+        localDate: day.localDate,
+        createdAt: this.clock.now(),
+      };
+      return { ...day, blockers: [...(day.blockers ?? []), blocker] };
+    });
+  }
+
+  /** Resolving drops it off every daily page. The record stays — the history stays honest. */
+  async resolveBlocker(localDate: string, blockerId: string): Promise<Day> {
+    return this.mutate(localDate, (day) => ({
+      ...day,
+      blockers: (day.blockers ?? []).map((blocker) => {
+        if (blocker.id !== blockerId) return blocker;
+        if (blocker.resolved) {
+          const { resolvedAt: _was, ...rest } = blocker;
+          return { ...rest, resolved: false };
+        }
+        return { ...blocker, resolved: true, resolvedAt: this.clock.now() };
+      }),
+    }));
+  }
+
+  async removeBlocker(localDate: string, blockerId: string): Promise<Day> {
+    return this.mutate(localDate, (day) => ({
+      ...day,
+      blockers: (day.blockers ?? []).filter((blocker) => blocker.id !== blockerId),
+    }));
+  }
+
+  async findBlocker(localDate: string, blockerId: string): Promise<Blocker | null> {
+    const day = await this.get(localDate);
+    return day?.blockers?.find((blocker) => blocker.id === blockerId) ?? null;
+  }
+
+  // -------------------------------------------------------------------- log
+
+  async addLogEntry(
+    text: string,
+    source: LogEntry['source'] = 'manual',
+    localDate?: string,
+  ): Promise<Day> {
+    return this.mutateDay(localDate, (day) => {
+      const entry: LogEntry = {
+        id: ulid(),
+        text: text.trim(),
+        at: this.clock.now(),
+        localDate: day.localDate,
+        source,
+      };
+      return { ...day, log: [...(day.log ?? []), entry] };
+    });
+  }
+
+  async removeLogEntry(localDate: string, entryId: string): Promise<Day> {
+    return this.mutate(localDate, (day) => ({
+      ...day,
+      log: (day.log ?? []).filter((entry) => entry.id !== entryId),
+    }));
+  }
+
+  // ------------------------------------------------------ global carry-forward
+
+  /**
+   * To-dos and blockers are global (§5): they live on the day that raised them, but every daily
+   * page reads all of them until they are completed or resolved. The day index is small and the
+   * shards are already cached, so a full scan here is cheaper than a second storage location.
+   */
+  async carryForward(): Promise<CarryForward> {
+    const all = await this.days.all();
+    const todos: Todo[] = [];
+    const blockers: Blocker[] = [];
+    for (const day of all) {
+      for (const todo of day.todos) {
+        if (!todo.done && !todo.promotedToThreadId) todos.push(todo);
+      }
+      for (const blocker of day.blockers ?? []) {
+        if (!blocker.resolved) blockers.push(blocker);
+      }
+    }
+    // Oldest first — a thing carried since Aug 4 belongs above one raised this morning.
+    todos.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    blockers.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    return { todos, blockers };
+  }
+
   // --------------------------------------------------------------- thoughts
 
-  async addThought(text: string): Promise<Day> {
-    return this.mutateToday((day) => {
+  async addThought(text: string, localDate?: string): Promise<Day> {
+    return this.mutateDay(localDate, (day) => {
       const thought: Thought = {
         id: ulid(),
         text: text.trim(),
@@ -214,8 +320,13 @@ export class DayRepo {
     return this.mutateToday((day) => ({ ...day, intentThreadIds: threadIds }));
   }
 
+  /** Typing a note is a real interaction, so it is allowed to bring that day into existence. */
   async setNote(localDate: string, note: string): Promise<Day> {
-    return this.mutate(localDate, (day) => ({ ...day, note }));
+    return this.mutateDay(localDate, (day) => ({ ...day, note }));
+  }
+
+  async setNow(now: string, localDate?: string): Promise<Day> {
+    return this.mutateDay(localDate, (day) => ({ ...day, now }));
   }
 
   /** Auto-filled on completion — this panel is the day's evidence, not something to curate. */

@@ -14,6 +14,9 @@ import type { ScopeSummary } from '@shared/analytics.js';
  * Mirrors src/renderer/celebration/registry.ts. Kept in sync by hand — both sides list the same
  * six packs, but only the renderer needs the React components.
  */
+/** Confetti + shockwave. The out-of-the-box look both builds share (§11). */
+export const DEFAULT_PACK_ID = 'confetti-burst';
+
 export const PACK_REGISTRY: PackDescriptor[] = [
   { id: 'confetti-burst', weight: 4, tier: 'common', reducedMotionSafe: false },
   { id: 'ink-bloom', weight: 3, tier: 'common', reducedMotionSafe: true },
@@ -64,6 +67,31 @@ export class CelebrationOrchestrator {
       soundEnabled: settings.soundEnabled,
     };
     this.overlay.play(cue);
+  }
+
+  /**
+   * The short one (§7). A finished focus block is worth marking, but not with the full pack
+   * roulette — it always uses the default confetti so a completed 25 minutes feels the same
+   * every time, and so it never eats the anti-repeat memory the thread celebration depends on.
+   */
+  async celebrateSession(threadTitle: string, focusMs: number): Promise<void> {
+    const settings = this.db.settings.get();
+    if (!settings.celebrationsEnabled) return;
+
+    const scope = await this.getMomentum();
+    this.overlay.play({
+      packId: DEFAULT_PACK_ID,
+      payload: {
+        threadTitle,
+        steps: 0,
+        focusMs,
+        sessionCount: 1,
+        momentum: scope.momentum,
+        band: scope.band.label,
+      },
+      reducedMotion: this.getReducedMotion(),
+      soundEnabled: settings.soundEnabled,
+    });
   }
 
   stop(): void {

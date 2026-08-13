@@ -15,9 +15,12 @@ export const threadSchema: z.ZodType<Thread> = z.object({
   id: ulidLike,
   title: z.string(),
   notes: z.string(),
-  status: z.enum(['idle', 'in_progress', 'waiting', 'done']),
+  // 'idle' is legacy — kept so day-one thread files keep parsing after the Blocked/Dormant split.
+  status: z.enum(['idle', 'in_progress', 'blocked', 'waiting', 'done', 'dormant']),
   steps: z.array(stepSchema),
   waitingOn: z.string().optional(),
+  link: z.string().optional(),
+  order: z.number().optional(),
   createdAt: isoTimestamp,
   updatedAt: isoTimestamp,
   completedAt: isoTimestamp.optional(),

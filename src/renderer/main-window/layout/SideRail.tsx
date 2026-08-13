@@ -1,15 +1,19 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
 	formatCollapsedDate,
 	formatCollapsedMonth,
 	formatDayNumber,
 	formatLocalDate,
 	formatMonth,
+	isWeekend,
 } from "@shared/format.js";
 import { useDayStore, loadDay } from "../stores/dayStore.js";
 import { useUiStore } from "../stores/uiStore.js";
 
-/** Grouped by year → month → day. A day that does not exist is not shown — there is no "start a new day" button. */
+/**
+ * Grouped year → month → day (§1). A day that does not exist is not shown — there is no
+ * "start a new day" button, because a day you didn't work must not exist to feel bad about.
+ */
 export function SideRail(): React.JSX.Element {
 	const dates = useDayStore((s) => s.dates);
 	const viewedDate = useDayStore((s) => s.viewedDate);
@@ -20,9 +24,9 @@ export function SideRail(): React.JSX.Element {
 	const setTab = useUiStore((s) => s.setTab);
 
 	// Today's own row is never mixed into the past-days list — it always shows, even before a
-	// Day record exists, and it's what "back to today" navigates to.
-	const months = useMemo(
-		() => groupByMonth(dates.filter((date) => date !== todayDate)),
+	// Day record exists, and it's what "Start Today" navigates to.
+	const years = useMemo(
+		() => groupByYear(dates.filter((date) => date !== todayDate)),
 		[dates, todayDate],
 	);
 	const collapsedWidth = 108;
@@ -63,25 +67,32 @@ export function SideRail(): React.JSX.Element {
 					goToday();
 				}}
 				title={formatLocalDate(todayDate)}
+				className="btn-launch"
 				style={{
 					display: "flex",
 					flexDirection: "column",
 					alignItems: collapsed ? "center" : "flex-start",
 					margin: "0 12px 12px",
-					padding: "8px 10px",
-					borderRadius: 8,
-					border: "1px solid var(--line)",
-					background: onToday ? "var(--surface-raised)" : "transparent",
-					color: "var(--amber)",
+					padding: "10px 12px",
+					borderRadius: 10,
 					textAlign: "left",
 					cursor: "pointer",
 					fontSize: 13,
+					fontWeight: 700,
+					// Dimmed but still itself when you're already on today — a lit button you
+					// just pressed, not a different button.
+					opacity: onToday ? 0.92 : 1,
 				}}
 			>
-				{collapsed ? "•" : "Today"}
+				{collapsed ? "⚡" : "⚡ Start Today"}
 				{!collapsed ? (
 					<span
-						style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 1 }}
+						style={{
+							fontSize: 11,
+							fontWeight: 500,
+							color: "rgba(36, 17, 3, 0.72)",
+							marginTop: 1,
+						}}
 					>
 						{formatLocalDate(todayDate)}
 					</span>
@@ -89,7 +100,7 @@ export function SideRail(): React.JSX.Element {
 			</button>
 
 			<div style={{ flex: 1, overflowY: "auto", padding: "0 8px" }}>
-				{!collapsed && months.length === 0 ? (
+				{!collapsed && years.length === 0 ? (
 					<p
 						style={{
 							fontSize: 11,
@@ -98,111 +109,190 @@ export function SideRail(): React.JSX.Element {
 							lineHeight: 1.5,
 						}}
 					>
-						Past days appear here once you&rsquo;ve used them. Days you
+						Past pages appear here once you&rsquo;ve used them. Days you
 						didn&rsquo;t work are never created.
 					</p>
 				) : null}
-				{months.map((month) => (
-					<div key={month.key} style={{ marginBottom: 12 }}>
+				{years.map((year) => (
+					<div key={year.key} style={{ marginBottom: 6 }}>
 						{!collapsed ? (
 							<div
 								style={{
-									padding: "4px 8px",
+									padding: "6px 8px 2px",
 									fontSize: 11,
-									color: "var(--text-faint)",
-									textTransform: "uppercase",
-									letterSpacing: "0.04em",
+									fontWeight: 600,
+									color: "var(--text-muted)",
+									letterSpacing: "0.06em",
 								}}
 							>
-								{formatMonth(month.key)}
+								{year.key}
 							</div>
-						) : (
-							<div
-								style={{
-									padding: "4px 8px",
-									fontSize: 11,
-									color: "var(--text-faint)",
-									textTransform: "uppercase",
-									letterSpacing: "0.04em",
-									textAlign: "center",
-								}}
-							>
-								{formatCollapsedMonth(month.key)}
-							</div>
-						)}
-						{month.days.map((date) => {
-							// Every entry left in this list is, by construction, before today.
-							const isPastDate = date < todayDate;
-							return (
-								<button
-									key={date}
-									onClick={() => {
-										setTab("today");
-										void loadDay(date);
-									}}
-									title={date}
+						) : null}
+						{year.months.map((month) => (
+							<div key={month.key} style={{ marginBottom: 10 }}>
+								<div
 									style={{
-										display: "flex",
-										alignItems: "center",
-										gap: 8,
-										width: "100%",
-										padding: collapsed ? "8px 6px" : "6px 8px",
-										justifyContent: collapsed ? "center" : "flex-start",
-										borderRadius: 8,
-										border: "none",
-										background:
-											viewedDate === date
-												? "var(--surface-raised)"
-												: "transparent",
-										color: isPastDate
-											? "var(--text-faint)"
-											: "var(--text-muted)",
-										cursor: "pointer",
-										fontSize: 13,
+										padding: "4px 8px",
+										fontSize: 11,
+										color: "var(--text-faint)",
+										textTransform: "uppercase",
+										letterSpacing: "0.04em",
 										textAlign: collapsed ? "center" : "left",
 									}}
 								>
-									{!collapsed ? (
-										<>
-											<span
-												className="mono"
-												style={{
-													width: 24,
-													textAlign: "right",
-													color: "var(--text-faint)",
-												}}
-											>
-												{formatDayNumber(date)}
-											</span>
-											<span style={{ whiteSpace: "nowrap" }}>
-												{formatLocalDate(date)}
-											</span>
-										</>
-									) : (
-										<span style={{ whiteSpace: "nowrap" }}>
-											{formatCollapsedDate(date)}
-										</span>
-									)}
-								</button>
-							);
-						})}
+									{collapsed
+										? formatCollapsedMonth(month.key)
+										: formatMonth(month.key)}
+								</div>
+								{month.days.map((date) => (
+									<DayRow
+										key={date}
+										date={date}
+										collapsed={collapsed}
+										selected={viewedDate === date}
+										onOpen={() => {
+											setTab("today");
+											void loadDay(date);
+										}}
+									/>
+								))}
+							</div>
+						))}
 					</div>
 				))}
 			</div>
+
+			<StartupToggle collapsed={collapsed} />
 		</div>
 	);
 }
 
-function groupByMonth(dates: string[]): { key: string; days: string[] }[] {
-	const groups = new Map<string, string[]>();
+function DayRow({
+	date,
+	collapsed,
+	selected,
+	onOpen,
+}: {
+	date: string;
+	collapsed: boolean;
+	selected: boolean;
+	onOpen: () => void;
+}): React.JSX.Element {
+	const weekend = isWeekend(date);
+	return (
+		<button
+			onClick={onOpen}
+			title={weekend ? `${date} · weekend` : date}
+			style={{
+				display: "flex",
+				alignItems: "center",
+				gap: 8,
+				width: "100%",
+				padding: collapsed ? "8px 6px" : "6px 8px",
+				justifyContent: collapsed ? "center" : "flex-start",
+				borderRadius: 8,
+				border: "none",
+				background: selected ? "var(--surface-raised)" : "transparent",
+				color: "var(--text-faint)",
+				cursor: "pointer",
+				fontSize: 13,
+				textAlign: collapsed ? "center" : "left",
+			}}
+		>
+			{!collapsed ? (
+				<>
+					<span
+						className="mono"
+						style={{
+							width: 24,
+							textAlign: "right",
+							color: "var(--text-faint)",
+						}}
+					>
+						{formatDayNumber(date)}
+					</span>
+					<span style={{ whiteSpace: "nowrap" }}>{formatLocalDate(date)}</span>
+					{/* A Saturday with work on it should not read like a Tuesday. */}
+					{weekend ? (
+						<span style={{ color: "var(--amber)", fontSize: 11 }}>★</span>
+					) : null}
+				</>
+			) : (
+				<span style={{ whiteSpace: "nowrap" }}>
+					{formatCollapsedDate(date)}
+					{weekend ? " ★" : ""}
+				</span>
+			)}
+		</button>
+	);
+}
+
+/** Launch at startup (§8). Owned by the OS, so the state is read back rather than remembered. */
+function StartupToggle({ collapsed }: { collapsed: boolean }): React.JSX.Element | null {
+	const [enabled, setEnabled] = useState<boolean | null>(null);
+
+	useEffect(() => {
+		void window.thread.invoke["startup:get"](undefined).then(setEnabled);
+	}, []);
+
+	if (enabled === null || collapsed) return null;
+
+	return (
+		<button
+			onClick={() =>
+				void window.thread
+					.invoke["startup:set"]({ enabled: !enabled })
+					.then(setEnabled)
+			}
+			title="Open this app automatically when you log in"
+			style={{
+				display: "flex",
+				alignItems: "center",
+				gap: 8,
+				margin: "0 12px 12px",
+				padding: "8px 10px",
+				borderRadius: 8,
+				border: "1px solid var(--line)",
+				background: "transparent",
+				color: "var(--text-faint)",
+				cursor: "pointer",
+				fontSize: 11,
+				textAlign: "left",
+			}}
+		>
+			<span
+				style={{
+					width: 12,
+					height: 12,
+					borderRadius: 3,
+					flexShrink: 0,
+					border: `1px solid ${enabled ? "var(--emerald)" : "var(--line)"}`,
+					background: enabled ? "var(--emerald)" : "transparent",
+				}}
+			/>
+			Launch at startup
+		</button>
+	);
+}
+
+function groupByYear(
+	dates: string[],
+): { key: string; months: { key: string; days: string[] }[] }[] {
+	const years = new Map<string, Map<string, string[]>>();
 	for (const date of [...dates].sort().reverse()) {
-		const key = date.slice(0, 7);
-		const list = groups.get(key);
-		if (list) list.push(date);
-		else groups.set(key, [date]);
+		const year = date.slice(0, 4);
+		const month = date.slice(0, 7);
+		const months = years.get(year) ?? new Map<string, string[]>();
+		const days = months.get(month) ?? [];
+		days.push(date);
+		months.set(month, days);
+		years.set(year, months);
 	}
-	return [...groups.entries()].map(([key, days]) => ({
-		key: `${key}-01`,
-		days,
+	return [...years.entries()].map(([key, months]) => ({
+		key,
+		months: [...months.entries()].map(([month, days]) => ({
+			key: `${month}-01`,
+			days,
+		})),
 	}));
 }

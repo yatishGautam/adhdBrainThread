@@ -10,6 +10,8 @@ export const COMPACT_FILL_RATIO = 0.4;
 
 /** Work-in-progress limits (§5.2). */
 export const WIP_IN_PROGRESS_CAP = 3;
+/** Threads on the active list — done and dormant do not count (§2). */
+export const ACTIVE_THREAD_CAP = 5;
 /** Soft — a calm inline note, never a block. */
 export const BOARD_SOFT_CAP = 7;
 export const INTENT_SOFT_CAP = 5;
@@ -22,6 +24,8 @@ export const DISTRACTION_GRACE_MAX_MS = 300 * 1000;
 /** Session state is checkpointed to the journal at this interval, so a crash loses at most this. */
 export const SESSION_CHECKPOINT_MS = 5000;
 export const HUD_TICK_MS = 1000;
+/** The 25/5 cycle (§4). The break never auto-starts — the user presses Resume. */
+export const BREAK_MS = 5 * 60 * 1000;
 
 /** Steps use sparse integer ordering; renumber only when a gap closes below this. */
 export const ORDER_STEP = 1000;

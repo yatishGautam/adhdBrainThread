@@ -1,27 +1,38 @@
-import { useEffect, useMemo, useState } from "react";
-import { WIP_IN_PROGRESS_CAP, BOARD_SOFT_CAP } from "@shared/constants.js";
+import { useMemo, useState } from "react";
+import { ACTIVE_THREAD_CAP } from "@shared/constants.js";
 import type { Thread } from "@shared/domain.js";
 import { useThreadStore } from "../../stores/threadStore.js";
 import { ThreadCard } from "./ThreadCard.js";
 import { DoneSection } from "./DoneSection.js";
 import { EmptyState } from "../../../shared/components/EmptyState.js";
 import { Button } from "../../../shared/components/Button.js";
+import { Collapsible } from "../../../shared/components/Collapsible.js";
 import { PageHeader } from "../../../shared/components/PageHeader.js";
-import { Checklist } from "./Checklist.js";
+import { ThreadDrawer } from "./ThreadDrawer.js";
 
+/**
+ * Up to five active threads, then the dormant zone, then the done pile — both collapsed (§2).
+ * Done and dormant threads do not count toward the five: the cap is on what you are carrying,
+ * not on what you have ever written down.
+ */
 export function ThreadsView(): React.JSX.Element {
 	const threads = useThreadStore((s) => s.threads);
 	const [expandedId, setExpandedId] = useState<string | null>(null);
 	const [creating, setCreating] = useState(false);
 	const [title, setTitle] = useState("");
+	const [error, setError] = useState<string | null>(null);
+	const [dragId, setDragId] = useState<string | null>(null);
+	const [dropTarget, setDropTarget] = useState<string | null>(null);
 
-	const board = useMemo(
-		() => threads.filter((t) => t.status !== "done"),
+	const active = useMemo(
+		() => boardOrder(threads.filter((t) => t.status !== "done" && t.status !== "dormant")),
 		[threads],
 	);
-	const inProgressCount = board.filter(
-		(t) => t.status === "in_progress",
-	).length;
+	const dormant = useMemo(
+		() => boardOrder(threads.filter((t) => t.status === "dormant")),
+		[threads],
+	);
+	const full = active.length >= ACTIVE_THREAD_CAP;
 
 	const create = async (): Promise<void> => {
 		const trimmed = title.trim();
@@ -29,13 +40,70 @@ export function ThreadsView(): React.JSX.Element {
 			setCreating(false);
 			return;
 		}
-		const thread = await window.thread.invoke["threads:create"]({
-			title: trimmed,
-		});
-		setTitle("");
-		setCreating(false);
-		setExpandedId(thread.id);
+		try {
+			const thread = await window.thread.invoke["threads:create"]({
+				title: trimmed,
+			});
+			setTitle("");
+			setCreating(false);
+			setError(null);
+			setExpandedId(thread.id);
+		} catch (cause) {
+			setError(messageOf(cause));
+		}
 	};
+
+	const move = async (
+		id: string,
+		toIndex: number,
+		status?: Thread["status"],
+	): Promise<void> => {
+		setDragId(null);
+		setDropTarget(null);
+		try {
+			await window.thread.invoke["threads:reorder"]({ id, toIndex, status });
+			setError(null);
+		} catch (cause) {
+			setError(messageOf(cause));
+		}
+	};
+
+	const dragProps = (list: Thread[], thread: Thread, index: number) => ({
+		onDragStart: () => setDragId(thread.id),
+		onDragOver: (event: React.DragEvent<HTMLDivElement>) => {
+			event.preventDefault();
+			if (dragId && dragId !== thread.id) setDropTarget(thread.id);
+		},
+		onDrop: (event: React.DragEvent<HTMLDivElement>) => {
+			event.preventDefault();
+			if (!dragId || dragId === thread.id) return;
+			void move(dragId, index, list === dormant ? "dormant" : undefined);
+		},
+		onDragEnd: () => {
+			setDragId(null);
+			setDropTarget(null);
+		},
+		isDragOver: dropTarget === thread.id,
+		isDragging: dragId === thread.id,
+	});
+
+	const renderCard = (
+		list: Thread[],
+		thread: Thread,
+		index: number,
+	): React.JSX.Element => (
+		<div key={thread.id}>
+			<ThreadCard
+				thread={thread}
+				expanded={expandedId === thread.id}
+				onToggle={() =>
+					setExpandedId(expandedId === thread.id ? null : thread.id)
+				}
+				{...dragProps(list, thread, index)}
+			/>
+			<ThreadDrawer thread={thread} open={expandedId === thread.id} />
+		</div>
+	);
 
 	return (
 		<div style={{ padding: "20px 28px 40px", maxWidth: 920, margin: "0 auto" }}>
@@ -44,29 +112,22 @@ export function ThreadsView(): React.JSX.Element {
 				description="Everything you're working on. Each thread keeps its own checklist."
 				right={
 					<span
-						title={`A gentle limit: at most ${WIP_IN_PROGRESS_CAP} threads marked "In progress" at once.`}
+						title={`At most ${ACTIVE_THREAD_CAP} active threads. Done and dormant ones are free.`}
 						style={{
 							fontSize: 12,
-							color: "var(--text-faint)",
+							color: full ? "var(--amber)" : "var(--text-faint)",
 							whiteSpace: "nowrap",
 							paddingTop: 6,
 						}}
 					>
-						{inProgressCount} of {WIP_IN_PROGRESS_CAP} in progress
+						{active.length} of {ACTIVE_THREAD_CAP} active
 					</span>
 				}
 			/>
 
-			{board.length > BOARD_SOFT_CAP ? (
-				<p
-					style={{
-						fontSize: 12,
-						color: "var(--text-muted)",
-						margin: "0 0 12px",
-					}}
-				>
-					{board.length} open threads — might be worth closing a few out. (Not a
-					rule, just a nudge.)
+			{error ? (
+				<p style={{ fontSize: 12, color: "var(--clay)", margin: "0 0 12px" }}>
+					{error}
 				</p>
 			) : null}
 
@@ -78,7 +139,7 @@ export function ThreadsView(): React.JSX.Element {
 					gap: 10,
 				}}
 			>
-				{board.length === 0 && !creating ? (
+				{active.length === 0 && !creating ? (
 					<EmptyState
 						title="Nothing on the board yet."
 						detail="A thread is one thing you're working on — a bug, an errand, a chapter."
@@ -89,20 +150,7 @@ export function ThreadsView(): React.JSX.Element {
 						}
 					/>
 				) : (
-					board.sort(sortBoard).map((thread) => (
-						<div key={thread.id}>
-							<ThreadCard
-								thread={thread}
-								expanded={expandedId === thread.id}
-								onToggle={() =>
-									setExpandedId(expandedId === thread.id ? null : thread.id)
-								}
-							/>
-							{expandedId === thread.id ? (
-								<ThreadExpanded thread={thread} />
-							) : null}
-						</div>
-					))
+					active.map((thread, index) => renderCard(active, thread, index))
 				)}
 
 				{creating ? (
@@ -124,9 +172,15 @@ export function ThreadsView(): React.JSX.Element {
 							fontSize: 14,
 						}}
 					/>
-				) : board.length > 0 ? (
+				) : active.length > 0 ? (
 					<Button
 						onClick={() => setCreating(true)}
+						disabled={full}
+						title={
+							full
+								? `At most ${ACTIVE_THREAD_CAP} active threads. Finish one, or move one to the dormant zone.`
+								: undefined
+						}
 						style={{ alignSelf: "flex-start" }}
 					>
 						+ New thread
@@ -134,83 +188,78 @@ export function ThreadsView(): React.JSX.Element {
 				) : null}
 			</div>
 
+			<div style={{ marginTop: 26 }}>
+				<Collapsible
+					title={<span>Dormant ({dormant.length})</span>}
+					defaultOpen={false}
+				>
+					<div
+						onDragOver={(event) => {
+							event.preventDefault();
+							if (dragId) setDropTarget("dormant-zone");
+						}}
+						onDrop={(event) => {
+							event.preventDefault();
+							if (dragId) void move(dragId, dormant.length, "dormant");
+						}}
+						style={{
+							display: "flex",
+							flexDirection: "column",
+							gap: 10,
+							padding: 10,
+							borderRadius: 12,
+							border: `1px dashed ${dropTarget === "dormant-zone" ? "var(--amber)" : "var(--line)"}`,
+						}}
+					>
+						{dormant.length === 0 ? (
+							<p
+								style={{
+									fontSize: 12,
+									color: "var(--text-faint)",
+									margin: 0,
+									textAlign: "center",
+								}}
+							>
+								Drag a thread here to park it. Dormant threads don&rsquo;t count
+								toward the {ACTIVE_THREAD_CAP}.
+							</p>
+						) : (
+							dormant.map((thread, index) => renderCard(dormant, thread, index))
+						)}
+					</div>
+				</Collapsible>
+			</div>
+
 			<DoneSection />
 		</div>
 	);
 }
 
-function ThreadExpanded({ thread }: { thread: Thread }): React.JSX.Element {
-	const [notes, setNotes] = useState(thread.notes);
-
-	useEffect(() => {
-		setNotes(thread.notes);
-	}, [thread.id, thread.notes]);
-
-	const saveNotes = async (): Promise<void> => {
-		if (notes !== thread.notes) {
-			await window.thread.invoke["threads:update"]({
-				id: thread.id,
-				patch: { notes },
-			});
-		}
-	};
-
-	return (
-		<div
-			style={{
-				margin: "10px 0 18px",
-				padding: 18,
-				borderRadius: 14,
-				border: "1px solid var(--line)",
-				background: "var(--surface-raised)",
-			}}
-		>
-			<div style={{ marginBottom: 18 }}>
-				<Checklist threadId={thread.id} steps={thread.steps} />
-			</div>
-			<div>
-				<div
-					style={{
-						fontSize: 11,
-						color: "var(--text-faint)",
-						textTransform: "uppercase",
-						letterSpacing: "0.05em",
-						marginBottom: 8,
-					}}
-				>
-					Notes
-				</div>
-				<textarea
-					value={notes}
-					onChange={(e) => setNotes(e.target.value)}
-					onBlur={() => void saveNotes()}
-					placeholder="Markdown notes…"
-					rows={5}
-					style={{
-						width: "100%",
-						resize: "vertical",
-						fontSize: 13,
-						lineHeight: 1.6,
-						padding: 12,
-						border: "1px solid var(--line)",
-						borderRadius: 10,
-						background: "var(--surface)",
-					}}
-				/>
-			</div>
-		</div>
-	);
-}
-
+/** Manual drag order, with the old status-then-recency sort as the fallback for legacy records. */
 const STATUS_ORDER: Record<Thread["status"], number> = {
 	in_progress: 0,
-	waiting: 1,
-	idle: 2,
-	done: 3,
+	blocked: 1,
+	waiting: 2,
+	idle: 3,
+	dormant: 4,
+	done: 5,
 };
-function sortBoard(a: Thread, b: Thread): number {
-	return (
-		STATUS_ORDER[a.status] - STATUS_ORDER[b.status] ||
-		b.updatedAt.localeCompare(a.updatedAt)
-	);
+
+export function boardOrder(threads: Thread[]): Thread[] {
+	return [...threads].sort((a, b) => {
+		if (a.order !== undefined && b.order !== undefined) return a.order - b.order;
+		if (a.order !== undefined) return -1;
+		if (b.order !== undefined) return 1;
+		return (
+			STATUS_ORDER[a.status] - STATUS_ORDER[b.status] ||
+			b.updatedAt.localeCompare(a.updatedAt)
+		);
+	});
+}
+
+function messageOf(cause: unknown): string {
+	const raw = cause instanceof Error ? cause.message : String(cause);
+	// Electron prefixes IPC rejections with the handler path; the sentence after it is the one
+	// written for the user.
+	return raw.replace(/^Error invoking remote method '[^']*':\s*Error:\s*/, "");
 }

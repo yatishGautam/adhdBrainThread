@@ -7,8 +7,10 @@
 import { app, ipcMain, shell } from "electron";
 import path from "node:path";
 import type { Requests } from "@shared/ipc/channels.js";
-import { WIP_IN_PROGRESS_CAP } from "@shared/constants.js";
+import { ACTIVE_THREAD_CAP } from "@shared/constants.js";
 import type { AppContext } from "../AppContext.js";
+import { openLink } from "../services/openLink.js";
+import { launchesAtStartup, setLaunchAtStartup } from "../services/startup.js";
 
 type Handler<K extends keyof Requests> = (
 	ctx: AppContext,
@@ -35,6 +37,12 @@ export function registerHandlers(ctx: AppContext): void {
 	on(
 		"threads:create",
 		async (_c, { title, notes }) => {
+			const board = await db.threads.activeList();
+			if (board.length >= ACTIVE_THREAD_CAP) {
+				throw new Error(
+					`At most ${ACTIVE_THREAD_CAP} active threads. Finish one, or move one to the dormant zone.`,
+				);
+			}
 			const thread = await db.threads.create(title, notes);
 			ctx.broadcastThreads();
 			return thread;
@@ -55,13 +63,13 @@ export function registerHandlers(ctx: AppContext): void {
 	on(
 		"threads:setStatus",
 		async (_c, { id, status, waitingOn }) => {
-			if (status === "in_progress") {
-				const active = (await db.threads.list()).filter(
-					(t) => t.status === "in_progress" && t.id !== id,
-				);
-				if (active.length >= WIP_IN_PROGRESS_CAP) {
+			// The cap is on the active list, not on "in progress" specifically (§2): done and
+			// dormant threads are free.
+			if (status !== "done" && status !== "dormant") {
+				const board = await db.threads.activeList();
+				if (board.length >= ACTIVE_THREAD_CAP && !board.some((t) => t.id === id)) {
 					throw new Error(
-						`At most ${WIP_IN_PROGRESS_CAP} threads can be in progress at once.`,
+						`At most ${ACTIVE_THREAD_CAP} active threads. Finish one, or move one to the dormant zone.`,
 					);
 				}
 			}
@@ -86,6 +94,24 @@ export function registerHandlers(ctx: AppContext): void {
 		ctx,
 	);
 	on("threads:done", async (_c, query) => db.threads.donePage(query), ctx);
+	on(
+		"threads:reorder",
+		async (_c, { id, toIndex, status }) => {
+			// Dragging out of the dormant zone counts against the cap just like a status change.
+			if (status && status !== "dormant") {
+				const board = await db.threads.activeList();
+				if (board.length >= ACTIVE_THREAD_CAP && !board.some((t) => t.id === id)) {
+					throw new Error(
+						`At most ${ACTIVE_THREAD_CAP} active threads. Finish one, or move one to the dormant zone.`,
+					);
+				}
+			}
+			const written = await db.threads.reorderOnBoard(id, toIndex, status);
+			ctx.broadcastThreads();
+			return written;
+		},
+		ctx,
+	);
 
 	// -------------------------------------------------------------------- steps
 
@@ -160,14 +186,86 @@ export function registerHandlers(ctx: AppContext): void {
 		},
 		ctx,
 	);
+	on(
+		"day:setNow",
+		async (_c, { now, localDate }) => {
+			const day = await db.days.setNow(now, localDate);
+			ctx.broadcastDay(day);
+			return day;
+		},
+		ctx,
+	);
+
+	// ---------------------------------------------------- global carry-forward
+
+	on("carry:list", async () => db.days.carryForward(), ctx);
+
+	on(
+		"blocker:add",
+		async (_c, { text, localDate }) => {
+			const day = await db.days.addBlocker(text, localDate);
+			ctx.broadcastDay(day);
+			ctx.broadcast("carry:changed", undefined);
+			return day;
+		},
+		ctx,
+	);
+	on(
+		"blocker:resolve",
+		async (_c, { localDate, blockerId }) => {
+			const blocker = await db.days.findBlocker(localDate, blockerId);
+			const day = await db.days.resolveBlocker(localDate, blockerId);
+			// Resolving one is worth a line in today's log; un-resolving is a correction, not news.
+			if (blocker && !blocker.resolved) {
+				ctx.broadcastDay(await db.days.addLogEntry(`Unblocked: ${blocker.text}`, "manual"));
+			}
+			ctx.broadcastDay(day);
+			ctx.broadcast("carry:changed", undefined);
+			ctx.microTick();
+			return day;
+		},
+		ctx,
+	);
+	on(
+		"blocker:remove",
+		async (_c, { localDate, blockerId }) => {
+			const day = await db.days.removeBlocker(localDate, blockerId);
+			ctx.broadcastDay(day);
+			ctx.broadcast("carry:changed", undefined);
+			return day;
+		},
+		ctx,
+	);
+
+	// --------------------------------------------------------------------- log
+
+	on(
+		"log:add",
+		async (_c, { text, localDate }) => {
+			const day = await db.days.addLogEntry(text, "manual", localDate);
+			ctx.broadcastDay(day);
+			return day;
+		},
+		ctx,
+	);
+	on(
+		"log:remove",
+		async (_c, { localDate, entryId }) => {
+			const day = await db.days.removeLogEntry(localDate, entryId);
+			ctx.broadcastDay(day);
+			return day;
+		},
+		ctx,
+	);
 
 	// -------------------------------------------------------------------- todo
 
 	on(
 		"todo:add",
-		async (_c, { text }) => {
-			const day = await db.days.addTodo(text);
+		async (_c, { text, localDate }) => {
+			const day = await db.days.addTodo(text, localDate);
 			ctx.broadcastDay(day);
+			ctx.broadcast("carry:changed", undefined);
 			return day;
 		},
 		ctx,
@@ -175,8 +273,15 @@ export function registerHandlers(ctx: AppContext): void {
 	on(
 		"todo:toggle",
 		async (_c, { localDate, todoId }) => {
+			const before = await db.days.findTodo(localDate, todoId);
 			const day = await db.days.toggleTodo(localDate, todoId);
+			// Completing a carried-forward todo drops it off the list and lands in *today's* log,
+			// not the log of whichever day happened to raise it (§5).
+			if (before && !before.done) {
+				ctx.broadcastDay(await db.days.addLogEntry(before.text, "todo"));
+			}
 			ctx.broadcastDay(day);
+			ctx.broadcast("carry:changed", undefined);
 			ctx.microTick();
 			return day;
 		},
@@ -196,6 +301,7 @@ export function registerHandlers(ctx: AppContext): void {
 		async (_c, { localDate, todoId }) => {
 			const day = await db.days.removeTodo(localDate, todoId);
 			ctx.broadcastDay(day);
+			ctx.broadcast("carry:changed", undefined);
 			return day;
 		},
 		ctx,
@@ -219,6 +325,7 @@ export function registerHandlers(ctx: AppContext): void {
 			const day = await db.days.linkPromotedTodo(localDate, todoId, thread.id);
 			ctx.broadcastDay(day);
 			ctx.broadcastThreads();
+			ctx.broadcast("carry:changed", undefined);
 			return { day, thread };
 		},
 		ctx,
@@ -228,8 +335,8 @@ export function registerHandlers(ctx: AppContext): void {
 
 	on(
 		"thought:add",
-		async (_c, { text }) => {
-			const day = await db.days.addThought(text);
+		async (_c, { text, localDate }) => {
+			const day = await db.days.addThought(text, localDate);
 			ctx.broadcastDay(day);
 			return day;
 		},
@@ -304,6 +411,44 @@ export function registerHandlers(ctx: AppContext): void {
 		},
 		ctx,
 	);
+	/**
+	 * Park (§4): one tap, no dialog. A line goes to today's Park list and the grace time goes
+	 * back on whichever clock is running. Nothing is ever subtracted — the moment self-reporting
+	 * costs something, people stop doing it and the data becomes worthless.
+	 */
+	on(
+		"session:park",
+		async (_c, { kind, note }) => {
+			const grantMs = db.settings.get().distractionGraceMs;
+			const text = note?.trim() || "Distracted";
+
+			if (sessions.isRunning()) {
+				await sessions.logDistraction(kind, note);
+			} else if (ctx.stages.grant(grantMs)) {
+				ctx.broadcast("hud:toast", { text: parkToast(grantMs) });
+			} else {
+				ctx.broadcast("hud:toast", { text: "Parked." });
+			}
+
+			const day = await db.days.addThought(text);
+			ctx.broadcastDay(day);
+		},
+		ctx,
+	);
+
+	// ----------------------------------------------------------------- stages
+
+	on("stage:state", async () => ctx.stages.current(), ctx);
+	on("stage:resume", async () => ctx.stages.resume(), ctx);
+	on("stage:skip", async () => ctx.stages.skip(), ctx);
+	on(
+		"stage:stop",
+		async () => {
+			ctx.stages.stop();
+			return null;
+		},
+		ctx,
+	);
 
 	// --------------------------------------------------------------- analytics
 
@@ -332,6 +477,12 @@ export function registerHandlers(ctx: AppContext): void {
 		},
 		ctx,
 	);
+
+	// -------------------------------------------------------------------- links
+
+	on("link:open", async (_c, { url }) => openLink(url), ctx);
+	on("startup:get", async () => launchesAtStartup(), ctx);
+	on("startup:set", async (_c, { enabled }) => setLaunchAtStartup(enabled), ctx);
 
 	// -------------------------------------------------------------------- data
 
@@ -410,6 +561,13 @@ export function registerHandlers(ctx: AppContext): void {
 	);
 }
 
+/** "Parked. Two minutes back." — the exact wording matters less than it never sounding like a cost. */
+function parkToast(grantMs: number): string {
+	const minutes = Math.round(grantMs / 60_000);
+	if (minutes <= 0) return "Parked.";
+	return `Parked. ${minutes === 1 ? "A minute" : `${minutes} minutes`} back.`;
+}
+
 /**
  * Completion flow (§5.2): logs the thread to today, ends any running session on it, then
  * triggers the celebration. Order matters — the session must end before we compute the payload
@@ -427,6 +585,7 @@ async function onThreadCompleted(
 
 	const thread = await db.threads.get(threadId);
 	if (!thread) return;
+	ctx.broadcastDay(await db.days.addLogEntry(`Finished ${thread.title}`, "thread"));
 	await celebrations.celebrate(thread);
 }
 
