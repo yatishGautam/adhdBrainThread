@@ -10,8 +10,6 @@ import { DEFAULT_SERVER_URL } from '@shared/auth.js';
 interface AuthStore extends AuthState {
   /** The last message from a failed sign-in, shown in the form and cleared on the next attempt. */
   error: string | null;
-  panelOpen: boolean;
-  setPanelOpen: (open: boolean) => void;
   setError: (error: string | null) => void;
 }
 
@@ -21,8 +19,6 @@ export const useAuthStore = create<AuthStore>((set) => ({
   offline: false,
   busy: false,
   error: null,
-  panelOpen: false,
-  setPanelOpen: (panelOpen) => set({ panelOpen, error: null }),
   setError: (error) => set({ error }),
 }));
 

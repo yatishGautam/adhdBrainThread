@@ -6,6 +6,8 @@ export interface MainWindowHooks {
 	/** Closing the main window hides it to the tray; the session keeps running. */
 	onHide: () => void;
 	onBlur: () => void;
+	/** Coming back to the window is the moment to find out what the phone did meanwhile. */
+	onFocus: () => void;
 }
 
 export function createMainWindow(hooks: MainWindowHooks): BrowserWindow {
@@ -40,6 +42,7 @@ export function createMainWindow(hooks: MainWindowHooks): BrowserWindow {
 
 	// A flush point: whatever the user just typed is on disk before they switch away.
 	window.on("blur", hooks.onBlur);
+	window.on("focus", hooks.onFocus);
 
 	window.webContents.setWindowOpenHandler(({ url }) => {
 		void shell.openExternal(url);

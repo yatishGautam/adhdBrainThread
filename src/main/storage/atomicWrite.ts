@@ -6,10 +6,18 @@ import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
+/**
+ * Two writes to the same file inside one millisecond used to generate the same temp name: the
+ * first rename moved it away and the second failed with ENOENT. A counter is enough — the pid
+ * still separates processes, and this only has to be unique within one.
+ */
+let tmpCounter = 0;
+
 export async function atomicWriteFile(file: string, contents: string): Promise<void> {
   const dir = path.dirname(file);
   await fs.mkdir(dir, { recursive: true });
-  const tmp = path.join(dir, `.${path.basename(file)}.tmp-${process.pid}-${Date.now()}`);
+  tmpCounter = (tmpCounter + 1) % Number.MAX_SAFE_INTEGER;
+  const tmp = path.join(dir, `.${path.basename(file)}.tmp-${process.pid}-${Date.now()}-${tmpCounter}`);
 
   const handle = await fs.open(tmp, 'w');
   try {

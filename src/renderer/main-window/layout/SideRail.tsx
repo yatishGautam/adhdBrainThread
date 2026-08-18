@@ -236,11 +236,11 @@ function DayRow({
 function AccountRow({ collapsed }: { collapsed: boolean }): React.JSX.Element {
 	const account = useAuthStore((s) => s.account);
 	const offline = useAuthStore((s) => s.offline);
-	const openPanel = useAuthStore((s) => s.setPanelOpen);
+	const setTab = useUiStore((s) => s.setTab);
 
 	return (
 		<button
-			onClick={() => openPanel(true)}
+			onClick={() => setTab("account")}
 			title={account ? `Signed in as ${account.email}` : "Sign in or create an account"}
 			style={{
 				display: "flex",
@@ -279,7 +279,7 @@ function AccountRow({ collapsed }: { collapsed: boolean }): React.JSX.Element {
 						whiteSpace: "nowrap",
 					}}
 				>
-					{account ? account.email : "Sign in"}
+					{account ? (account.displayName?.trim() || account.email) : "Sign in"}
 				</span>
 			)}
 		</button>

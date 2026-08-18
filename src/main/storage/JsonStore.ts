@@ -23,7 +23,13 @@ import type { z } from 'zod';
 import { FLUSH_DEBOUNCE_MS } from '@shared/constants.js';
 import { atomicWriteFile, readFileIfExists } from './atomicWrite.js';
 import { serialise } from './serialise.js';
-import { COLLECTION, type Collection, type CollectionName, type Store } from './Store.js';
+import {
+  COLLECTION,
+  type Collection,
+  type CollectionName,
+  type CollectionOptions,
+  type Store,
+} from './Store.js';
 
 export interface CollectionSpec<T> {
   name: CollectionName;
@@ -45,6 +51,12 @@ export function defineCollection<T>(spec: CollectionSpec<T>): AnySpec {
 export interface JsonStoreEvents {
   /** A file could not be read or validated. The app carries on without it. */
   onUnreadable?: (file: string, reason: string) => void;
+  /**
+   * Every tracked local write, before it reaches disk. This is the one place a record can
+   * change, which is what makes "nothing gets edited without sync finding out" true by
+   * construction rather than by remembering to call something in twelve repository methods.
+   */
+  onWrite?: (collection: CollectionName, key: string) => void;
 }
 
 interface Partition {
@@ -86,15 +98,16 @@ export class JsonStore implements Store {
     return store;
   }
 
-  collection<T>(name: CollectionName): Collection<T> {
+  collection<T>(name: CollectionName, options: CollectionOptions = {}): Collection<T> {
     const loaded = this.collections.get(name);
     if (!loaded) throw new Error(`unknown collection: ${name}`);
+    const track = options.track !== false;
 
     return {
       all: async () => this.recordsOf(loaded) as T[],
       get: async (key) => (this.find(loaded, key) as T | undefined) ?? null,
-      put: async (record) => this.write(loaded, record),
-      delete: async (key) => this.remove(loaded, key),
+      put: async (record) => this.write(loaded, record, track),
+      delete: async (key) => this.remove(loaded, key, track),
     };
   }
 
@@ -166,8 +179,9 @@ export class JsonStore implements Store {
     return undefined;
   }
 
-  private write(loaded: LoadedCollection, record: unknown): void {
+  private write(loaded: LoadedCollection, record: unknown, track = true): void {
     const key = loaded.spec.key(record);
+    if (track) this.events.onWrite?.(loaded.spec.name, key);
     const target = loaded.spec.partition?.(record) ?? '';
 
     // A record whose partition changed (a session backdated across a month boundary) must not
@@ -182,7 +196,8 @@ export class JsonStore implements Store {
     this.scheduleFlush();
   }
 
-  private remove(loaded: LoadedCollection, key: string): void {
+  private remove(loaded: LoadedCollection, key: string, track = true): void {
+    if (track) this.events.onWrite?.(loaded.spec.name, key);
     for (const partition of loaded.partitions.values()) {
       if (partition.records.delete(key)) partition.dirty = true;
     }

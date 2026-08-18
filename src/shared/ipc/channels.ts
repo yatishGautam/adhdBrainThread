@@ -5,6 +5,7 @@
  */
 import type { MomentumScope, ScopeSummary } from "../analytics.js";
 import type { AuthState, Credentials } from "../auth.js";
+import type { SyncStatus } from "../sync.js";
 import type {
 	Blocker,
 	Day,
@@ -223,6 +224,11 @@ export interface Requests {
 	/** Points the client at a different backend. Signs out, because a token is server-scoped. */
 	"auth:setServer": [{ url: string }, AuthState];
 
+	/** Where sync has got to. Never blocks anything — the app works with it stuck at offline. */
+	"sync:status": [void, SyncStatus];
+	/** Sync now, for the button in the account panel. Resolves when the round trip is done. */
+	"sync:now": [void, SyncStatus];
+
 	/** Always external, never inside the app window (§6). */
 	"link:open": [{ url: string }, void];
 	"startup:get": [void, boolean];
@@ -261,6 +267,8 @@ export interface Events {
 	"carry:changed": void;
 	/** Signed in, signed out, or the boot-time token check came back. */
 	"auth:changed": AuthState;
+	/** Sync started, finished, went offline or failed. */
+	"sync:changed": SyncStatus;
 }
 
 export type RequestChannel = keyof Requests;
@@ -327,6 +335,8 @@ export const REQUEST_CHANNELS = [
 	"auth:logout",
 	"auth:deleteAccount",
 	"auth:setServer",
+	"sync:status",
+	"sync:now",
 	"link:open",
 	"startup:get",
 	"startup:set",
@@ -358,6 +368,7 @@ export const EVENT_CHANNELS = [
 	"hud:attention",
 	"carry:changed",
 	"auth:changed",
+	"sync:changed",
 ] as const satisfies readonly EventChannel[];
 
 type MissingRequestChannels = Exclude<

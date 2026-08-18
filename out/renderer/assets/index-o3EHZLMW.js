@@ -2166,15 +2166,13 @@ async function initSessionStore() {
   window.thread.on("session:recovery", (offer) => useSessionStore.getState().setRecovery(offer));
 }
 const MIN_PASSWORD_LENGTH = 10;
-const DEFAULT_SERVER_URL = "https://api.yatishgautam.com";
+const DEFAULT_SERVER_URL = "https://api.adhd.yatishgautam.com";
 const useAuthStore = create((set) => ({
   account: null,
   serverUrl: DEFAULT_SERVER_URL,
   offline: false,
   busy: false,
   error: null,
-  panelOpen: false,
-  setPanelOpen: (panelOpen) => set({ panelOpen, error: null }),
   setError: (error) => set({ error })
 }));
 function apply$2(state) {
@@ -2205,7 +2203,12 @@ const useUiStore = create((set) => ({
   tab: "threads",
   prevTab: "threads",
   railCollapsed: false,
-  setTab: (tab) => set((state) => ({ tab, prevTab: state.tab === "park" ? state.prevTab : state.tab })),
+  setTab: (tab) => set((state) => ({
+    tab,
+    // Full pages remember where you came from so Back returns you there rather than to a
+    // default that is not where you were.
+    prevTab: state.tab === "park" || state.tab === "account" ? state.prevTab : state.tab
+  })),
   toggleRail: () => set((state) => {
     const next = !state.railCollapsed;
     void window.thread.invoke["settings:update"]({ patch: { railCollapsed: next } });
@@ -2413,11 +2416,11 @@ function DayRow({
 function AccountRow({ collapsed }) {
   const account = useAuthStore((s2) => s2.account);
   const offline = useAuthStore((s2) => s2.offline);
-  const openPanel = useAuthStore((s2) => s2.setPanelOpen);
+  const setTab = useUiStore((s2) => s2.setTab);
   return /* @__PURE__ */ jsxRuntimeExports.jsxs(
     "button",
     {
-      onClick: () => openPanel(true),
+      onClick: () => setTab("account"),
       title: account ? `Signed in as ${account.email}` : "Sign in or create an account",
       style: {
         display: "flex",
@@ -2459,7 +2462,7 @@ function AccountRow({ collapsed }) {
               textOverflow: "ellipsis",
               whiteSpace: "nowrap"
             },
-            children: account ? account.email : "Sign in"
+            children: account ? account.displayName?.trim() || account.email : "Sign in"
           }
         )
       ]
@@ -2529,6 +2532,447 @@ function groupByYear(dates) {
     }))
   }));
 }
+function SyncPanel() {
+  const [status, setStatus] = reactExports.useState(null);
+  const [syncing, setSyncing] = reactExports.useState(false);
+  reactExports.useEffect(() => {
+    void window.thread.invoke["sync:status"](void 0).then(setStatus);
+    return window.thread.on("sync:changed", setStatus);
+  }, []);
+  const syncNow = async () => {
+    setSyncing(true);
+    try {
+      setStatus(await window.thread.invoke["sync:now"](void 0));
+    } finally {
+      setSyncing(false);
+    }
+  };
+  return /* @__PURE__ */ jsxRuntimeExports.jsx(
+    "div",
+    {
+      style: {
+        padding: "14px 16px",
+        borderRadius: "var(--radius-md)",
+        background: "var(--surface)",
+        border: "1px solid var(--line)"
+      },
+      children: /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }, children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { minWidth: 0 }, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: { margin: 0, fontSize: "var(--text-sm)", color: "var(--text)" }, children: headline(status, syncing) }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: { margin: "3px 0 0", fontSize: "var(--text-xs)", color: "var(--text-faint)", lineHeight: 1.5 }, children: detail$1(status) })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "button",
+          {
+            type: "button",
+            onClick: () => void syncNow(),
+            disabled: syncing,
+            style: {
+              flexShrink: 0,
+              padding: "7px 14px",
+              borderRadius: "var(--radius-md)",
+              border: "1px solid var(--line)",
+              background: "transparent",
+              color: "var(--text-muted)",
+              fontSize: "var(--text-xs)",
+              fontFamily: "inherit",
+              cursor: syncing ? "default" : "pointer"
+            },
+            children: syncing ? "Syncing…" : "Sync now"
+          }
+        )
+      ] })
+    }
+  );
+}
+function headline(status, syncing) {
+  if (syncing || status?.phase === "syncing") return "Syncing…";
+  if (!status) return "Sync";
+  if (status.phase === "offline") return "Offline";
+  if (status.phase === "error") return "Sync had trouble";
+  if (status.pending > 0) return `${status.pending} change${status.pending === 1 ? "" : "s"} to send`;
+  return "Up to date";
+}
+function detail$1(status) {
+  if (!status) return "";
+  if (status.phase === "offline" || status.phase === "error") {
+    return `${status.message ?? ""} Your work is saved here and will go up when it can.`.trim();
+  }
+  if (!status.lastSyncedAt) return "Nothing has synced yet.";
+  return `Last synced ${relative(status.lastSyncedAt)}.`;
+}
+function relative(iso) {
+  const then = Date.parse(iso);
+  if (Number.isNaN(then)) return "recently";
+  const seconds = Math.max(0, Math.round((Date.now() - then) / 1e3));
+  if (seconds < 60) return "just now";
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"} ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+  const days = Math.round(hours / 24);
+  return `${days} day${days === 1 ? "" : "s"} ago`;
+}
+function AccountView() {
+  const account = useAuthStore((s2) => s2.account);
+  const setTab = useUiStore((s2) => s2.setTab);
+  const prevTab = useUiStore((s2) => s2.prevTab);
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { maxWidth: 460, margin: "0 auto", padding: "36px 24px 48px" }, children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx(
+      "button",
+      {
+        onClick: () => setTab(prevTab === "account" ? "threads" : prevTab),
+        style: {
+          background: "none",
+          border: "none",
+          color: "var(--text-faint)",
+          fontSize: "var(--text-xs)",
+          fontFamily: "inherit",
+          cursor: "pointer",
+          padding: 0,
+          marginBottom: 24
+        },
+        children: "← Back"
+      }
+    ),
+    account ? /* @__PURE__ */ jsxRuntimeExports.jsx(SignedIn, {}) : /* @__PURE__ */ jsxRuntimeExports.jsx(SignedOut, {})
+  ] });
+}
+function SignedOut() {
+  const [mode, setMode] = reactExports.useState("signin");
+  const [displayName, setDisplayName] = reactExports.useState("");
+  const [email, setEmail] = reactExports.useState("");
+  const [password, setPassword] = reactExports.useState("");
+  const busy = useAuthStore((s2) => s2.busy);
+  const error = useAuthStore((s2) => s2.error);
+  const setError = useAuthStore((s2) => s2.setError);
+  const first = reactExports.useRef(null);
+  reactExports.useEffect(() => first.current?.focus(), [mode]);
+  const tooShort = mode === "create" && password.length > 0 && password.length < MIN_PASSWORD_LENGTH;
+  const canSubmit = email.trim().length > 0 && password.length > 0 && !tooShort && !busy;
+  const submit = async (event) => {
+    event.preventDefault();
+    if (!canSubmit) return;
+    const ok = await runAuth(
+      () => mode === "create" ? window.thread.invoke["auth:register"]({ email, password, displayName }) : window.thread.invoke["auth:login"]({ email, password })
+    );
+    if (ok) setPassword("");
+  };
+  const switchTo = (next) => {
+    setMode(next);
+    setError(null);
+  };
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("form", { onSubmit: (event) => void submit(event), children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("h1", { style: { margin: "0 0 6px", fontSize: "var(--text-xxl)", fontWeight: 600, letterSpacing: "-0.01em" }, children: mode === "create" ? "Create your account" : "Welcome back" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: { margin: "0 0 28px", fontSize: "var(--text-sm)", color: "var(--text-muted)", lineHeight: 1.55 }, children: mode === "create" ? "One account keeps this Mac and your phone looking at the same threads, days and sits." : "Sign in and this Mac picks up whatever your phone has been writing." }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx(Segmented, { mode, onChange: switchTo }),
+    mode === "create" ? /* @__PURE__ */ jsxRuntimeExports.jsx(Field, { label: "Your name", hint: "What the app calls you. You can leave it blank.", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+      "input",
+      {
+        ref: mode === "create" ? first : void 0,
+        value: displayName,
+        onChange: (event) => setDisplayName(event.target.value),
+        autoComplete: "name",
+        placeholder: "Yatish",
+        style: inputStyle
+      }
+    ) }) : null,
+    /* @__PURE__ */ jsxRuntimeExports.jsx(Field, { label: "Email", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+      "input",
+      {
+        ref: mode === "signin" ? first : void 0,
+        type: "email",
+        value: email,
+        onChange: (event) => setEmail(event.target.value),
+        autoComplete: "username",
+        spellCheck: false,
+        placeholder: "you@example.com",
+        style: inputStyle
+      }
+    ) }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx(
+      Field,
+      {
+        label: "Password",
+        hint: mode === "create" ? `At least ${MIN_PASSWORD_LENGTH} characters. A short phrase you can actually recall beats a clever word you can't.` : void 0,
+        hintTone: tooShort ? "warn" : "muted",
+        children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "input",
+          {
+            type: "password",
+            value: password,
+            onChange: (event) => setPassword(event.target.value),
+            autoComplete: mode === "create" ? "new-password" : "current-password",
+            style: inputStyle
+          }
+        )
+      }
+    ),
+    error ? /* @__PURE__ */ jsxRuntimeExports.jsx(ErrorNote, { message: error }) : null,
+    /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "submit", disabled: !canSubmit, className: "btn-launch", style: primaryStyle(canSubmit), children: busy ? "Working…" : mode === "create" ? "Create account" : "Sign in" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: { margin: "18px 0 0", fontSize: "var(--text-xs)", color: "var(--text-faint)", textAlign: "center", lineHeight: 1.6 }, children: "You stay signed in until you sign out — closing the app does not log you out." }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx(ServerField, {})
+  ] });
+}
+function Segmented({ mode, onChange }) {
+  const options = [
+    { id: "signin", label: "Sign in" },
+    { id: "create", label: "Create account" }
+  ];
+  return /* @__PURE__ */ jsxRuntimeExports.jsx(
+    "div",
+    {
+      style: {
+        display: "flex",
+        gap: 4,
+        padding: 4,
+        marginBottom: 22,
+        borderRadius: 999,
+        background: "var(--surface)",
+        border: "1px solid var(--line)"
+      },
+      children: options.map((option) => {
+        const active = mode === option.id;
+        return /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "button",
+          {
+            type: "button",
+            onClick: () => onChange(option.id),
+            style: {
+              flex: 1,
+              padding: "8px 12px",
+              borderRadius: 999,
+              border: "none",
+              background: active ? "var(--surface-raised)" : "transparent",
+              boxShadow: active ? "var(--shadow-card)" : "none",
+              color: active ? "var(--text)" : "var(--text-muted)",
+              fontSize: "var(--text-sm)",
+              fontFamily: "inherit",
+              fontWeight: active ? 600 : 400,
+              cursor: "pointer",
+              transition: "background var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out)"
+            },
+            children: option.label
+          },
+          option.id
+        );
+      })
+    }
+  );
+}
+function SignedIn() {
+  const account = useAuthStore((s2) => s2.account);
+  const serverUrl = useAuthStore((s2) => s2.serverUrl);
+  const offline = useAuthStore((s2) => s2.offline);
+  const busy = useAuthStore((s2) => s2.busy);
+  const error = useAuthStore((s2) => s2.error);
+  const [confirmingDelete, setConfirmingDelete] = reactExports.useState(false);
+  if (!account) return /* @__PURE__ */ jsxRuntimeExports.jsx(jsxRuntimeExports.Fragment, {});
+  const name = account.displayName?.trim();
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 14, marginBottom: 24 }, children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx(Avatar, { label: name || account.email }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { minWidth: 0 }, children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("h1", { style: { margin: 0, fontSize: "var(--text-xl)", fontWeight: 600, letterSpacing: "-0.01em" }, children: name || account.email }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { style: { margin: "2px 0 0", fontSize: "var(--text-xs)", color: "var(--text-faint)" }, children: [
+          name ? `${account.email} · ` : "",
+          hostOf(serverUrl),
+          offline ? " · offline right now" : ""
+        ] })
+      ] })
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx(SyncPanel, {}),
+    error ? /* @__PURE__ */ jsxRuntimeExports.jsx(ErrorNote, { message: error }) : null,
+    /* @__PURE__ */ jsxRuntimeExports.jsx(
+      "button",
+      {
+        type: "button",
+        disabled: busy,
+        onClick: () => void runAuth(() => window.thread.invoke["auth:logout"](void 0)),
+        style: { ...secondaryStyle, marginTop: 20 },
+        children: "Sign out"
+      }
+    ),
+    confirmingDelete ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { marginTop: 20, paddingTop: 16, borderTop: "1px solid var(--line)" }, children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: { margin: "0 0 12px", fontSize: "var(--text-xs)", color: "var(--text-muted)", lineHeight: 1.55 }, children: "This deletes the account and everything stored under it on the server, permanently. What is on this Mac stays where it is." }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", gap: 8 }, children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", onClick: () => setConfirmingDelete(false), style: secondaryStyle, children: "Keep it" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "button",
+          {
+            type: "button",
+            disabled: busy,
+            onClick: () => void runAuth(() => window.thread.invoke["auth:deleteAccount"](void 0)),
+            style: { ...secondaryStyle, borderColor: "var(--coral)", color: "var(--coral)" },
+            children: "Delete permanently"
+          }
+        )
+      ] })
+    ] }) : /* @__PURE__ */ jsxRuntimeExports.jsx(
+      "button",
+      {
+        type: "button",
+        onClick: () => setConfirmingDelete(true),
+        style: { ...linkStyle, color: "var(--text-faint)", marginTop: 18 },
+        children: "Delete this account"
+      }
+    )
+  ] });
+}
+function Avatar({ label, size = 44 }) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsx(
+    "div",
+    {
+      "aria-hidden": true,
+      style: {
+        width: size,
+        height: size,
+        flexShrink: 0,
+        borderRadius: 999,
+        background: "var(--grad-ember)",
+        color: "#241103",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontSize: size * 0.4,
+        fontWeight: 700
+      },
+      children: initials(label)
+    }
+  );
+}
+function ServerField() {
+  const serverUrl = useAuthStore((s2) => s2.serverUrl);
+  const [shown, setShown] = reactExports.useState(false);
+  const [draft, setDraft] = reactExports.useState(serverUrl);
+  reactExports.useEffect(() => setDraft(serverUrl), [serverUrl]);
+  if (!shown) {
+    return /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { type: "button", onClick: () => setShown(true), style: { ...linkStyle, color: "var(--text-faint)" }, children: [
+      "Server: ",
+      hostOf(serverUrl)
+    ] });
+  }
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { marginTop: 18, paddingTop: 14, borderTop: "1px solid var(--line)" }, children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx(Field, { label: "Server", children: /* @__PURE__ */ jsxRuntimeExports.jsx("input", { value: draft, onChange: (event) => setDraft(event.target.value), spellCheck: false, style: inputStyle }) }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx(
+      "button",
+      {
+        type: "button",
+        onClick: () => {
+          void runAuth(() => window.thread.invoke["auth:setServer"]({ url: draft }));
+          setShown(false);
+        },
+        style: secondaryStyle,
+        children: "Use this server"
+      }
+    )
+  ] });
+}
+function Field({
+  label,
+  hint,
+  hintTone = "muted",
+  children
+}) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { style: { display: "block", marginBottom: 16 }, children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { display: "block", marginBottom: 6, fontSize: "var(--text-xs)", color: "var(--text-muted)" }, children: label }),
+    children,
+    hint ? /* @__PURE__ */ jsxRuntimeExports.jsx(
+      "span",
+      {
+        style: {
+          display: "block",
+          marginTop: 6,
+          fontSize: "var(--text-xs)",
+          color: hintTone === "warn" ? "var(--coral)" : "var(--text-faint)",
+          lineHeight: 1.5
+        },
+        children: hint
+      }
+    ) : null
+  ] });
+}
+function ErrorNote({ message: message2 }) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsx(
+    "p",
+    {
+      role: "alert",
+      style: {
+        margin: "0 0 16px",
+        padding: "10px 12px",
+        borderRadius: "var(--radius-sm)",
+        background: "rgba(224, 108, 90, 0.12)",
+        border: "1px solid rgba(224, 108, 90, 0.35)",
+        fontSize: "var(--text-xs)",
+        color: "var(--coral)",
+        lineHeight: 1.55
+      },
+      children: message2
+    }
+  );
+}
+function initials(label) {
+  const trimmed = label.trim();
+  if (!trimmed) return "?";
+  const words = trimmed.split(/\s+/).filter(Boolean);
+  if (words.length >= 2) return `${words[0]?.[0] ?? ""}${words[1]?.[0] ?? ""}`.toUpperCase();
+  return trimmed.slice(0, 2).toUpperCase();
+}
+function hostOf(url) {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+}
+const inputStyle = {
+  width: "100%",
+  boxSizing: "border-box",
+  padding: "11px 13px",
+  borderRadius: "var(--radius-md)",
+  border: "1px solid var(--line)",
+  background: "var(--surface)",
+  color: "var(--text)",
+  fontSize: "var(--text-sm)",
+  fontFamily: "inherit",
+  outline: "none"
+};
+function primaryStyle(enabled) {
+  return {
+    width: "100%",
+    padding: "12px 16px",
+    borderRadius: "var(--radius-md)",
+    border: "none",
+    fontSize: "var(--text-sm)",
+    fontFamily: "inherit",
+    fontWeight: 600,
+    cursor: enabled ? "pointer" : "default",
+    opacity: enabled ? 1 : 0.5
+  };
+}
+const secondaryStyle = {
+  padding: "9px 16px",
+  borderRadius: "var(--radius-md)",
+  border: "1px solid var(--line)",
+  background: "transparent",
+  color: "var(--text-muted)",
+  fontSize: "var(--text-sm)",
+  fontFamily: "inherit",
+  cursor: "pointer"
+};
+const linkStyle = {
+  display: "block",
+  width: "100%",
+  marginTop: 14,
+  padding: 0,
+  background: "none",
+  border: "none",
+  color: "var(--text-muted)",
+  fontSize: "var(--text-xs)",
+  fontFamily: "inherit",
+  cursor: "pointer",
+  textAlign: "center"
+};
 const TABS = [
   { id: "threads", label: "Threads" },
   { id: "today", label: "Daily" },
@@ -2537,40 +2981,79 @@ const TABS = [
 function TabBar() {
   const tab = useUiStore((s2) => s2.tab);
   const setTab = useUiStore((s2) => s2.setTab);
-  return /* @__PURE__ */ jsxRuntimeExports.jsx(
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(
     "div",
     {
       style: {
         display: "flex",
+        alignItems: "center",
         gap: 6,
         padding: "14px 20px 12px",
         borderBottom: "1px solid var(--line)",
         WebkitAppRegion: "drag"
       },
-      children: TABS.map((item) => {
-        const active = tab === item.id;
-        return /* @__PURE__ */ jsxRuntimeExports.jsx(
-          "button",
-          {
-            onClick: () => setTab(item.id),
-            style: {
-              WebkitAppRegion: "no-drag",
-              padding: "7px 16px",
-              borderRadius: 999,
-              border: `1px solid ${active ? "var(--line-strong)" : "transparent"}`,
-              background: active ? "var(--surface-raised)" : "transparent",
-              boxShadow: active ? "var(--shadow-card), var(--edge-light)" : "none",
-              color: active ? "var(--text)" : "var(--text-muted)",
-              fontSize: 13,
-              fontWeight: active ? 600 : 400,
-              cursor: "pointer",
-              transition: "background var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out)"
+      children: [
+        TABS.map((item) => {
+          const active = tab === item.id;
+          return /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "button",
+            {
+              onClick: () => setTab(item.id),
+              style: {
+                WebkitAppRegion: "no-drag",
+                padding: "7px 16px",
+                borderRadius: 999,
+                border: `1px solid ${active ? "var(--line-strong)" : "transparent"}`,
+                background: active ? "var(--surface-raised)" : "transparent",
+                boxShadow: active ? "var(--shadow-card), var(--edge-light)" : "none",
+                color: active ? "var(--text)" : "var(--text-muted)",
+                fontSize: 13,
+                fontWeight: active ? 600 : 400,
+                cursor: "pointer",
+                transition: "background var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out)"
+              },
+              children: item.label
             },
-            children: item.label
-          },
-          item.id
-        );
-      })
+            item.id
+          );
+        }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { flex: 1 } }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(AccountChip, {})
+      ]
+    }
+  );
+}
+function AccountChip() {
+  const account = useAuthStore((s2) => s2.account);
+  const offline = useAuthStore((s2) => s2.offline);
+  const setTab = useUiStore((s2) => s2.setTab);
+  const active = useUiStore((s2) => s2.tab) === "account";
+  const name = account?.displayName?.trim() || account?.email || null;
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(
+    "button",
+    {
+      onClick: () => setTab("account"),
+      title: account ? `Signed in as ${account.email}` : "Sign in or create an account",
+      style: {
+        WebkitAppRegion: "no-drag",
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        maxWidth: 220,
+        padding: name ? "5px 12px 5px 5px" : "7px 14px",
+        borderRadius: 999,
+        border: `1px solid ${active ? "var(--line-strong)" : "var(--line)"}`,
+        background: active ? "var(--surface-raised)" : "transparent",
+        color: name ? "var(--text)" : "var(--text-muted)",
+        fontSize: "var(--text-xs)",
+        fontFamily: "inherit",
+        cursor: "pointer"
+      },
+      children: [
+        name ? /* @__PURE__ */ jsxRuntimeExports.jsx(Avatar, { label: name, size: 24 }) : null,
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, children: name ?? "Sign in" }),
+        name && offline ? /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { color: "var(--text-faint)" }, children: "·" }) : null
+      ]
     }
   );
 }
@@ -27027,310 +27510,6 @@ function groupByDate(thoughts) {
   }
   return [...map2.entries()].sort((a2, b2) => a2[0] < b2[0] ? 1 : -1).map(([date2, list]) => ({ date: date2, thoughts: list }));
 }
-function AccountPanel() {
-  const open = useAuthStore((s2) => s2.panelOpen);
-  const close = useAuthStore((s2) => s2.setPanelOpen);
-  const account = useAuthStore((s2) => s2.account);
-  reactExports.useEffect(() => {
-    if (!open) return;
-    const onKey = (event) => {
-      if (event.key === "Escape") close(false);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, close]);
-  if (!open) return null;
-  return /* @__PURE__ */ jsxRuntimeExports.jsx(
-    "div",
-    {
-      onClick: () => close(false),
-      style: {
-        position: "fixed",
-        inset: 0,
-        background: "rgba(15,17,21,0.7)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        zIndex: 120
-      },
-      children: /* @__PURE__ */ jsxRuntimeExports.jsx(
-        "div",
-        {
-          onClick: (event) => event.stopPropagation(),
-          style: {
-            background: "var(--surface-raised)",
-            border: "1px solid var(--line)",
-            borderRadius: "var(--radius-lg)",
-            boxShadow: "var(--shadow-card)",
-            padding: 24,
-            width: 380,
-            maxWidth: "90vw"
-          },
-          children: account ? /* @__PURE__ */ jsxRuntimeExports.jsx(SignedIn, {}) : /* @__PURE__ */ jsxRuntimeExports.jsx(SignedOut, {})
-        }
-      )
-    }
-  );
-}
-function SignedOut() {
-  const [mode, setMode] = reactExports.useState("signin");
-  const [email, setEmail] = reactExports.useState("");
-  const [password, setPassword] = reactExports.useState("");
-  const busy = useAuthStore((s2) => s2.busy);
-  const error = useAuthStore((s2) => s2.error);
-  const setError = useAuthStore((s2) => s2.setError);
-  const emailField = reactExports.useRef(null);
-  reactExports.useEffect(() => emailField.current?.focus(), []);
-  const tooShort = mode === "create" && password.length > 0 && password.length < MIN_PASSWORD_LENGTH;
-  const canSubmit = email.trim().length > 0 && password.length > 0 && !tooShort && !busy;
-  const submit = async (event) => {
-    event.preventDefault();
-    if (!canSubmit) return;
-    const ok = await runAuth(
-      () => mode === "create" ? window.thread.invoke["auth:register"]({ email, password }) : window.thread.invoke["auth:login"]({ email, password })
-    );
-    if (ok) setPassword("");
-  };
-  const switchTo = (next) => {
-    setMode(next);
-    setError(null);
-  };
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs("form", { onSubmit: (event) => void submit(event), children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx("h2", { style: { margin: "0 0 4px", fontSize: "var(--text-lg)", fontWeight: 600 }, children: mode === "create" ? "Create an account" : "Sign in" }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: { margin: "0 0 18px", fontSize: "var(--text-xs)", color: "var(--text-faint)", lineHeight: 1.5 }, children: "Everything already works without one. An account is what lets the same threads and days show up on your phone." }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx(Field, { label: "Email", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
-      "input",
-      {
-        ref: emailField,
-        type: "email",
-        value: email,
-        onChange: (event) => setEmail(event.target.value),
-        autoComplete: "username",
-        spellCheck: false,
-        style: inputStyle
-      }
-    ) }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx(Field, { label: "Password", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
-      "input",
-      {
-        type: "password",
-        value: password,
-        onChange: (event) => setPassword(event.target.value),
-        autoComplete: mode === "create" ? "new-password" : "current-password",
-        style: inputStyle
-      }
-    ) }),
-    mode === "create" ? /* @__PURE__ */ jsxRuntimeExports.jsxs(
-      "p",
-      {
-        style: {
-          margin: "-6px 0 12px",
-          fontSize: "var(--text-xs)",
-          color: tooShort ? "var(--coral)" : "var(--text-faint)"
-        },
-        children: [
-          "At least ",
-          MIN_PASSWORD_LENGTH,
-          " characters. A short phrase you can actually recall beats a clever word you can’t."
-        ]
-      }
-    ) : null,
-    error ? /* @__PURE__ */ jsxRuntimeExports.jsx(
-      "p",
-      {
-        role: "alert",
-        style: {
-          margin: "0 0 12px",
-          padding: "8px 10px",
-          borderRadius: "var(--radius-sm)",
-          background: "rgba(224, 108, 90, 0.12)",
-          border: "1px solid rgba(224, 108, 90, 0.35)",
-          fontSize: "var(--text-xs)",
-          color: "var(--coral)",
-          lineHeight: 1.5
-        },
-        children: error
-      }
-    ) : null,
-    /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "submit", disabled: !canSubmit, className: "btn-launch", style: primaryStyle(canSubmit), children: busy ? "Working…" : mode === "create" ? "Create account" : "Sign in" }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx(
-      "button",
-      {
-        type: "button",
-        onClick: () => switchTo(mode === "create" ? "signin" : "create"),
-        style: linkStyle,
-        children: mode === "create" ? "I already have an account" : "Create an account instead"
-      }
-    ),
-    /* @__PURE__ */ jsxRuntimeExports.jsx(ServerField, {})
-  ] });
-}
-function SignedIn() {
-  const account = useAuthStore((s2) => s2.account);
-  const serverUrl = useAuthStore((s2) => s2.serverUrl);
-  const offline = useAuthStore((s2) => s2.offline);
-  const busy = useAuthStore((s2) => s2.busy);
-  const error = useAuthStore((s2) => s2.error);
-  const [confirmingDelete, setConfirmingDelete] = reactExports.useState(false);
-  if (!account) return /* @__PURE__ */ jsxRuntimeExports.jsx(jsxRuntimeExports.Fragment, {});
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx("h2", { style: { margin: "0 0 4px", fontSize: "var(--text-lg)", fontWeight: 600 }, children: "Account" }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: { margin: "0 0 2px", fontSize: "var(--text-sm)", color: "var(--text)" }, children: account.email }),
-    /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { style: { margin: "0 0 18px", fontSize: "var(--text-xs)", color: "var(--text-faint)" }, children: [
-      hostOf(serverUrl),
-      offline ? " · offline right now, still signed in" : ""
-    ] }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx(
-      "p",
-      {
-        style: {
-          margin: "0 0 18px",
-          padding: "10px 12px",
-          borderRadius: "var(--radius-sm)",
-          background: "var(--surface)",
-          border: "1px solid var(--line)",
-          fontSize: "var(--text-xs)",
-          color: "var(--text-muted)",
-          lineHeight: 1.55
-        },
-        children: "Your threads, days and sessions still live on this Mac and nowhere else. Uploading them to this account is the next piece of work — the account itself is ready for it."
-      }
-    ),
-    error ? /* @__PURE__ */ jsxRuntimeExports.jsx("p", { role: "alert", style: { margin: "0 0 12px", fontSize: "var(--text-xs)", color: "var(--coral)" }, children: error }) : null,
-    /* @__PURE__ */ jsxRuntimeExports.jsx(
-      "button",
-      {
-        type: "button",
-        disabled: busy,
-        onClick: () => void runAuth(() => window.thread.invoke["auth:logout"](void 0)),
-        style: secondaryStyle,
-        children: "Sign out"
-      }
-    ),
-    confirmingDelete ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { marginTop: 16, paddingTop: 14, borderTop: "1px solid var(--line)" }, children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: { margin: "0 0 10px", fontSize: "var(--text-xs)", color: "var(--text-muted)", lineHeight: 1.5 }, children: "This deletes the account and everything stored under it on the server, permanently. What is on this Mac stays." }),
-      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", gap: 8 }, children: [
-        /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", onClick: () => setConfirmingDelete(false), style: secondaryStyle, children: "Keep it" }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx(
-          "button",
-          {
-            type: "button",
-            disabled: busy,
-            onClick: () => void runAuth(() => window.thread.invoke["auth:deleteAccount"](void 0)),
-            style: { ...secondaryStyle, borderColor: "var(--coral)", color: "var(--coral)" },
-            children: "Delete permanently"
-          }
-        )
-      ] })
-    ] }) : /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", onClick: () => setConfirmingDelete(true), style: { ...linkStyle, color: "var(--text-faint)" }, children: "Delete this account" })
-  ] });
-}
-function ServerField() {
-  const serverUrl = useAuthStore((s2) => s2.serverUrl);
-  const [shown, setShown] = reactExports.useState(false);
-  const [draft, setDraft] = reactExports.useState(serverUrl);
-  reactExports.useEffect(() => setDraft(serverUrl), [serverUrl]);
-  if (!shown) {
-    return /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { type: "button", onClick: () => setShown(true), style: { ...linkStyle, color: "var(--text-faint)" }, children: [
-      "Server: ",
-      hostOf(serverUrl)
-    ] });
-  }
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--line)" }, children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx(Field, { label: "Server", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
-      "input",
-      {
-        value: draft,
-        onChange: (event) => setDraft(event.target.value),
-        spellCheck: false,
-        style: inputStyle
-      }
-    ) }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx(
-      "button",
-      {
-        type: "button",
-        onClick: () => {
-          void runAuth(() => window.thread.invoke["auth:setServer"]({ url: draft }));
-          setShown(false);
-        },
-        style: secondaryStyle,
-        children: "Use this server"
-      }
-    )
-  ] });
-}
-function Field({ label, children }) {
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { style: { display: "block", marginBottom: 12 }, children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx(
-      "span",
-      {
-        style: {
-          display: "block",
-          marginBottom: 5,
-          fontSize: "var(--text-xs)",
-          color: "var(--text-muted)"
-        },
-        children: label
-      }
-    ),
-    children
-  ] });
-}
-function hostOf(url) {
-  try {
-    return new URL(url).host;
-  } catch {
-    return url;
-  }
-}
-const inputStyle = {
-  width: "100%",
-  boxSizing: "border-box",
-  padding: "9px 11px",
-  borderRadius: "var(--radius-sm)",
-  border: "1px solid var(--line)",
-  background: "var(--surface)",
-  color: "var(--text)",
-  fontSize: "var(--text-sm)",
-  fontFamily: "inherit",
-  outline: "none"
-};
-function primaryStyle(enabled) {
-  return {
-    width: "100%",
-    padding: "10px 16px",
-    borderRadius: "var(--radius-md)",
-    border: "none",
-    fontSize: "var(--text-sm)",
-    fontWeight: 600,
-    cursor: enabled ? "pointer" : "default",
-    opacity: enabled ? 1 : 0.5
-  };
-}
-const secondaryStyle = {
-  padding: "8px 14px",
-  borderRadius: "var(--radius-md)",
-  border: "1px solid var(--line)",
-  background: "transparent",
-  color: "var(--text-muted)",
-  fontSize: "var(--text-sm)",
-  fontFamily: "inherit",
-  cursor: "pointer"
-};
-const linkStyle = {
-  display: "block",
-  width: "100%",
-  marginTop: 12,
-  padding: 0,
-  background: "none",
-  border: "none",
-  color: "var(--text-muted)",
-  fontSize: "var(--text-xs)",
-  fontFamily: "inherit",
-  cursor: "pointer",
-  textAlign: "center"
-};
 function Shell() {
   const tab = useUiStore((s2) => s2.tab);
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "app-bg", style: { display: "flex", height: "100vh", overflow: "hidden" }, children: [
@@ -27341,10 +27520,10 @@ function Shell() {
         tab === "today" ? /* @__PURE__ */ jsxRuntimeExports.jsx(TodayView, {}) : null,
         tab === "threads" ? /* @__PURE__ */ jsxRuntimeExports.jsx(ThreadsView, {}) : null,
         tab === "analytics" ? /* @__PURE__ */ jsxRuntimeExports.jsx(AnalyticsView, {}) : null,
-        tab === "park" ? /* @__PURE__ */ jsxRuntimeExports.jsx(ParkView, {}) : null
+        tab === "park" ? /* @__PURE__ */ jsxRuntimeExports.jsx(ParkView, {}) : null,
+        tab === "account" ? /* @__PURE__ */ jsxRuntimeExports.jsx(AccountView, {}) : null
       ] })
-    ] }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx(AccountPanel, {})
+    ] })
   ] });
 }
 let initialized = false;

@@ -32,6 +32,8 @@ async function bootstrap(): Promise<void> {
 
   // Deliberately not awaited: a signed-in user with no network must still get a window.
   void ctx.auth.revalidate();
+  ctx.sync.start();
+  ctx.syncNow();
 
   // Flush points beyond the debounce: window blur is already wired in mainWindow, this covers
   // the OS asking the app to sleep or the session locking.

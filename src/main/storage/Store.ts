@@ -27,6 +27,8 @@ export const COLLECTION = {
   threads: 'threads',
   days: 'days',
   sessions: 'sessions',
+  /** Sits. Written only by the sync engine — they are recorded on the phone. */
+  mindful: 'mindful',
 } as const;
 
 export type CollectionName = (typeof COLLECTION)[keyof typeof COLLECTION];
@@ -40,8 +42,17 @@ export interface Collection<T> {
   delete(key: string): Promise<void>;
 }
 
+/**
+ * `track: false` writes without telling the sync engine. Exactly one caller uses it — the
+ * engine itself, applying what it just pulled. A merged record marked dirty would be pushed
+ * straight back to the server it came from, forever.
+ */
+export interface CollectionOptions {
+  track?: boolean;
+}
+
 export interface Store {
-  collection<T>(name: CollectionName): Collection<T>;
+  collection<T>(name: CollectionName, options?: CollectionOptions): Collection<T>;
   /** Write anything pending. Called on blur, sleep, screen lock and quit. */
   flush(): Promise<void>;
   close(): Promise<void>;

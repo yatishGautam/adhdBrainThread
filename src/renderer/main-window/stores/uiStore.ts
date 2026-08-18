@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 
 /** 'park' is a full page but not a tab — reached from the dashboard stat or the Park panel. */
-export type MainTab = 'today' | 'threads' | 'analytics' | 'park';
+export type MainTab = 'today' | 'threads' | 'analytics' | 'park' | 'account';
 
 interface UiStore {
   tab: MainTab;
@@ -18,7 +18,13 @@ export const useUiStore = create<UiStore>((set) => ({
   tab: 'threads',
   prevTab: 'threads',
   railCollapsed: false,
-  setTab: (tab) => set((state) => ({ tab, prevTab: state.tab === 'park' ? state.prevTab : state.tab })),
+  setTab: (tab) =>
+    set((state) => ({
+      tab,
+      // Full pages remember where you came from so Back returns you there rather than to a
+      // default that is not where you were.
+      prevTab: state.tab === 'park' || state.tab === 'account' ? state.prevTab : state.tab,
+    })),
   toggleRail: () =>
     set((state) => {
       const next = !state.railCollapsed;

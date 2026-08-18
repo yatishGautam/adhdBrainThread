@@ -60,6 +60,8 @@ const REQUEST_CHANNELS = [
   "auth:logout",
   "auth:deleteAccount",
   "auth:setServer",
+  "sync:status",
+  "sync:now",
   "link:open",
   "startup:get",
   "startup:set",

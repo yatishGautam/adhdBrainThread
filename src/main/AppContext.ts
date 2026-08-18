@@ -15,6 +15,8 @@ import type {
 import { Database } from "./storage/Database.js";
 import { AnalyticsService } from "./services/AnalyticsService.js";
 import { AuthService } from "./services/AuthService.js";
+import { SyncEngine, type SyncStatus } from "./sync/SyncEngine.js";
+import { SyncState } from "./sync/SyncState.js";
 import { SessionService } from "./services/SessionService.js";
 import { StageController } from "./services/StageController.js";
 import { CelebrationOrchestrator } from "./services/CelebrationOrchestrator.js";
@@ -37,6 +39,8 @@ export class AppContext {
 	analytics!: AnalyticsService;
 	celebrations!: CelebrationOrchestrator;
 	auth!: AuthService;
+	sync!: SyncEngine;
+	syncState!: SyncState;
 	main: BrowserWindow | null = null;
 	hud: BrowserWindow | null = null;
 	private overlay!: CelebrationOverlay;
@@ -46,6 +50,12 @@ export class AppContext {
 
 	static async create(root: string): Promise<AppContext> {
 		const ctx = new AppContext();
+
+		// Loaded before the store opens, because the store's very first write has to be able to
+		// land in the queue — there is no "before sync was watching" window.
+		ctx.syncState = new SyncState(root);
+		await ctx.syncState.load();
+
 		ctx.db = await Database.open(root, {
 			onUnreadable: (file, reason) => {
 				console.warn("[storage]", file, reason);
@@ -53,6 +63,10 @@ export class AppContext {
 					message: `Part of a data file could not be read (${reason}). Everything else loaded normally.`,
 					files: [file],
 				} satisfies StorageBanner);
+			},
+			onWrite: (collection, key) => {
+				ctx.syncState.mark(collection, key);
+				ctx.sync?.schedule();
 			},
 		});
 
@@ -63,18 +77,36 @@ export class AppContext {
 
 		// Reads the account file only. The token is checked with the server later, from
 		// `revalidate()`, once there is a window to tell about the result.
-		ctx.auth = new AuthService(root, (state) => ctx.broadcast("auth:changed", state));
+		ctx.auth = new AuthService(root, (state) => {
+			ctx.broadcast("auth:changed", state);
+			// Signing in is the moment to go and find what the phone has been writing.
+			if (state.account) void ctx.sync?.sync().then((outcome) => ctx.afterSync(outcome));
+			else ctx.syncState.reset();
+		});
 		await ctx.auth.load();
+
+		ctx.sync = new SyncEngine(ctx.db, ctx.auth, ctx.syncState, (status) =>
+			ctx.broadcast("sync:changed", status),
+		);
 
 		ctx.sessions = new SessionService(ctx.db, {
 			onTick: (tick) => ctx.broadcast("session:tick", tick),
 			onChanged: (state) => {
 				ctx.broadcast("session:changed", state);
 				ctx.refreshTray();
+				if (state === null) {
+					ctx.sync?.suspendPush(false);
+					ctx.syncNow();
+				}
 			},
 			onToast: (text) => ctx.broadcast("hud:toast", { text }),
 			onDaysTouched: (dates) => void ctx.analytics.touchDays(dates),
-			onStarted: () => ctx.stages.clear(),
+			onStarted: () => {
+				ctx.stages.clear();
+				// A session ticks every second. Pushing each tick would hammer the API and the
+				// battery for nothing — it goes up once, when it ends.
+				ctx.sync?.suspendPush(true);
+			},
 			onCompleted: (session, threadTitle) => {
 				// Fired from inside end(); a failure here must be visible, not an unhandled
 				// rejection that silently strands the cycle.
@@ -120,6 +152,7 @@ export class AppContext {
 		this.main = createMainWindow({
 			onHide: () => this.refreshTray(),
 			onBlur: () => void this.db.store.flush(),
+			onFocus: () => this.syncNow(),
 		});
 		this.main.on("closed", () => {
 			this.main = null;
@@ -280,8 +313,30 @@ export class AppContext {
 		if (this.mainReady) this.broadcast("session:recovery", offer);
 	}
 
+	/**
+	 * A pull that changed anything has to reach the windows, or the board sits there showing
+	 * what the laptop knew before the phone told it otherwise.
+	 */
+	afterSync(outcome: { pulled: number } | null): void {
+		if (!outcome || outcome.pulled === 0) return;
+		this.broadcastThreads();
+		this.broadcast("carry:changed", undefined);
+		this.broadcast("analytics:changed", undefined);
+		void this.db.days.today().then((day) => {
+			if (day) this.broadcastDay(day);
+		});
+		void this.analytics.rebuild();
+	}
+
+	/** Foreground, sign-in, session end: the three moments worth a round trip immediately. */
+	syncNow(): void {
+		void this.sync?.sync().then((outcome) => this.afterSync(outcome));
+	}
+
 	async shutdown(): Promise<void> {
 		this.stages.destroy();
+		this.sync.stop();
+		await this.syncState.flush();
 		if (this.sessions.isRunning()) await this.sessions.end("ended_early");
 		await this.analytics.flush();
 		await this.db.close();
@@ -307,6 +362,10 @@ export class AppContext {
 
 	broadcastSettings(settings: Settings): void {
 		this.broadcast("settings:changed", settings);
+	}
+
+	syncStatus(): SyncStatus {
+		return this.sync.status();
 	}
 
 	broadcast<K extends keyof Events>(channel: K, payload: Events[K]): void {
