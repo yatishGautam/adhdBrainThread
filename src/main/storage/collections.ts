@@ -1,54 +1,41 @@
 /**
- * The four collections and how they are keyed.
+ * The three collections and how they are keyed and split.
  *
- * `threads/active.json` is deliberately unsharded — it is bounded by the WIP cap and will never
- * be large. Only the historical, append-dominant collections shard.
+ * Threads live in one file: the active cap plus a done pile bounds it by construction. Days and
+ * sessions split by month so no file grows without limit and a month is easy to open by hand.
  */
 import type { Day, Session, Thread } from '@shared/domain.js';
 import { daySchema } from './schemas/day.js';
 import { sessionSchema } from './schemas/session.js';
 import { threadSchema } from './schemas/thread.js';
-import { defineCollection, type AnyCollectionConfig } from './types.js';
+import { defineCollection, type AnySpec } from './JsonStore.js';
+import { COLLECTION } from './Store.js';
 
-export const COLLECTION = {
-  activeThreads: 'threads',
-  archivedThreads: 'threadArchive',
-  days: 'days',
-  sessions: 'sessions',
-} as const;
+/** `2026-08-13` → `2026-08`. Both keys are local dates, so this needs no timezone logic. */
+function monthOf(localDate: string): string {
+  return localDate.slice(0, 7);
+}
 
-export const collections: AnyCollectionConfig[] = [
+export const collections: AnySpec[] = [
   defineCollection<Thread>({
-    name: COLLECTION.activeThreads,
-    dir: 'threads',
-    prefix: 'thr',
-    singleFile: 'threads/active.json',
+    name: COLLECTION.threads,
     schema: threadSchema,
     key: (thread) => thread.id,
-    updatedAt: (thread) => thread.updatedAt,
-  }),
-  defineCollection<Thread>({
-    name: COLLECTION.archivedThreads,
-    dir: 'threads/archive',
-    prefix: 'thr',
-    schema: threadSchema,
-    key: (thread) => thread.id,
-    updatedAt: (thread) => thread.updatedAt,
   }),
   defineCollection<Day>({
     name: COLLECTION.days,
-    dir: 'days',
-    prefix: 'day',
     schema: daySchema,
     key: (day) => day.localDate,
-    updatedAt: (day) => day.createdAt,
+    partition: (day) => monthOf(day.localDate),
   }),
   defineCollection<Session>({
     name: COLLECTION.sessions,
-    dir: 'sessions',
-    prefix: 'ses',
     schema: sessionSchema,
     key: (session) => session.id,
-    updatedAt: (session) => session.endedAt ?? session.startedAt,
+    // Bucketed by the local date already stamped on the record at write time, never re-derived
+    // from the UTC timestamp — that is how sessions land on the wrong side of a DST boundary.
+    partition: (session) => monthOf(session.localDate),
   }),
 ];
+
+export { COLLECTION };

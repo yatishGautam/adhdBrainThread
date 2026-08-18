@@ -1,12 +1,8 @@
-import path from 'node:path';
 import type { Blocker, Day, LogEntry, Thought, Todo } from '@shared/domain.js';
 import type { CarryForward, ThoughtAction } from '@shared/ipc/channels.js';
 import { ulid } from '@shared/ids.js';
-import { COLLECTION } from '../collections.js';
-import { atomicWriteFile, readFileIfExists } from '../atomicWrite.js';
-import { serialise } from '../serialise.js';
 import type { Clock } from '../clock.js';
-import type { CollectionHandle, ShardedStore } from '../ShardedStore.js';
+import { COLLECTION, type Collection, type Store } from '../Store.js';
 import { nextOrder, reorder, sortByOrder } from '../stepOrder.js';
 
 /**
@@ -15,48 +11,26 @@ import { nextOrder, reorder, sortByOrder } from '../stepOrder.js';
  * holds if the app cannot manufacture empty days to feel bad about.
  */
 export class DayRepo {
-  /** Sorted list of dates that exist, so the navigator never loads day shards to know. */
-  private dates: string[] = [];
-
   constructor(
-    private readonly store: ShardedStore,
+    private readonly store: Store,
     private readonly clock: Clock,
-    private readonly root: string,
   ) {}
 
-  private get days(): CollectionHandle<Day> {
+  private get days(): Collection<Day> {
     return this.store.collection<Day>(COLLECTION.days);
   }
 
-  private get indexFile(): string {
-    return path.join(this.root, 'days', 'index.json');
-  }
-
-  async load(): Promise<void> {
-    const raw = await readFileIfExists(this.indexFile);
-    if (raw) {
-      const parsed: unknown = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        this.dates = parsed.filter((value): value is string => typeof value === 'string').sort();
-        return;
-      }
-    }
-    await this.rebuildIndex();
-  }
-
-  /** Cheap to redo: the index is derived, the day shards are truth. */
-  async rebuildIndex(): Promise<void> {
+  /**
+   * Dates that exist, for the sidebar. This used to be a hand-maintained `days/index.json` so
+   * the navigator would not have to load day shards; every day is already in memory now, so
+   * that index was a second source of truth for something free to derive.
+   */
+  async listDates(): Promise<string[]> {
     const all = await this.days.all();
-    this.dates = all.map((day) => day.localDate).sort();
-    await this.persistIndex();
-  }
-
-  listDates(): string[] {
-    return [...this.dates];
+    return all.map((day) => day.localDate).sort();
   }
 
   async get(localDate: string): Promise<Day | null> {
-    if (!this.dates.includes(localDate)) return null;
     return this.days.get(localDate);
   }
 
@@ -92,24 +66,19 @@ export class DayRepo {
 
   private async write(day: Day): Promise<Day> {
     await this.days.put(day);
-    if (!this.dates.includes(day.localDate)) {
-      this.dates = [...this.dates, day.localDate].sort();
-      await this.persistIndex();
-    }
     return day;
-  }
-
-  private async persistIndex(): Promise<void> {
-    await atomicWriteFile(this.indexFile, serialise(this.dates));
-  }
-
-  /** Writes land on `localDate` when given, otherwise today. Creates the day if it is new. */
-  private async mutateDay(localDate: string | undefined, change: (day: Day) => Day): Promise<Day> {
-    return this.write(change(await this.ensure(localDate)));
   }
 
   private async mutateToday(change: (day: Day) => Day): Promise<Day> {
     return this.mutateDay(undefined, change);
+  }
+
+  /** Mutates a given day, creating it if it does not exist yet. Defaults to today. */
+  private async mutateDay(
+    localDate: string | undefined,
+    change: (day: Day) => Day,
+  ): Promise<Day> {
+    return this.write(change(await this.ensure(localDate)));
   }
 
   private async mutate(localDate: string, change: (day: Day) => Day): Promise<Day> {
@@ -251,8 +220,8 @@ export class DayRepo {
 
   /**
    * To-dos and blockers are global (§5): they live on the day that raised them, but every daily
-   * page reads all of them until they are completed or resolved. The day index is small and the
-   * shards are already cached, so a full scan here is cheaper than a second storage location.
+   * page reads all of them until they are completed or resolved. Every day is already in
+   * memory, so a scan is cheaper than maintaining a second place for these to live.
    */
   async carryForward(): Promise<CarryForward> {
     const all = await this.days.all();

@@ -53,17 +53,6 @@ export function ThreadDrawer({
 							<Notes thread={thread} />
 						</div>
 
-						<div
-							style={{
-								display: "flex",
-								justifyContent: "flex-end",
-								marginTop: 16,
-								paddingTop: 12,
-								borderTop: "1px solid var(--line)",
-							}}
-						>
-							<DeleteThread thread={thread} />
-						</div>
 					</div>
 				</motion.div>
 			) : null}
@@ -105,76 +94,6 @@ function Notes({ thread }: { thread: Thread }): React.JSX.Element {
 				background: "var(--ink)",
 			}}
 		/>
-	);
-}
-
-/**
- * Two-step, inline. A thread carries its whole checklist and session history, so deleting one
- * is not a thing to do by accident — but it also does not deserve a modal.
- */
-function DeleteThread({ thread }: { thread: Thread }): React.JSX.Element {
-	const [confirming, setConfirming] = useState(false);
-
-	useEffect(() => {
-		setConfirming(false);
-	}, [thread.id]);
-
-	if (!confirming) {
-		return (
-			<button
-				onClick={() => setConfirming(true)}
-				style={{
-					background: "none",
-					border: "none",
-					color: "var(--text-faint)",
-					cursor: "pointer",
-					fontSize: 12,
-					padding: "4px 6px",
-				}}
-			>
-				Delete thread
-			</button>
-		);
-	}
-
-	return (
-		<div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-			<span style={{ fontSize: 12, color: "var(--text-muted)" }}>
-				Delete &lsquo;{thread.title}&rsquo; and its {thread.steps.length} step
-				{thread.steps.length === 1 ? "" : "s"}?
-			</span>
-			<button
-				onClick={() => setConfirming(false)}
-				style={{
-					background: "transparent",
-					border: "1px solid var(--line)",
-					borderRadius: 8,
-					color: "var(--text-muted)",
-					cursor: "pointer",
-					fontSize: 12,
-					padding: "5px 12px",
-				}}
-			>
-				Keep
-			</button>
-			<button
-				onClick={() =>
-					void window.thread.invoke["threads:remove"]({ id: thread.id })
-				}
-				style={{
-					background: "var(--clay)",
-					border: "none",
-					borderRadius: 8,
-					color: "#1a0f0c",
-					fontWeight: 600,
-					cursor: "pointer",
-					fontSize: 12,
-					padding: "5px 12px",
-				}}
-			>
-				Delete
-			</button>
-		</div>
 	);
 }
 
