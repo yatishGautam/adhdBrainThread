@@ -88,8 +88,9 @@ form is an app that failed on the day you had no signal.
 - Boot never waits on the network: `revalidate()` checks the token against `/auth/me` in the
   background, after the window is already up.
 
-Point it at a local backend with `ADHD_API_URL`, or from the Server field in the account
-dialog:
+It talks to `https://api.adhd.yatishgautam.com` by default — `DEFAULT_SERVER_URL` in
+`src/shared/auth.ts`. Point it at a local backend with `ADHD_API_URL`, or from the Server field
+in the account dialog:
 
 ```bash
 cd ../adhd-webapp && npm run dev:up && npm run dev     # postgres on 55432, API on 8099

@@ -34,4 +34,4 @@ export interface Credentials {
 /** The server's own rule, repeated here so the form can say so before making the round trip. */
 export const MIN_PASSWORD_LENGTH = 10;
 
-export const DEFAULT_SERVER_URL = "https://api.adhd.yatish.com";
+export const DEFAULT_SERVER_URL = "https://api.adhd.yatishgautam.com";
