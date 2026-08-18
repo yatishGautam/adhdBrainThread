@@ -28,4 +28,6 @@ export const sessionSchema: z.ZodType<Session> = z.object({
   switchedToThreadId: ulidLike.optional(),
   distractions: z.array(distractionSchema),
   pauses: z.array(pauseSchema),
+  updatedAt: isoTimestamp.optional(),
+  deletedAt: isoTimestamp.nullish(),
 });

@@ -26,12 +26,18 @@ export class DayRepo {
    * that index was a second source of truth for something free to derive.
    */
   async listDates(): Promise<string[]> {
-    const all = await this.days.all();
+    const all = await this.live();
     return all.map((day) => day.localDate).sort();
   }
 
+  /** Not deleted. See `ThreadRepo.live` for why tombstones stay on disk. */
+  private async live(): Promise<Day[]> {
+    return (await this.days.all()).filter((day) => !day.deletedAt);
+  }
+
   async get(localDate: string): Promise<Day | null> {
-    return this.days.get(localDate);
+    const day = await this.days.get(localDate);
+    return day && !day.deletedAt ? day : null;
   }
 
   /** Read-only peek at today. Returns null when today has not happened yet. */
@@ -64,9 +70,14 @@ export class DayRepo {
     return this.ensure();
   }
 
+  /**
+   * The one write path, which is why `updatedAt` is stamped here — it is when the *user*
+   * changed the day, and it is the whole conflict rule.
+   */
   private async write(day: Day): Promise<Day> {
-    await this.days.put(day);
-    return day;
+    const next: Day = { ...day, updatedAt: this.clock.now() };
+    await this.days.put(next);
+    return next;
   }
 
   private async mutateToday(change: (day: Day) => Day): Promise<Day> {
@@ -224,7 +235,7 @@ export class DayRepo {
    * memory, so a scan is cheaper than maintaining a second place for these to live.
    */
   async carryForward(): Promise<CarryForward> {
-    const all = await this.days.all();
+    const all = await this.live();
     const todos: Todo[] = [];
     const blockers: Blocker[] = [];
     for (const day of all) {
@@ -258,7 +269,7 @@ export class DayRepo {
 
   /** Every parked thought on record, newest first — the Park view's backing list. */
   async allThoughts(): Promise<Thought[]> {
-    const all = await this.days.all();
+    const all = await this.live();
     const thoughts = all.flatMap((day) => day.thoughts);
     return thoughts.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }

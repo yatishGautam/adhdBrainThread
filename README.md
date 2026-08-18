@@ -97,8 +97,34 @@ cd ../adhd-webapp && npm run dev:up && npm run dev     # postgres on 55432, API 
 ADHD_API_URL=http://localhost:8099 npm run dev
 ```
 
-Syncing the records themselves is the next piece of work — the account exists and the token is
-held; nothing calls `/sync` from this app yet.
+### Sync
+
+Pull first, then push. Pulling first means last-write-wins compares against records this machine
+has actually seen, so a push cannot clobber an edit made on the phone that the laptop had not
+heard about yet.
+
+- **Every local write marks itself.** `JsonStore` calls `onWrite` on the one code path a record
+  can change, so "nothing is edited without sync finding out" is true by construction rather than
+  by remembering to call something in twelve repository methods. The queue is keys, not copies —
+  a second copy of a record is a second thing to keep in step — and it lives in `sync.json` so
+  quitting mid-edit does not lose it.
+- **Deletes leave tombstones.** A record that simply stops existing looks identical to one the
+  server has never seen, so it comes back on the next sync. `ThreadRepo.remove` writes
+  `deletedAt` and every read path filters it out.
+- **A conflict is not a prompt.** The server had something newer; the local copy is overwritten
+  and dropped from the queue. Retrying would push the same stale record forever.
+- **Nothing blocks.** A write lands in local JSON and returns; sync runs afterwards on a 5s
+  debounce, on window focus, when a session ends, when you sign in, and every five minutes as a
+  net. Offline is a status line, not an error.
+- **The push is held while a timer runs.** Sessions tick every second; the session goes up once,
+  when it ends. Pulling carries on.
+
+Sits (`MindfulSession`) are recorded on the phone and only ever received here — the sync engine
+is their sole writer, and they are kept out of `sessions` because momentum is computed from that
+collection and a sit is practice, not focus work.
+
+The default host is `api.adhd.yatishgautam.com`, which is the same one the iOS app uses. Note
+that `adhd-webapp/API.md` documents `api.yatishgautam.com`, which does not resolve.
 
 ## Test
 
@@ -117,6 +143,11 @@ that server agree, rather than that this client agrees with a fixture it wrote i
 ```bash
 ADHD_TEST_API=http://localhost:8099 npm test
 ```
+
+Those cover a laptop and a phone on one account: a thread written here reaching the server, a sit
+recorded on the phone landing on this disk, a delete staying deleted, and the newer of two edits
+winning. The second device is raw HTTP rather than a mock, because a mock agrees with whatever I
+believed when I wrote it.
 
 Registration is rate limited to five per hour and those tests spend two, so a tight loop of
 reruns starts seeing 429s. Restart the API; the limiter counts in memory.

@@ -1,3 +1,5 @@
+import { useAuthStore } from '../stores/authStore.js';
+import { Avatar } from '../features/account/AccountView.js';
 import { useUiStore, type MainTab } from '../stores/uiStore.js';
 
 /** Threads · Daily · Dashboard, in that order (§1). One layout to keep in your head. */
@@ -16,6 +18,7 @@ export function TabBar(): React.JSX.Element {
     <div
       style={{
         display: 'flex',
+        alignItems: 'center',
         gap: 6,
         padding: '14px 20px 12px',
         borderBottom: '1px solid var(--line)',
@@ -47,6 +50,49 @@ export function TabBar(): React.JSX.Element {
           </button>
         );
       })}
+      <div style={{ flex: 1 }} />
+      <AccountChip />
     </div>
+  );
+}
+
+/**
+ * Who you are, at the top of the window, next to everything else that is always true. Signed
+ * out it is an invitation rather than a demand — the app below it works either way.
+ */
+function AccountChip(): React.JSX.Element {
+  const account = useAuthStore((s) => s.account);
+  const offline = useAuthStore((s) => s.offline);
+  const setTab = useUiStore((s) => s.setTab);
+  const active = useUiStore((s) => s.tab) === 'account';
+  const name = account?.displayName?.trim() || account?.email || null;
+
+  return (
+    <button
+      onClick={() => setTab('account')}
+      title={account ? `Signed in as ${account.email}` : 'Sign in or create an account'}
+      style={{
+        WebkitAppRegion: 'no-drag',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        maxWidth: 220,
+        padding: name ? '5px 12px 5px 5px' : '7px 14px',
+        borderRadius: 999,
+        border: `1px solid ${active ? 'var(--line-strong)' : 'var(--line)'}`,
+        background: active ? 'var(--surface-raised)' : 'transparent',
+        color: name ? 'var(--text)' : 'var(--text-muted)',
+        fontSize: 'var(--text-xs)',
+        fontFamily: 'inherit',
+        cursor: 'pointer',
+      } as React.CSSProperties}
+    >
+      {name ? <Avatar label={name} size={24} /> : null}
+      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {name ?? 'Sign in'}
+      </span>
+      {/* Signed in but unreachable is its own state, and it is not a failure. */}
+      {name && offline ? <span style={{ color: 'var(--text-faint)' }}>·</span> : null}
+    </button>
   );
 }

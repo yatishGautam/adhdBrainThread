@@ -483,6 +483,7 @@ export function registerHandlers(ctx: AppContext): void {
 		"settings:update",
 		async (_c, { patch }) => {
 			const settings = await db.settings.update(patch);
+			if (patch.timezone !== undefined) ctx.syncState.markProfile();
 			ctx.broadcastSettings(settings);
 			return settings;
 		},
@@ -500,14 +501,14 @@ export function registerHandlers(ctx: AppContext): void {
 	on("auth:state", async () => ctx.auth.state(), ctx);
 	on(
 		"auth:register",
-		async (_c, { email, password }) => {
+		async (_c, { email, password, displayName }) => {
 			// Checked here as well as on the server so the common mistake costs no round trip
 			// and, more to the point, no slice of the five-per-hour registration limit.
 			if (!email.includes("@")) throw new Error("That does not look like an email address.");
 			if (password.length < MIN_PASSWORD_LENGTH) {
 				throw new Error(`Use at least ${MIN_PASSWORD_LENGTH} characters — a short phrase beats a clever word.`);
 			}
-			return ctx.auth.register(email, password);
+			return ctx.auth.register(email, password, displayName);
 		},
 		ctx,
 	);
@@ -515,6 +516,19 @@ export function registerHandlers(ctx: AppContext): void {
 	on("auth:logout", async () => ctx.auth.logout(), ctx);
 	on("auth:deleteAccount", async () => ctx.auth.deleteAccount(), ctx);
 	on("auth:setServer", async (_c, { url }) => ctx.auth.setServerUrl(url), ctx);
+
+	// -------------------------------------------------------------------- sync
+
+	on("sync:status", async () => ctx.syncStatus(), ctx);
+	on(
+		"sync:now",
+		async () => {
+			const outcome = await ctx.sync.sync();
+			ctx.afterSync(outcome);
+			return ctx.syncStatus();
+		},
+		ctx,
+	);
 
 	// -------------------------------------------------------------------- links
 

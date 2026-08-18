@@ -35,7 +35,8 @@ export class AuthService {
 	private token: string | null = null;
 	private offline = false;
 	private busy = false;
-	private api: ApiClient;
+	/** The engine pushes and pulls with the same client, so it stays pointed at the same host. */
+	api: ApiClient;
 
 	constructor(
 		private readonly root: string,
@@ -59,9 +60,19 @@ export class AuthService {
 		};
 	}
 
-	/** For the sync engine, when it lands. Null means there is nothing to push with. */
+	/** For the sync engine. Null means there is nothing to push with. */
 	currentToken(): string | null {
 		return this.token;
+	}
+
+	/**
+	 * The token was rejected mid-sync. Signing out is the honest response — the alternative is
+	 * an app that looks signed in and quietly syncs nothing.
+	 */
+	async handleUnauthorized(): Promise<void> {
+		if (!this.token) return;
+		await this.clear();
+		this.emit();
 	}
 
 	// ------------------------------------------------------------------- boot
@@ -112,10 +123,29 @@ export class AuthService {
 
 	// ---------------------------------------------------------------- actions
 
-	async register(email: string, password: string): Promise<AuthState> {
-		return this.authenticate(() =>
-			this.api.register(email.trim(), password, systemTimezone()),
+	async register(email: string, password: string, displayName?: string): Promise<AuthState> {
+		const name = displayName?.trim() || null;
+		const state = await this.authenticate(
+			() => this.api.register(email.trim(), password, systemTimezone()),
+			name,
 		);
+		// The name is a profile field, and the profile only moves through /sync — there is no
+		// endpoint that sets it at registration. Best effort on purpose: an account that exists
+		// with no name yet is a far better outcome than a sign-up that fails at the last step.
+		if (name && this.token) {
+			try {
+				await this.api.push(this.token, {
+					profile: {
+						displayName: name,
+						timezone: systemTimezone(),
+						updatedAt: new Date().toISOString(),
+					},
+				});
+			} catch (error: unknown) {
+				console.warn("[auth] the display name will sync on the next round trip", error);
+			}
+		}
+		return state;
 	}
 
 	async login(email: string, password: string): Promise<AuthState> {
@@ -169,6 +199,7 @@ export class AuthService {
 
 	private async authenticate(
 		call: () => Promise<{ user: { id: string; email: string }; token: string }>,
+		displayName: string | null = null,
 	): Promise<AuthState> {
 		this.setBusy(true);
 		try {
@@ -177,7 +208,7 @@ export class AuthService {
 			this.account = {
 				id: result.user.id,
 				email: result.user.email,
-				displayName: null,
+				displayName,
 				timezone: systemTimezone(),
 			};
 			this.offline = false;

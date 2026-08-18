@@ -29,6 +29,11 @@ export interface AuthState {
 export interface Credentials {
 	email: string;
 	password: string;
+	/**
+	 * Only used when creating an account. It is stored as the profile's display name and synced
+	 * to the other devices, so the phone greets you by the same name this app does.
+	 */
+	displayName?: string;
 }
 
 /** The server's own rule, repeated here so the form can say so before making the round trip. */

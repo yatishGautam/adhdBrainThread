@@ -18,8 +18,17 @@ export class ThreadRepo {
   }
 
   async list(): Promise<Thread[]> {
-    const threads = await this.threads.all();
+    const threads = await this.live();
     return threads.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+
+  /**
+   * Everything that has not been deleted. A tombstone is a real record on disk — it has to be,
+   * or another device never learns about the delete — so every read path starts here rather
+   * than at the collection.
+   */
+  private async live(): Promise<Thread[]> {
+    return (await this.threads.all()).filter((thread) => !thread.deletedAt);
   }
 
   /** On the board (§2): not done, not dormant. This is the list the cap of 5 applies to. */
@@ -34,7 +43,8 @@ export class ThreadRepo {
   }
 
   async get(id: string): Promise<Thread | null> {
-    return this.threads.get(id);
+    const thread = await this.threads.get(id);
+    return thread && !thread.deletedAt ? thread : null;
   }
 
   async create(title: string, notes = ''): Promise<Thread> {
@@ -65,8 +75,16 @@ export class ThreadRepo {
     return next;
   }
 
+  /**
+   * Leaves a tombstone rather than removing the record. A thread that simply stops existing
+   * looks identical to one the server has never seen, so it comes back the next time the phone
+   * syncs — deletes have to be something a client can *receive*.
+   */
   async remove(id: string): Promise<void> {
-    await this.threads.delete(id);
+    const thread = await this.threads.get(id);
+    if (!thread) return;
+    const now = this.clock.now();
+    await this.threads.put({ ...thread, updatedAt: now, deletedAt: now });
   }
 
   async setStatus(id: string, status: ThreadStatus, waitingOn?: string): Promise<Thread> {
@@ -192,7 +210,7 @@ export class ThreadRepo {
    * a slice.
    */
   async donePage({ before, limit }: DoneQuery): Promise<DonePage> {
-    const done = (await this.threads.all())
+    const done = (await this.live())
       .filter((thread) => thread.status === 'done')
       .filter((thread) => !before || (thread.completedLocalDate ?? '') < before)
       .sort((a, b) => (b.completedAt ?? '').localeCompare(a.completedAt ?? ''));

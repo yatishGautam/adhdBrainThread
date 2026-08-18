@@ -112,7 +112,20 @@ const daySchema = z.object({
   // Optional throughout: day files written before these fields existed must keep parsing.
   now: z.string().optional(),
   blockers: z.array(blockerSchema).optional(),
-  log: z.array(logEntrySchema).optional()
+  log: z.array(logEntrySchema).optional(),
+  updatedAt: isoTimestamp.optional(),
+  deletedAt: isoTimestamp.nullish()
+});
+const mindfulSessionSchema = z.object({
+  id: ulidLike,
+  startedAt: isoTimestamp,
+  endedAt: isoTimestamp.nullish(),
+  localDate,
+  plannedMs: z.number().nonnegative(),
+  actualMs: z.number().nonnegative(),
+  completed: z.boolean(),
+  updatedAt: isoTimestamp.optional(),
+  deletedAt: isoTimestamp.nullish()
 });
 const distractionSchema = z.object({
   id: ulidLike,
@@ -137,7 +150,9 @@ const sessionSchema = z.object({
   outcome: z.enum(["completed", "ended_early", "switched", "abandoned", "recovered"]),
   switchedToThreadId: ulidLike.optional(),
   distractions: z.array(distractionSchema),
-  pauses: z.array(pauseSchema)
+  pauses: z.array(pauseSchema),
+  updatedAt: isoTimestamp.optional(),
+  deletedAt: isoTimestamp.nullish()
 });
 const stepSchema = z.object({
   id: ulidLike,
@@ -164,7 +179,8 @@ const threadSchema = z.object({
   totalFocusMs: z.number().nonnegative(),
   sessionCount: z.number().nonnegative(),
   distractionCount: z.number().nonnegative(),
-  archived: z.boolean()
+  archived: z.boolean(),
+  deletedAt: isoTimestamp.nullish()
 });
 const FLUSH_DEBOUNCE_MS = 500;
 const ACTIVE_THREAD_CAP = 5;
@@ -189,10 +205,12 @@ const CELEBRATION_HARD_TIMEOUT_MS = 6e3;
 const RARE_ROLL_CHANCE = 0.05;
 const CELEBRATION_ANTI_REPEAT = 2;
 const MILESTONE_STEP_COUNT = 10;
+let tmpCounter = 0;
 async function atomicWriteFile(file, contents) {
   const dir = path.dirname(file);
   await promises.mkdir(dir, { recursive: true });
-  const tmp = path.join(dir, `.${path.basename(file)}.tmp-${process.pid}-${Date.now()}`);
+  tmpCounter = (tmpCounter + 1) % Number.MAX_SAFE_INTEGER;
+  const tmp = path.join(dir, `.${path.basename(file)}.tmp-${process.pid}-${Date.now()}-${tmpCounter}`);
   const handle = await promises.open(tmp, "w");
   try {
     await handle.writeFile(contents, "utf8");
@@ -249,7 +267,9 @@ function serialise(value) {
 const COLLECTION = {
   threads: "threads",
   days: "days",
-  sessions: "sessions"
+  sessions: "sessions",
+  /** Sits. Written only by the sync engine — they are recorded on the phone. */
+  mindful: "mindful"
 };
 function defineCollection(spec) {
   return spec;
@@ -275,14 +295,15 @@ class JsonStore {
     }
     return store;
   }
-  collection(name) {
+  collection(name, options = {}) {
     const loaded = this.collections.get(name);
     if (!loaded) throw new Error(`unknown collection: ${name}`);
+    const track = options.track !== false;
     return {
       all: async () => this.recordsOf(loaded),
       get: async (key) => this.find(loaded, key) ?? null,
-      put: async (record) => this.write(loaded, record),
-      delete: async (key) => this.remove(loaded, key)
+      put: async (record) => this.write(loaded, record, track),
+      delete: async (key) => this.remove(loaded, key, track)
     };
   }
   async flush() {
@@ -343,8 +364,9 @@ class JsonStore {
     }
     return void 0;
   }
-  write(loaded, record) {
+  write(loaded, record, track = true) {
     const key = loaded.spec.key(record);
+    if (track) this.events.onWrite?.(loaded.spec.name, key);
     const target = loaded.spec.partition?.(record) ?? "";
     for (const [name, partition2] of loaded.partitions) {
       if (name !== target && partition2.records.delete(key)) partition2.dirty = true;
@@ -354,7 +376,8 @@ class JsonStore {
     partition.dirty = true;
     this.scheduleFlush();
   }
-  remove(loaded, key) {
+  remove(loaded, key, track = true) {
+    if (track) this.events.onWrite?.(loaded.spec.name, key);
     for (const partition of loaded.partitions.values()) {
       if (partition.records.delete(key)) partition.dirty = true;
     }
@@ -446,18 +469,24 @@ const collections = [
     // Bucketed by the local date already stamped on the record at write time, never re-derived
     // from the UTC timestamp — that is how sessions land on the wrong side of a DST boundary.
     partition: (session) => monthOf(session.localDate)
+  }),
+  defineCollection({
+    name: COLLECTION.mindful,
+    schema: mindfulSessionSchema,
+    key: (sit) => sit.id,
+    partition: (sit) => monthOf(sit.localDate)
   })
 ];
 function systemTimezone() {
   return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 }
 function localDateOf$1(instant, timezone) {
-  const date = typeof instant === "string" ? new Date(instant) : instant;
-  return format(toZonedTime(date, timezone), "yyyy-MM-dd", { timeZone: timezone });
+  const date2 = typeof instant === "string" ? new Date(instant) : instant;
+  return format(toZonedTime(date2, timezone), "yyyy-MM-dd", { timeZone: timezone });
 }
 function localHourOf(instant, timezone) {
-  const date = typeof instant === "string" ? new Date(instant) : instant;
-  return toZonedTime(date, timezone).getHours();
+  const date2 = typeof instant === "string" ? new Date(instant) : instant;
+  return toZonedTime(date2, timezone).getHours();
 }
 function nowIso() {
   return (/* @__PURE__ */ new Date()).toISOString();
@@ -704,11 +733,16 @@ class DayRepo {
    * that index was a second source of truth for something free to derive.
    */
   async listDates() {
-    const all = await this.days.all();
+    const all = await this.live();
     return all.map((day) => day.localDate).sort();
   }
+  /** Not deleted. See `ThreadRepo.live` for why tombstones stay on disk. */
+  async live() {
+    return (await this.days.all()).filter((day) => !day.deletedAt);
+  }
   async get(localDate2) {
-    return this.days.get(localDate2);
+    const day = await this.days.get(localDate2);
+    return day && !day.deletedAt ? day : null;
   }
   /** Read-only peek at today. Returns null when today has not happened yet. */
   async today() {
@@ -720,11 +754,11 @@ class DayRepo {
    * have nothing to do with it: plenty of days are only a couple of errands.
    */
   async ensure(localDate2) {
-    const date = localDate2 ?? this.clock.today();
-    const existing = await this.get(date);
+    const date2 = localDate2 ?? this.clock.today();
+    const existing = await this.get(date2);
     if (existing) return existing;
     const day = {
-      localDate: date,
+      localDate: date2,
       createdAt: this.clock.now(),
       intentThreadIds: [],
       todos: [],
@@ -737,9 +771,14 @@ class DayRepo {
   async ensureToday() {
     return this.ensure();
   }
+  /**
+   * The one write path, which is why `updatedAt` is stamped here — it is when the *user*
+   * changed the day, and it is the whole conflict rule.
+   */
   async write(day) {
-    await this.days.put(day);
-    return day;
+    const next = { ...day, updatedAt: this.clock.now() };
+    await this.days.put(next);
+    return next;
   }
   async mutateToday(change) {
     return this.mutateDay(void 0, change);
@@ -870,7 +909,7 @@ class DayRepo {
    * memory, so a scan is cheaper than maintaining a second place for these to live.
    */
   async carryForward() {
-    const all = await this.days.all();
+    const all = await this.live();
     const todos = [];
     const blockers = [];
     for (const day of all) {
@@ -900,7 +939,7 @@ class DayRepo {
   }
   /** Every parked thought on record, newest first — the Park view's backing list. */
   async allThoughts() {
-    const all = await this.days.all();
+    const all = await this.live();
     const thoughts = all.flatMap((day) => day.thoughts);
     return thoughts.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
@@ -967,20 +1006,30 @@ class SessionRepo {
   constructor(store) {
     this.store = store;
   }
+  /** Not deleted. See `ThreadRepo.live` for why tombstones stay on disk. */
+  async live() {
+    return (await this.sessions.all()).filter((session) => !session.deletedAt);
+  }
   get sessions() {
     return this.store.collection(COLLECTION.sessions);
   }
   async get(id) {
-    return this.sessions.get(id);
+    const session = await this.sessions.get(id);
+    return session && !session.deletedAt ? session : null;
   }
+  /**
+   * `updatedAt` is stamped here, on the one write path, rather than by each caller. It is when
+   * the user made the change, and it is the entire conflict rule — a record that reaches the
+   * server without it loses to whatever is already there.
+   */
   async save(session) {
-    await this.sessions.put(session);
+    await this.sessions.put({ ...session, updatedAt: (/* @__PURE__ */ new Date()).toISOString() });
   }
   async all() {
-    return this.sessions.all();
+    return this.live();
   }
   async forThread(threadId) {
-    const all = await this.sessions.all();
+    const all = await this.live();
     return all.filter((session) => session.threadId === threadId).sort((a, b) => b.startedAt.localeCompare(a.startedAt));
   }
   /**
@@ -988,12 +1037,12 @@ class SessionRepo {
    * decide which shards it could skip; everything is already in memory now, so it is a filter.
    */
   async inLocalDateRange(from, to) {
-    const all = await this.sessions.all();
+    const all = await this.live();
     return all.filter((session) => session.localDate >= from && session.localDate <= to).sort((a, b) => a.startedAt.localeCompare(b.startedAt));
   }
   /** A session left open by a crash — the most recent one that never got an end time. */
   async findOpen() {
-    const all = await this.sessions.all();
+    const all = await this.live();
     return all.filter((session) => !session.endedAt).sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0] ?? null;
   }
 }
@@ -1061,8 +1110,16 @@ class ThreadRepo {
     return this.store.collection(COLLECTION.threads);
   }
   async list() {
-    const threads = await this.threads.all();
+    const threads = await this.live();
     return threads.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+  /**
+   * Everything that has not been deleted. A tombstone is a real record on disk — it has to be,
+   * or another device never learns about the delete — so every read path starts here rather
+   * than at the collection.
+   */
+  async live() {
+    return (await this.threads.all()).filter((thread) => !thread.deletedAt);
   }
   /** On the board (§2): not done, not dormant. This is the list the cap of 5 applies to. */
   async activeList() {
@@ -1074,7 +1131,8 @@ class ThreadRepo {
     return threads.filter((thread) => thread.status === "dormant");
   }
   async get(id) {
-    return this.threads.get(id);
+    const thread = await this.threads.get(id);
+    return thread && !thread.deletedAt ? thread : null;
   }
   async create(title, notes = "") {
     const now = this.clock.now();
@@ -1102,8 +1160,16 @@ class ThreadRepo {
     await this.threads.put(next);
     return next;
   }
+  /**
+   * Leaves a tombstone rather than removing the record. A thread that simply stops existing
+   * looks identical to one the server has never seen, so it comes back the next time the phone
+   * syncs — deletes have to be something a client can *receive*.
+   */
   async remove(id) {
-    await this.threads.delete(id);
+    const thread = await this.threads.get(id);
+    if (!thread) return;
+    const now = this.clock.now();
+    await this.threads.put({ ...thread, updatedAt: now, deletedAt: now });
   }
   async setStatus(id, status, waitingOn) {
     const thread = await this.require(id);
@@ -1201,7 +1267,7 @@ class ThreadRepo {
    * a slice.
    */
   async donePage({ before, limit }) {
-    const done = (await this.threads.all()).filter((thread) => thread.status === "done").filter((thread) => !before || (thread.completedLocalDate ?? "") < before).sort((a, b) => (b.completedAt ?? "").localeCompare(a.completedAt ?? ""));
+    const done = (await this.live()).filter((thread) => thread.status === "done").filter((thread) => !before || (thread.completedLocalDate ?? "") < before).sort((a, b) => (b.completedAt ?? "").localeCompare(a.completedAt ?? ""));
     return { threads: done.slice(0, limit), hasMore: done.length > limit };
   }
   /**
@@ -1254,7 +1320,8 @@ class Database {
     const clock = systemClock(() => settings.get().timezone);
     const migration = await migrate(root);
     const store = await JsonStore.open(root, collections, {
-      onUnreadable: events.onUnreadable
+      onUnreadable: events.onUnreadable,
+      onWrite: events.onWrite
     });
     const days = new DayRepo(store, clock);
     const threads = new ThreadRepo(store, clock);
@@ -1311,8 +1378,8 @@ function bandFor(momentum) {
 }
 function activeDays(rollups, dates) {
   const window = dates.slice(-14);
-  const active = window.filter((date) => {
-    const rollup = rollups[date];
+  const active = window.filter((date2) => {
+    const rollup = rollups[date2];
     return Boolean(rollup && rollup.sessionsStarted > 0);
   }).length;
   return { active, window: window.length };
@@ -1508,13 +1575,13 @@ function momentumThrough(rollups, upTo) {
   const dates = Object.keys(rollups).sort();
   const first = dates[0];
   if (!first || first > upTo) return 0;
-  const scores = localDateRange(first, upTo).map((date) => rollups[date]?.dms ?? 0);
+  const scores = localDateRange(first, upTo).map((date2) => rollups[date2]?.dms ?? 0);
   const series = dayMomentumSeries(scores);
   return series[series.length - 1] ?? 0;
 }
 function weekMomentum(rollups, weekStart) {
   const days = localDateRange(weekStart, addLocalDays(weekStart, 6));
-  return weekScore(days.map((date) => rollups[date]?.dms ?? 0));
+  return weekScore(days.map((date2) => rollups[date2]?.dms ?? 0));
 }
 function monthMomentum(rollups, monthStart) {
   const end = endOfLocalMonth(monthStart);
@@ -1529,7 +1596,7 @@ function buildTrend(input, from, to) {
     const points = [];
     for (let cursor = startOfLocalWeek(from); cursor <= to; cursor = addLocalDays(cursor, 7)) {
       const week = localDateRange(cursor, addLocalDays(cursor, 6));
-      const present = week.filter((date) => input.rollups[date]);
+      const present = week.filter((date2) => input.rollups[date2]);
       points.push({
         key: cursor,
         label: formatLocalDate(cursor),
@@ -1539,10 +1606,10 @@ function buildTrend(input, from, to) {
     return points;
   }
   const [start, end] = input.scope === "day" ? [addLocalDays(from, -13), to] : [from, to];
-  return localDateRange(start, end).map((date) => ({
-    key: date,
-    label: formatLocalDate(date),
-    value: input.rollups[date]?.dms ?? null
+  return localDateRange(start, end).map((date2) => ({
+    key: date2,
+    label: formatLocalDate(date2),
+    value: input.rollups[date2]?.dms ?? null
   }));
 }
 function buildDistractionStats(window) {
@@ -1616,11 +1683,11 @@ function buildDetail(present, rollups) {
 function buildScopeSummary(input) {
   const { from, to } = scopeBounds(input.scope, input.anchor);
   const dates = localDateRange(from, to);
-  const window = dates.map((date) => input.rollups[date] ?? emptyRollup(date));
-  const present = dates.map((date) => input.rollups[date]).filter((day) => day !== void 0);
+  const window = dates.map((date2) => input.rollups[date2] ?? emptyRollup(date2));
+  const present = dates.map((date2) => input.rollups[date2]).filter((day) => day !== void 0);
   const momentum = input.scope === "day" ? momentumThrough(input.rollups, to) : input.scope === "week" ? weekMomentum(input.rollups, from) : monthMomentum(input.rollups, from);
   const recentDates = localDateRange(addLocalDays(to, -29), to);
-  const recent = recentDates.map((date) => input.rollups[date]).filter((day) => day !== void 0);
+  const recent = recentDates.map((date2) => input.rollups[date2]).filter((day) => day !== void 0);
   return {
     scope: input.scope,
     anchor: input.anchor,
@@ -1739,7 +1806,7 @@ class AnalyticsService {
   }
 }
 const MIN_PASSWORD_LENGTH = 10;
-const DEFAULT_SERVER_URL = "https://api.yatishgautam.com";
+const DEFAULT_SERVER_URL = "https://api.adhd.yatishgautam.com";
 class ApiError extends Error {
   constructor(status, message) {
     super(message);
@@ -1758,6 +1825,7 @@ class NetworkError extends Error {
   }
 }
 const TIMEOUT_MS = 15e3;
+const SYNC_TIMEOUT_MS = 6e4;
 class ApiClient {
   constructor(baseUrl) {
     this.baseUrl = baseUrl;
@@ -1787,6 +1855,14 @@ class ApiClient {
   deleteAccount(token) {
     return this.request("DELETE", "/auth/account", { token });
   }
+  // ------------------------------------------------------------------- sync
+  /** Everything past the cursor, tombstones included. `since=0` is a full first sync. */
+  pull(token, since) {
+    return this.request("GET", `/sync?since=${since}`, { token });
+  }
+  push(token, body) {
+    return this.request("POST", "/sync", { token, body });
+  }
   async request(method, path2, options = {}) {
     const headers = {};
     if (options.body !== void 0) headers["content-type"] = "application/json";
@@ -1797,7 +1873,7 @@ class ApiClient {
         method,
         headers,
         body: options.body === void 0 ? void 0 : JSON.stringify(options.body),
-        signal: AbortSignal.timeout(TIMEOUT_MS)
+        signal: AbortSignal.timeout(path2.startsWith("/sync") ? SYNC_TIMEOUT_MS : TIMEOUT_MS)
       });
     } catch (error) {
       throw new NetworkError(unreachable(this.baseUrl, error));
@@ -1838,6 +1914,8 @@ async function describe(response, path2) {
       return path2 === "/auth/login" ? "Email or password is wrong." : "Your session has expired. Sign in again.";
     case 409:
       return "That email already has an account. Sign in instead.";
+    case 413:
+      return "That batch was too large for the server. It will be sent in smaller pieces.";
     case 429:
       return "Too many attempts. Wait a few minutes and try again.";
     default:
@@ -1866,6 +1944,7 @@ class AuthService {
   token = null;
   offline = false;
   busy = false;
+  /** The engine pushes and pulls with the same client, so it stays pointed at the same host. */
   api;
   get file() {
     return path.join(this.root, "account.json");
@@ -1878,9 +1957,18 @@ class AuthService {
       busy: this.busy
     };
   }
-  /** For the sync engine, when it lands. Null means there is nothing to push with. */
+  /** For the sync engine. Null means there is nothing to push with. */
   currentToken() {
     return this.token;
+  }
+  /**
+   * The token was rejected mid-sync. Signing out is the honest response — the alternative is
+   * an app that looks signed in and quietly syncs nothing.
+   */
+  async handleUnauthorized() {
+    if (!this.token) return;
+    await this.clear();
+    this.emit();
   }
   // ------------------------------------------------------------------- boot
   async load() {
@@ -1922,10 +2010,26 @@ class AuthService {
     this.emit();
   }
   // ---------------------------------------------------------------- actions
-  async register(email, password) {
-    return this.authenticate(
-      () => this.api.register(email.trim(), password, systemTimezone())
+  async register(email, password, displayName) {
+    const name = displayName?.trim() || null;
+    const state = await this.authenticate(
+      () => this.api.register(email.trim(), password, systemTimezone()),
+      name
     );
+    if (name && this.token) {
+      try {
+        await this.api.push(this.token, {
+          profile: {
+            displayName: name,
+            timezone: systemTimezone(),
+            updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+          }
+        });
+      } catch (error) {
+        console.warn("[auth] the display name will sync on the next round trip", error);
+      }
+    }
+    return state;
   }
   async login(email, password) {
     return this.authenticate(() => this.api.login(email.trim(), password));
@@ -1969,7 +2073,7 @@ class AuthService {
     return this.state();
   }
   // ---------------------------------------------------------------- private
-  async authenticate(call) {
+  async authenticate(call, displayName = null) {
     this.setBusy(true);
     try {
       const result = await call();
@@ -1977,7 +2081,7 @@ class AuthService {
       this.account = {
         id: result.user.id,
         email: result.user.email,
-        displayName: null,
+        displayName,
         timezone: systemTimezone()
       };
       this.offline = false;
@@ -2028,6 +2132,631 @@ function decrypt(stored) {
   } catch {
     console.warn("[auth] stored session could not be decrypted — signing out");
     return null;
+  }
+}
+function threadOut(thread) {
+  return {
+    id: thread.id,
+    title: thread.title,
+    notes: thread.notes ?? "",
+    status: thread.status,
+    waitingOn: thread.waitingOn ?? null,
+    link: thread.link ?? null,
+    order: thread.order ?? null,
+    steps: thread.steps ?? [],
+    createdAt: iso(thread.createdAt),
+    completedAt: thread.completedAt ? iso(thread.completedAt) : null,
+    completedLocalDate: thread.completedLocalDate ?? null,
+    totalFocusMs: thread.totalFocusMs ?? 0,
+    sessionCount: thread.sessionCount ?? 0,
+    distractionCount: thread.distractionCount ?? 0,
+    archived: thread.archived ?? false,
+    updatedAt: iso(thread.updatedAt),
+    deletedAt: thread.deletedAt ? iso(thread.deletedAt) : null
+  };
+}
+function dayOut(day) {
+  return {
+    localDate: day.localDate,
+    createdAt: iso(day.createdAt),
+    now: day.now ?? null,
+    note: day.note ?? null,
+    todos: day.todos ?? [],
+    blockers: day.blockers ?? [],
+    log: day.log ?? [],
+    thoughts: day.thoughts ?? [],
+    intentThreadIds: day.intentThreadIds ?? [],
+    loggedThreadIds: day.loggedThreadIds ?? [],
+    // A day written before sync existed has no updatedAt. Sending its createdAt rather than
+    // "now" is the honest answer: it says the day is old, so a newer copy on another device
+    // wins — which is what should happen.
+    updatedAt: iso(day.updatedAt ?? day.createdAt),
+    deletedAt: day.deletedAt ? iso(day.deletedAt) : null
+  };
+}
+function sessionOut(session) {
+  return {
+    id: session.id,
+    threadId: session.threadId,
+    startedAt: iso(session.startedAt),
+    endedAt: session.endedAt ? iso(session.endedAt) : null,
+    localDate: session.localDate,
+    plannedMs: session.plannedMs,
+    activeMs: session.activeMs,
+    grantedMs: session.grantedMs ?? 0,
+    outcome: session.outcome,
+    switchedToThreadId: session.switchedToThreadId ?? null,
+    distractions: session.distractions ?? [],
+    pauses: session.pauses ?? [],
+    updatedAt: iso(session.updatedAt ?? session.endedAt ?? session.startedAt),
+    deletedAt: session.deletedAt ? iso(session.deletedAt) : null
+  };
+}
+function mindfulOut(sit) {
+  return {
+    id: sit.id,
+    startedAt: iso(sit.startedAt),
+    endedAt: sit.endedAt ? iso(sit.endedAt) : null,
+    localDate: sit.localDate,
+    plannedMs: sit.plannedMs,
+    actualMs: sit.actualMs,
+    completed: sit.completed,
+    updatedAt: iso(sit.updatedAt ?? sit.startedAt),
+    deletedAt: sit.deletedAt ? iso(sit.deletedAt) : null
+  };
+}
+function threadIn(raw) {
+  const row = raw;
+  const id = str(row.id);
+  const createdAt = str(row.createdAt);
+  const updatedAt = str(row.updatedAt);
+  if (!id || !createdAt || !updatedAt) return null;
+  return {
+    id,
+    title: str(row.title) ?? "Untitled",
+    notes: str(row.notes) ?? "",
+    status: threadStatus(str(row.status)),
+    steps: Array.isArray(row.steps) ? row.steps : [],
+    ...optional("waitingOn", str(row.waitingOn)),
+    ...optional("link", str(row.link)),
+    // `boardOrder` on the wire; `order` here. The column was renamed to avoid quoting a
+    // reserved word in SQL, and the client kept the word that reads better.
+    ...optional("order", num(row.boardOrder ?? row.order)),
+    createdAt,
+    updatedAt,
+    ...optional("completedAt", str(row.completedAt)),
+    ...optional("completedLocalDate", date(row.completedLocalDate)),
+    totalFocusMs: num(row.totalFocusMs) ?? 0,
+    sessionCount: num(row.sessionCount) ?? 0,
+    distractionCount: num(row.distractionCount) ?? 0,
+    archived: bool(row.archived),
+    deletedAt: str(row.deletedAt) ?? null
+  };
+}
+function dayIn(raw) {
+  const row = raw;
+  const localDate2 = date(row.localDate);
+  const createdAt = str(row.createdAt);
+  if (!localDate2 || !createdAt) return null;
+  return {
+    localDate: localDate2,
+    createdAt,
+    intentThreadIds: strings(row.intentThreadIds),
+    todos: array(row.todos),
+    thoughts: array(row.thoughts),
+    loggedThreadIds: strings(row.loggedThreadIds),
+    ...optional("note", str(row.note)),
+    ...optional("now", str(row.nowText ?? row.now)),
+    blockers: array(row.blockers),
+    log: array(row.log),
+    updatedAt: str(row.updatedAt) ?? createdAt,
+    deletedAt: str(row.deletedAt) ?? null
+  };
+}
+function sessionIn(raw) {
+  const row = raw;
+  const id = str(row.id);
+  const startedAt = str(row.startedAt);
+  const localDate2 = date(row.localDate);
+  if (!id || !startedAt || !localDate2) return null;
+  return {
+    id,
+    threadId: str(row.threadId) ?? "",
+    startedAt,
+    ...optional("endedAt", str(row.endedAt)),
+    localDate: localDate2,
+    plannedMs: num(row.plannedMs) ?? 0,
+    activeMs: num(row.activeMs) ?? 0,
+    grantedMs: num(row.grantedMs) ?? 0,
+    outcome: outcome(str(row.outcome)),
+    ...optional("switchedToThreadId", str(row.switchedToThreadId)),
+    distractions: array(row.distractions),
+    pauses: array(row.pauses),
+    updatedAt: str(row.updatedAt) ?? startedAt,
+    deletedAt: str(row.deletedAt) ?? null
+  };
+}
+function mindfulIn(raw) {
+  const row = raw;
+  const id = str(row.id);
+  const startedAt = str(row.startedAt);
+  const localDate2 = date(row.localDate);
+  if (!id || !startedAt || !localDate2) return null;
+  return {
+    id,
+    startedAt,
+    endedAt: str(row.endedAt) ?? null,
+    localDate: localDate2,
+    plannedMs: num(row.plannedMs) ?? 0,
+    actualMs: num(row.actualMs) ?? 0,
+    completed: bool(row.completed),
+    updatedAt: str(row.updatedAt) ?? startedAt,
+    deletedAt: str(row.deletedAt) ?? null
+  };
+}
+function optional(key, value) {
+  return value === null || value === void 0 ? {} : { [key]: value };
+}
+function str(value) {
+  if (typeof value === "string") return value;
+  if (value instanceof Date) return value.toISOString();
+  return null;
+}
+function num(value) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() !== "" && Number.isFinite(Number(value))) {
+    return Number(value);
+  }
+  return null;
+}
+function bool(value) {
+  return value === true;
+}
+function array(value) {
+  return Array.isArray(value) ? value : [];
+}
+function strings(value) {
+  return array(value).filter((item) => typeof item === "string");
+}
+function date(value) {
+  const text = str(value);
+  if (!text) return null;
+  return /^\d{4}-\d{2}-\d{2}/.test(text) ? text.slice(0, 10) : null;
+}
+function iso(value) {
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? (/* @__PURE__ */ new Date()).toISOString() : new Date(parsed).toISOString();
+}
+const STATUSES = ["idle", "in_progress", "blocked", "waiting", "done", "dormant"];
+function threadStatus(value) {
+  return STATUSES.includes(value ?? "") ? value : "in_progress";
+}
+const OUTCOMES = ["completed", "ended_early", "switched", "abandoned", "recovered"];
+function outcome(value) {
+  return OUTCOMES.includes(value ?? "") ? value : "ended_early";
+}
+const MAX_THREADS = 2e3;
+const MAX_DAYS = 2e3;
+const MAX_SESSIONS = 5e3;
+class SyncEngine {
+  constructor(db, auth, state, onChanged) {
+    this.db = db;
+    this.auth = auth;
+    this.state = state;
+    this.onChanged = onChanged;
+  }
+  phase = "idle";
+  message = null;
+  inFlight = null;
+  debounce = null;
+  timer = null;
+  pushSuspended = false;
+  closed = false;
+  status() {
+    const snapshot = this.state.snapshot();
+    return {
+      phase: this.phase,
+      lastSyncedAt: snapshot.lastSyncedAt,
+      pending: snapshot.pending,
+      cursor: snapshot.cursor,
+      message: this.message
+    };
+  }
+  /**
+   * A focus session ticks every second, and pushing each tick would hammer the API and the
+   * battery for nothing — the session is pushed once, when it ends. Pulling stays allowed.
+   */
+  suspendPush(suspended) {
+    this.pushSuspended = suspended;
+  }
+  start() {
+    if (this.timer) return;
+    this.timer = setInterval(() => void this.sync().catch(() => {
+    }), 5 * 6e4);
+    this.timer.unref?.();
+  }
+  stop() {
+    this.closed = true;
+    if (this.timer) clearInterval(this.timer);
+    if (this.debounce) clearTimeout(this.debounce);
+    this.timer = null;
+    this.debounce = null;
+  }
+  /** A local write happened. Coalesced, because a burst of typing is one sync, not thirty. */
+  schedule(delayMs = 5e3) {
+    if (this.closed || this.debounce) return;
+    this.debounce = setTimeout(() => {
+      this.debounce = null;
+      void this.sync().catch(() => {
+      });
+    }, delayMs);
+    this.debounce.unref?.();
+  }
+  /**
+   * One full round trip. Concurrent calls collapse into the one already running rather than
+   * queueing behind it — three triggers firing at once is normal, three syncs is not.
+   */
+  async sync() {
+    if (this.inFlight) return this.inFlight;
+    const token = this.auth.currentToken();
+    if (!token) return null;
+    this.inFlight = this.run(token).finally(() => {
+      this.inFlight = null;
+    });
+    return this.inFlight;
+  }
+  async run(token) {
+    this.setPhase("syncing", null);
+    try {
+      const pulled = await this.pullAndMerge(token);
+      const { pushed, conflicts } = this.pushSuspended ? { pushed: 0, conflicts: 0 } : await this.pushDirty(token);
+      this.state.markSynced((/* @__PURE__ */ new Date()).toISOString());
+      await this.state.flush();
+      this.setPhase("idle", null);
+      return { pulled, pushed, conflicts };
+    } catch (error) {
+      if (error instanceof NetworkError) {
+        this.setPhase("offline", error.message);
+        return null;
+      }
+      if (error instanceof ApiError && error.isUnauthorized) {
+        await this.auth.handleUnauthorized();
+        this.setPhase("error", "Signed out — sign in again to keep syncing.");
+        return null;
+      }
+      this.setPhase("error", error instanceof Error ? error.message : "Sync failed.");
+      return null;
+    }
+  }
+  // ----------------------------------------------------------------- pull
+  async pullAndMerge(token) {
+    const response = await this.auth.api.pull(token, this.state.since);
+    let merged = 0;
+    merged += await this.mergeInto(
+      this.remote(COLLECTION.threads),
+      response.threads,
+      threadIn,
+      (record) => record.id,
+      (record) => record.updatedAt
+    );
+    merged += await this.mergeInto(
+      this.remote(COLLECTION.days),
+      response.days,
+      dayIn,
+      (record) => record.localDate,
+      (record) => record.updatedAt ?? record.createdAt
+    );
+    merged += await this.mergeInto(
+      this.remote(COLLECTION.sessions),
+      response.sessions,
+      sessionIn,
+      (record) => record.id,
+      (record) => record.updatedAt ?? record.startedAt
+    );
+    merged += await this.mergeInto(
+      this.remote(COLLECTION.mindful),
+      response.mindfulSessions,
+      mindfulIn,
+      (record) => record.id,
+      (record) => record.updatedAt ?? record.startedAt
+    );
+    if (typeof response.seq === "number") this.state.advanceCursor(response.seq);
+    return merged;
+  }
+  /**
+   * Last-write-wins on `updatedAt`, never on arrival order. The case that matters is not two
+   * people editing at once — it is this laptop waking after a weekend and meeting edits the
+   * phone made on Saturday.
+   *
+   * Tombstones are written like any other record. Dropping them instead is how a thread
+   * deleted on the phone quietly comes back on the next sync.
+   */
+  async mergeInto(collection, rows, decode, keyOf, stampOf) {
+    if (!rows?.length) return 0;
+    let merged = 0;
+    for (const raw of rows) {
+      const incoming = decode(raw);
+      if (!incoming) continue;
+      const key = keyOf(incoming);
+      const existing = await collection.get(key);
+      if (existing && !isNewer(stampOf(incoming), stampOf(existing))) continue;
+      await collection.put(incoming);
+      this.state.clear([key]);
+      merged += 1;
+    }
+    return merged;
+  }
+  // ----------------------------------------------------------------- push
+  async pushDirty(token) {
+    const threads = await this.dirtyRecords(COLLECTION.threads);
+    const days = await this.dirtyRecords(COLLECTION.days);
+    const sessions = await this.dirtyRecords(COLLECTION.sessions);
+    const sits = await this.dirtyRecords(COLLECTION.mindful);
+    const profileDirty = this.state.isProfileDirty;
+    if (!threads.length && !days.length && !sessions.length && !sits.length && !profileDirty) {
+      return { pushed: 0, conflicts: 0 };
+    }
+    let pushed = 0;
+    let conflicts = 0;
+    const batches = chunk(threads, days, sessions, sits);
+    for (const [index, batch] of batches.entries()) {
+      const body = {
+        threads: batch.threads.map(threadOut),
+        days: batch.days.map(dayOut),
+        sessions: batch.sessions.map(sessionOut),
+        mindfulSessions: batch.sits.map(mindfulOut)
+      };
+      if (index === 0 && profileDirty) {
+        const displayName = this.auth.state().account?.displayName ?? null;
+        body.profile = {
+          timezone: this.db.settings.get().timezone,
+          updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+          ...displayName ? { displayName } : {}
+        };
+      }
+      const result = await this.auth.api.push(token, body);
+      const applied = result.applied ?? [];
+      pushed += applied.length;
+      this.state.clear(applied);
+      for (const conflict of result.conflicts ?? []) {
+        conflicts += 1;
+        await this.applyConflict(conflict);
+        this.state.clear([conflict.id]);
+      }
+      if (index === 0 && profileDirty) this.state.clearProfile();
+      if (typeof result.seq === "number") this.state.advanceCursor(result.seq);
+    }
+    return { pushed, conflicts };
+  }
+  async applyConflict(conflict) {
+    if (!conflict.server) return;
+    switch (conflict.kind) {
+      case "thread": {
+        const winner = threadIn(conflict.server);
+        if (winner) await this.remote(COLLECTION.threads).put(winner);
+        return;
+      }
+      case "day": {
+        const winner = dayIn(conflict.server);
+        if (winner) await this.remote(COLLECTION.days).put(winner);
+        return;
+      }
+      case "session": {
+        const winner = sessionIn(conflict.server);
+        if (winner) await this.remote(COLLECTION.sessions).put(winner);
+        return;
+      }
+      case "mindfulSession": {
+        const winner = mindfulIn(conflict.server);
+        if (winner) await this.remote(COLLECTION.mindful).put(winner);
+        return;
+      }
+      default:
+        return;
+    }
+  }
+  // -------------------------------------------------------------- internals
+  /** Writes that must not be marked dirty: they came from the server. */
+  remote(name) {
+    return this.db.store.collection(name, { track: false });
+  }
+  async dirtyRecords(name) {
+    const keys = this.state.keys(name);
+    if (!keys.length) return [];
+    const collection = this.db.store.collection(name, { track: false });
+    const out = [];
+    for (const key of keys) {
+      const record = await collection.get(key);
+      if (record) out.push(record);
+      else this.state.clear([key]);
+    }
+    return out;
+  }
+  setPhase(phase, message) {
+    this.phase = phase;
+    this.message = message;
+    this.onChanged(this.status());
+  }
+}
+function isNewer(incoming, local) {
+  if (!incoming) return false;
+  if (!local) return true;
+  const a = Date.parse(incoming);
+  const b = Date.parse(local);
+  if (Number.isNaN(a)) return false;
+  if (Number.isNaN(b)) return true;
+  return a > b;
+}
+function chunk(threads, days, sessions, sits) {
+  const threadPages = pages(threads, MAX_THREADS);
+  const dayPages = pages(days, MAX_DAYS);
+  const sessionPages = pages(sessions, MAX_SESSIONS);
+  const count = Math.max(1, threadPages.length, dayPages.length, sessionPages.length);
+  return Array.from({ length: count }, (_unused, index) => ({
+    threads: threadPages[index] ?? [],
+    days: dayPages[index] ?? [],
+    sessions: sessionPages[index] ?? [],
+    sits: index === 0 ? sits.slice(0, MAX_SESSIONS) : []
+  }));
+}
+function pages(items, size) {
+  if (!items.length) return [];
+  const out = [];
+  for (let index = 0; index < items.length; index += size) {
+    out.push(items.slice(index, index + size));
+  }
+  return out;
+}
+const TRACKED = [
+  COLLECTION.threads,
+  COLLECTION.days,
+  COLLECTION.sessions,
+  COLLECTION.mindful
+];
+class SyncState {
+  constructor(root) {
+    this.root = root;
+  }
+  cursor = 0;
+  lastSyncedAt = null;
+  profileDirty = false;
+  dirty = new Map(
+    TRACKED.map((name) => [name, /* @__PURE__ */ new Set()])
+  );
+  writing = null;
+  again = false;
+  get file() {
+    return path.join(this.root, "sync.json");
+  }
+  async load() {
+    const raw = await readFileIfExists(this.file);
+    if (raw === null) return;
+    try {
+      const parsed = JSON.parse(raw);
+      this.cursor = Number.isFinite(parsed.cursor) ? parsed.cursor : 0;
+      this.lastSyncedAt = parsed.lastSyncedAt ?? null;
+      this.profileDirty = parsed.profileDirty ?? false;
+      for (const name of TRACKED) {
+        this.dirty.set(name, new Set(parsed.dirty?.[name] ?? []));
+      }
+    } catch {
+      console.warn("[sync] sync.json unreadable — starting from a full pull");
+      this.reset();
+    }
+  }
+  snapshot() {
+    return {
+      cursor: this.cursor,
+      lastSyncedAt: this.lastSyncedAt,
+      pending: this.pendingCount()
+    };
+  }
+  pendingCount() {
+    let total = 0;
+    for (const set of this.dirty.values()) total += set.size;
+    return total;
+  }
+  keys(name) {
+    return [...this.dirty.get(name) ?? []];
+  }
+  get since() {
+    return this.cursor;
+  }
+  get isProfileDirty() {
+    return this.profileDirty;
+  }
+  /** Called for every local write, from the store's own write path. */
+  mark(name, key) {
+    const set = this.dirty.get(name);
+    if (!set || set.has(key)) return;
+    set.add(key);
+    this.schedulePersist();
+  }
+  markProfile() {
+    if (this.profileDirty) return;
+    this.profileDirty = true;
+    this.schedulePersist();
+  }
+  /**
+   * Drops keys the server has accepted — and keys it rejected as conflicts, which is the same
+   * thing for queueing purposes. A conflict means our version lost; keeping it dirty would
+   * push the same stale record forever.
+   *
+   * `applied` from the server is a flat list of ids across every kind, so it is matched
+   * against all of them. Ids are ULIDs and day keys are dates, so they cannot collide.
+   */
+  clear(keys) {
+    let changed = false;
+    for (const key of keys) {
+      for (const set of this.dirty.values()) {
+        if (set.delete(key)) changed = true;
+      }
+    }
+    if (changed) this.schedulePersist();
+  }
+  clearProfile() {
+    if (!this.profileDirty) return;
+    this.profileDirty = false;
+    this.schedulePersist();
+  }
+  advanceCursor(seq) {
+    if (seq <= this.cursor) return;
+    this.cursor = seq;
+    this.schedulePersist();
+  }
+  markSynced(at) {
+    this.lastSyncedAt = at;
+    this.schedulePersist();
+  }
+  /** Signing out. The next account starts from nothing, not from this one's queue. */
+  reset() {
+    this.cursor = 0;
+    this.lastSyncedAt = null;
+    this.profileDirty = false;
+    for (const set of this.dirty.values()) set.clear();
+    this.schedulePersist();
+  }
+  /**
+   * Waits for the queue file to be on disk. It joins the serialised chain rather than writing
+   * alongside it — two concurrent writers of the same file is how the last one wins by luck.
+   */
+  async flush() {
+    while (this.writing) {
+      const current = this.writing;
+      await current;
+      if (this.writing === current) break;
+    }
+    await this.persist();
+  }
+  // ---------------------------------------------------------------- private
+  /**
+   * Serialised rather than debounced: this file must never lag behind a crash by more than the
+   * write in flight, because a lost dirty key is a record that silently never syncs. Writes
+   * that arrive during one are coalesced into a single follow-up.
+   */
+  schedulePersist() {
+    if (this.writing) {
+      this.again = true;
+      return;
+    }
+    this.writing = this.persist().catch((error) => console.error("[sync] could not save the queue", error)).finally(() => {
+      this.writing = null;
+      if (this.again) {
+        this.again = false;
+        this.schedulePersist();
+      }
+    });
+  }
+  async persist() {
+    const out = {
+      version: 1,
+      cursor: this.cursor,
+      lastSyncedAt: this.lastSyncedAt,
+      profileDirty: this.profileDirty,
+      dirty: Object.fromEntries(TRACKED.map((name) => [name, this.keys(name)]))
+    };
+    await atomicWriteFile(this.file, `${JSON.stringify(out, null, 2)}
+`);
   }
 }
 class SessionService {
@@ -2135,7 +2864,7 @@ class SessionService {
     await this.end("switched");
     return this.start(threadId);
   }
-  async end(outcome) {
+  async end(outcome2) {
     const running = this.running;
     if (!running) return;
     this.stopTicker();
@@ -2143,7 +2872,7 @@ class SessionService {
     this.running = null;
     const { session } = running;
     session.endedAt = this.db.clock.now();
-    session.outcome = outcome ?? (this.remaining(session) <= 0 ? "completed" : "ended_early");
+    session.outcome = outcome2 ?? (this.remaining(session) <= 0 ? "completed" : "ended_early");
     await this.db.sessions.save(session);
     const thread = await this.db.threads.get(session.threadId);
     if (thread) {
@@ -2613,6 +3342,7 @@ function createMainWindow(hooks) {
     }
   });
   window.on("blur", hooks.onBlur);
+  window.on("focus", hooks.onFocus);
   window.webContents.setWindowOpenHandler(({ url }) => {
     void shell.openExternal(url);
     return { action: "deny" };
@@ -2667,6 +3397,8 @@ class AppContext {
   analytics;
   celebrations;
   auth;
+  sync;
+  syncState;
   main = null;
   hud = null;
   overlay;
@@ -2675,6 +3407,8 @@ class AppContext {
   pendingRecovery = null;
   static async create(root) {
     const ctx2 = new AppContext();
+    ctx2.syncState = new SyncState(root);
+    await ctx2.syncState.load();
     ctx2.db = await Database.open(root, {
       onUnreadable: (file, reason) => {
         console.warn("[storage]", file, reason);
@@ -2682,6 +3416,10 @@ class AppContext {
           message: `Part of a data file could not be read (${reason}). Everything else loaded normally.`,
           files: [file]
         });
+      },
+      onWrite: (collection, key) => {
+        ctx2.syncState.mark(collection, key);
+        ctx2.sync?.schedule();
       }
     });
     ctx2.analytics = new AnalyticsService(
@@ -2689,17 +3427,34 @@ class AppContext {
       () => ctx2.broadcast("analytics:changed", void 0)
     );
     await ctx2.analytics.load();
-    ctx2.auth = new AuthService(root, (state) => ctx2.broadcast("auth:changed", state));
+    ctx2.auth = new AuthService(root, (state) => {
+      ctx2.broadcast("auth:changed", state);
+      if (state.account) void ctx2.sync?.sync().then((outcome2) => ctx2.afterSync(outcome2));
+      else ctx2.syncState.reset();
+    });
     await ctx2.auth.load();
+    ctx2.sync = new SyncEngine(
+      ctx2.db,
+      ctx2.auth,
+      ctx2.syncState,
+      (status) => ctx2.broadcast("sync:changed", status)
+    );
     ctx2.sessions = new SessionService(ctx2.db, {
       onTick: (tick) => ctx2.broadcast("session:tick", tick),
       onChanged: (state) => {
         ctx2.broadcast("session:changed", state);
         ctx2.refreshTray();
+        if (state === null) {
+          ctx2.sync?.suspendPush(false);
+          ctx2.syncNow();
+        }
       },
       onToast: (text) => ctx2.broadcast("hud:toast", { text }),
       onDaysTouched: (dates) => void ctx2.analytics.touchDays(dates),
-      onStarted: () => ctx2.stages.clear(),
+      onStarted: () => {
+        ctx2.stages.clear();
+        ctx2.sync?.suspendPush(true);
+      },
       onCompleted: (session, threadTitle) => {
         ctx2.onFocusCompleted(
           session.threadId,
@@ -2737,7 +3492,8 @@ class AppContext {
     }
     this.main = createMainWindow({
       onHide: () => this.refreshTray(),
-      onBlur: () => void this.db.store.flush()
+      onBlur: () => void this.db.store.flush(),
+      onFocus: () => this.syncNow()
     });
     this.main.on("closed", () => {
       this.main = null;
@@ -2859,8 +3615,28 @@ class AppContext {
     this.pendingRecovery = offer;
     if (this.mainReady) this.broadcast("session:recovery", offer);
   }
+  /**
+   * A pull that changed anything has to reach the windows, or the board sits there showing
+   * what the laptop knew before the phone told it otherwise.
+   */
+  afterSync(outcome2) {
+    if (!outcome2 || outcome2.pulled === 0) return;
+    this.broadcastThreads();
+    this.broadcast("carry:changed", void 0);
+    this.broadcast("analytics:changed", void 0);
+    void this.db.days.today().then((day) => {
+      if (day) this.broadcastDay(day);
+    });
+    void this.analytics.rebuild();
+  }
+  /** Foreground, sign-in, session end: the three moments worth a round trip immediately. */
+  syncNow() {
+    void this.sync?.sync().then((outcome2) => this.afterSync(outcome2));
+  }
   async shutdown() {
     this.stages.destroy();
+    this.sync.stop();
+    await this.syncState.flush();
     if (this.sessions.isRunning()) await this.sessions.end("ended_early");
     await this.analytics.flush();
     await this.db.close();
@@ -2879,6 +3655,9 @@ class AppContext {
   }
   broadcastSettings(settings) {
     this.broadcast("settings:changed", settings);
+  }
+  syncStatus() {
+    return this.sync.status();
   }
   broadcast(channel, payload) {
     for (const window of BrowserWindow.getAllWindows()) {
@@ -3292,8 +4071,8 @@ function registerHandlers(ctx2) {
   on("session:resume", async () => sessions.resume(), ctx2);
   on(
     "session:end",
-    async (_c, { outcome }) => {
-      await sessions.end(outcome);
+    async (_c, { outcome: outcome2 }) => {
+      await sessions.end(outcome2);
       return null;
     },
     ctx2
@@ -3366,6 +4145,7 @@ function registerHandlers(ctx2) {
     "settings:update",
     async (_c, { patch }) => {
       const settings = await db.settings.update(patch);
+      if (patch.timezone !== void 0) ctx2.syncState.markProfile();
       ctx2.broadcastSettings(settings);
       return settings;
     },
@@ -3374,12 +4154,12 @@ function registerHandlers(ctx2) {
   on("auth:state", async () => ctx2.auth.state(), ctx2);
   on(
     "auth:register",
-    async (_c, { email, password }) => {
+    async (_c, { email, password, displayName }) => {
       if (!email.includes("@")) throw new Error("That does not look like an email address.");
       if (password.length < MIN_PASSWORD_LENGTH) {
         throw new Error(`Use at least ${MIN_PASSWORD_LENGTH} characters — a short phrase beats a clever word.`);
       }
-      return ctx2.auth.register(email, password);
+      return ctx2.auth.register(email, password, displayName);
     },
     ctx2
   );
@@ -3387,6 +4167,16 @@ function registerHandlers(ctx2) {
   on("auth:logout", async () => ctx2.auth.logout(), ctx2);
   on("auth:deleteAccount", async () => ctx2.auth.deleteAccount(), ctx2);
   on("auth:setServer", async (_c, { url }) => ctx2.auth.setServerUrl(url), ctx2);
+  on("sync:status", async () => ctx2.syncStatus(), ctx2);
+  on(
+    "sync:now",
+    async () => {
+      const outcome2 = await ctx2.sync.sync();
+      ctx2.afterSync(outcome2);
+      return ctx2.syncStatus();
+    },
+    ctx2
+  );
   on("link:open", async (_c, { url }) => openLink(url), ctx2);
   on("startup:get", async () => launchesAtStartup(), ctx2);
   on("startup:set", async (_c, { enabled }) => setLaunchAtStartup(enabled), ctx2);
@@ -3505,6 +4295,8 @@ async function bootstrap() {
   ctx.openHud();
   await ctx.checkRecovery();
   void ctx.auth.revalidate();
+  ctx.sync.start();
+  ctx.syncNow();
   powerMonitor.on("suspend", () => void ctx?.db.store.flush());
   powerMonitor.on("lock-screen", () => void ctx?.db.store.flush());
 }

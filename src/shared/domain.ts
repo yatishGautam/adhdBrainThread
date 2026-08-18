@@ -55,6 +55,12 @@ export interface Thread {
   sessionCount: number;
   distractionCount: number;
   archived: boolean;
+  /**
+   * A deleted record is kept as a tombstone rather than removed, because a record that simply
+   * stops existing looks identical to one the server has never seen — and comes back from the
+   * dead the next time another device syncs. Every read path filters these out.
+   */
+  deletedAt?: string | null;
 }
 
 /** Atomic, lives on a day, no checklist. */
@@ -121,6 +127,14 @@ export interface Day {
   /** Optional so day files written before §5 still validate — no migration needed. */
   blockers?: Blocker[];
   log?: LogEntry[];
+  /**
+   * When the *user* last changed this day. The whole conflict rule rests on it, so it is
+   * stamped at write time by the repository and never re-derived on read. Optional only so day
+   * files written before sync existed still validate; every write since fills it in.
+   */
+  updatedAt?: string;
+  /** See `Thread.deletedAt`. */
+  deletedAt?: string | null;
 }
 
 export type DistractionKind = 'internal' | 'external' | 'unspecified';
@@ -161,6 +175,10 @@ export interface Session {
   switchedToThreadId?: string;
   distractions: Distraction[];
   pauses: Pause[];
+  /** See `Day.updatedAt` — same rule, same reason it is optional. */
+  updatedAt?: string;
+  /** See `Thread.deletedAt`. */
+  deletedAt?: string | null;
 }
 
 /**

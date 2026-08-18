@@ -7,6 +7,7 @@
  * to interpret status codes; by the time an error reaches it, it is a sentence.
  */
 import type { Account } from "@shared/auth.js";
+import type { PullResponse, PushResponse, WireOut } from "../sync/wire.js";
 
 /** A response the server actually sent. `status` is the HTTP code. */
 export class ApiError extends Error {
@@ -38,6 +39,8 @@ export interface AuthResult {
 }
 
 const TIMEOUT_MS = 15_000;
+/** A first sync moves years of records, not a login form. */
+const SYNC_TIMEOUT_MS = 60_000;
 
 export class ApiClient {
 	constructor(private baseUrl: string) {}
@@ -78,6 +81,17 @@ export class ApiClient {
 		return this.request<void>("DELETE", "/auth/account", { token });
 	}
 
+	// ------------------------------------------------------------------- sync
+
+	/** Everything past the cursor, tombstones included. `since=0` is a full first sync. */
+	pull(token: string, since: number): Promise<PullResponse> {
+		return this.request<PullResponse>("GET", `/sync?since=${since}`, { token });
+	}
+
+	push(token: string, body: WireOut): Promise<PushResponse> {
+		return this.request<PushResponse>("POST", "/sync", { token, body });
+	}
+
 	private async request<T>(
 		method: string,
 		path: string,
@@ -93,7 +107,7 @@ export class ApiClient {
 				method,
 				headers,
 				body: options.body === undefined ? undefined : JSON.stringify(options.body),
-				signal: AbortSignal.timeout(TIMEOUT_MS),
+				signal: AbortSignal.timeout(path.startsWith("/sync") ? SYNC_TIMEOUT_MS : TIMEOUT_MS),
 			});
 		} catch (error: unknown) {
 			throw new NetworkError(unreachable(this.baseUrl, error));
@@ -153,6 +167,8 @@ async function describe(response: Response, path: string): Promise<string> {
 				: "Your session has expired. Sign in again.";
 		case 409:
 			return "That email already has an account. Sign in instead.";
+		case 413:
+			return "That batch was too large for the server. It will be sent in smaller pieces.";
 		case 429:
 			return "Too many attempts. Wait a few minutes and try again.";
 		default:

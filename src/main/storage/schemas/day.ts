@@ -51,4 +51,6 @@ export const daySchema: z.ZodType<Day> = z.object({
   now: z.string().optional(),
   blockers: z.array(blockerSchema).optional(),
   log: z.array(logEntrySchema).optional(),
+  updatedAt: isoTimestamp.optional(),
+  deletedAt: isoTimestamp.nullish(),
 });

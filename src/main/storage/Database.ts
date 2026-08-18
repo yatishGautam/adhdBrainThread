@@ -4,6 +4,7 @@
  * backend without touching a single service or renderer.
  */
 import { collections } from './collections.js';
+import type { CollectionName } from './Store.js';
 import { systemClock, type Clock } from './clock.js';
 import { JsonStore } from './JsonStore.js';
 import { migrate, type MigrationReport } from './migrate.js';
@@ -15,6 +16,8 @@ import { ThreadRepo } from './repositories/threadRepo.js';
 export interface DatabaseEvents {
   /** A file could not be read. The app carries on; the user is told what was skipped. */
   onUnreadable?: (file: string, reason: string) => void;
+  /** Every local write, for the sync queue. See `JsonStoreEvents.onWrite`. */
+  onWrite?: (collection: CollectionName, key: string) => void;
 }
 
 export class Database {
@@ -39,6 +42,7 @@ export class Database {
 
     const store = await JsonStore.open(root, collections, {
       onUnreadable: events.onUnreadable,
+      onWrite: events.onWrite,
     });
 
     const days = new DayRepo(store, clock);

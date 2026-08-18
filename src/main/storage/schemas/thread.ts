@@ -29,4 +29,5 @@ export const threadSchema: z.ZodType<Thread> = z.object({
   sessionCount: z.number().nonnegative(),
   distractionCount: z.number().nonnegative(),
   archived: z.boolean(),
+  deletedAt: isoTimestamp.nullish(),
 });
