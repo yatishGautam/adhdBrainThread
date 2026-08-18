@@ -232,8 +232,95 @@ export function ThreadCard({
 				>
 					▶ Start Focus
 				</button>
+				<DeleteCross thread={thread} visible={hover} />
 			</div>
 		</div>
+	);
+}
+
+/**
+ * Appears on hover, confirms in place. A thread carries its checklist and session history, so
+ * one stray click must not take it — but it also does not deserve a modal, and it should not be
+ * hidden inside the drawer either.
+ */
+function DeleteCross({
+	thread,
+	visible,
+}: {
+	thread: Thread;
+	visible: boolean;
+}): React.JSX.Element {
+	const [confirming, setConfirming] = useState(false);
+
+	useEffect(() => {
+		if (!visible) setConfirming(false);
+	}, [visible]);
+
+	if (confirming) {
+		return (
+			<span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+				<span style={{ fontSize: 11, color: "var(--text-muted)" }}>Delete?</span>
+				<button
+					onClick={() =>
+						void window.thread.invoke["threads:remove"]({ id: thread.id })
+					}
+					title={`Delete '${thread.title}' and its ${thread.steps.length} step${thread.steps.length === 1 ? "" : "s"}`}
+					style={{
+						background: "var(--clay)",
+						border: "none",
+						borderRadius: 7,
+						color: "#1a0f0c",
+						fontWeight: 600,
+						cursor: "pointer",
+						fontSize: 11,
+						padding: "4px 9px",
+					}}
+				>
+					Yes
+				</button>
+				<button
+					onClick={() => setConfirming(false)}
+					style={{
+						background: "transparent",
+						border: "1px solid var(--line)",
+						borderRadius: 7,
+						color: "var(--text-muted)",
+						cursor: "pointer",
+						fontSize: 11,
+						padding: "4px 9px",
+					}}
+				>
+					No
+				</button>
+			</span>
+		);
+	}
+
+	return (
+		<button
+			onClick={() => setConfirming(true)}
+			title="Delete this thread"
+			aria-label={`Delete ${thread.title}`}
+			style={{
+				width: 24,
+				height: 24,
+				display: "flex",
+				alignItems: "center",
+				justifyContent: "center",
+				borderRadius: "50%",
+				border: "none",
+				background: "transparent",
+				color: "var(--text-faint)",
+				cursor: "pointer",
+				fontSize: 13,
+				lineHeight: 1,
+				// Present but recessive until you go looking for it.
+				opacity: visible ? 1 : 0,
+				transition: "opacity var(--motion-fast) var(--ease-out)",
+			}}
+		>
+			✕
+		</button>
 	);
 }
 

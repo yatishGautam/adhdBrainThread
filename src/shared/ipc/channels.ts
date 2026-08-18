@@ -64,12 +64,9 @@ export interface StorageBanner {
 }
 
 export interface RepairReport {
-	manifestRebuilt: boolean;
+	/** Data files re-read from disk. */
+	filesRead: number;
 	rollupsRebuilt: boolean;
-	shardsScanned: number;
-	quarantined: string[];
-	compactedFrom: number;
-	compactedTo: number;
 }
 
 export interface DoneQuery {

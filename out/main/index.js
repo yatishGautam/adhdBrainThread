@@ -1,9 +1,9 @@
 import { BrowserWindow, screen, app, nativeImage, shell, Tray, Menu, nativeTheme, Notification, ipcMain, powerMonitor } from "electron";
 import { z } from "zod";
-import { toZonedTime, format } from "date-fns-tz";
-import path from "node:path";
 import { promises } from "node:fs";
-import { createHash } from "node:crypto";
+import path from "node:path";
+import "node:crypto";
+import { toZonedTime, format } from "date-fns-tz";
 import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
 import __cjs_mod__ from "node:module";
@@ -166,54 +166,292 @@ const threadSchema = z.object({
   distractionCount: z.number().nonnegative(),
   archived: z.boolean()
 });
-function defineCollection(config) {
-  return config;
+const FLUSH_DEBOUNCE_MS = 500;
+const ACTIVE_THREAD_CAP = 5;
+const DEFAULT_SESSION_MS = 25 * 60 * 1e3;
+const DEFAULT_DISTRACTION_GRACE_MS = 120 * 1e3;
+const DISTRACTION_GRACE_MIN_MS = 0;
+const DISTRACTION_GRACE_MAX_MS = 300 * 1e3;
+const SESSION_CHECKPOINT_MS = 5e3;
+const HUD_TICK_MS = 1e3;
+const BREAK_MS = 5 * 60 * 1e3;
+const ORDER_STEP = 1e3;
+const ORDER_MIN_GAP = 1;
+const DMS_WEIGHTS = {
+  sessionStarted: { points: 12, cap: 35 },
+  focusMinute: { points: 0.5, cap: 30 },
+  stepCompleted: { points: 3, cap: 15 },
+  threadCompleted: { points: 10, cap: 20 }
+};
+const MOMENTUM_ALPHA = { day: 0.15 };
+const WEEK_SCORE_LIFT = 1.4;
+const CELEBRATION_HARD_TIMEOUT_MS = 6e3;
+const RARE_ROLL_CHANCE = 0.05;
+const CELEBRATION_ANTI_REPEAT = 2;
+const MILESTONE_STEP_COUNT = 10;
+async function atomicWriteFile(file, contents) {
+  const dir = path.dirname(file);
+  await promises.mkdir(dir, { recursive: true });
+  const tmp = path.join(dir, `.${path.basename(file)}.tmp-${process.pid}-${Date.now()}`);
+  const handle = await promises.open(tmp, "w");
+  try {
+    await handle.writeFile(contents, "utf8");
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+  await promises.rename(tmp, file);
+  await syncDirectory(dir);
+}
+async function syncDirectory(dir) {
+  let handle;
+  try {
+    handle = await promises.open(dir, "r");
+    await handle.sync();
+  } catch {
+  } finally {
+    await handle?.close();
+  }
+}
+async function readFileIfExists(file) {
+  try {
+    return await promises.readFile(file, "utf8");
+  } catch (error) {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  }
+}
+async function pathExists(file) {
+  try {
+    await promises.access(file);
+    return true;
+  } catch {
+    return false;
+  }
+}
+function sortValue(value) {
+  if (Array.isArray(value)) return value.map(sortValue);
+  if (value && typeof value === "object" && Object.getPrototypeOf(value) === Object.prototype) {
+    const source = value;
+    const out = {};
+    for (const key of Object.keys(source).sort()) {
+      if (source[key] === void 0) continue;
+      out[key] = sortValue(source[key]);
+    }
+    return out;
+  }
+  return value;
+}
+function serialise(value) {
+  return `${JSON.stringify(sortValue(value), null, 2)}
+`;
 }
 const COLLECTION = {
-  activeThreads: "threads",
-  archivedThreads: "threadArchive",
+  threads: "threads",
   days: "days",
   sessions: "sessions"
 };
+function defineCollection(spec) {
+  return spec;
+}
+class JsonStore {
+  constructor(root, events) {
+    this.root = root;
+    this.events = events;
+  }
+  collections = /* @__PURE__ */ new Map();
+  flushTimer = null;
+  closed = false;
+  /** Reads everything into memory once. There is no lazy loading and none is needed. */
+  static async open(root, specs, events = {}) {
+    const store = new JsonStore(root, events);
+    for (const raw of specs) {
+      const spec = raw;
+      const loaded = { spec, partitions: /* @__PURE__ */ new Map() };
+      for (const [name, records] of await store.readCollection(spec)) {
+        loaded.partitions.set(name, { records, dirty: false });
+      }
+      store.collections.set(spec.name, loaded);
+    }
+    return store;
+  }
+  collection(name) {
+    const loaded = this.collections.get(name);
+    if (!loaded) throw new Error(`unknown collection: ${name}`);
+    return {
+      all: async () => this.recordsOf(loaded),
+      get: async (key) => this.find(loaded, key) ?? null,
+      put: async (record) => this.write(loaded, record),
+      delete: async (key) => this.remove(loaded, key)
+    };
+  }
+  async flush() {
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = null;
+    }
+    for (const loaded of this.collections.values()) {
+      for (const [name, partition] of loaded.partitions) {
+        if (!partition.dirty) continue;
+        partition.dirty = false;
+        const records = [...partition.records.values()];
+        await atomicWriteFile(this.fileFor(loaded.spec, name), serialise(records));
+      }
+    }
+  }
+  async close() {
+    this.closed = true;
+    await this.flush();
+  }
+  /** One file containing everything, for the export button. */
+  async exportTo(target) {
+    await this.flush();
+    const out = {};
+    for (const [name, loaded] of this.collections) {
+      out[name] = this.recordsOf(loaded);
+    }
+    await atomicWriteFile(target, serialise({ exportedAt: (/* @__PURE__ */ new Date()).toISOString(), ...out }));
+  }
+  /**
+   * Re-reads every file from disk, replacing what is in memory. This is the whole of what
+   * "repair" now means: there is no index to rebuild and no journal to replay.
+   */
+  async reload() {
+    await this.flush();
+    for (const loaded of this.collections.values()) {
+      loaded.partitions.clear();
+      for (const [name, records] of await this.readCollection(loaded.spec)) {
+        loaded.partitions.set(name, { records, dirty: false });
+      }
+    }
+  }
+  get fileCount() {
+    let total = 0;
+    for (const loaded of this.collections.values()) total += loaded.partitions.size;
+    return total;
+  }
+  // ---------------------------------------------------------------- internals
+  recordsOf(loaded) {
+    const out = [];
+    for (const partition of loaded.partitions.values()) out.push(...partition.records.values());
+    return out;
+  }
+  find(loaded, key) {
+    for (const partition of loaded.partitions.values()) {
+      const found = partition.records.get(key);
+      if (found !== void 0) return found;
+    }
+    return void 0;
+  }
+  write(loaded, record) {
+    const key = loaded.spec.key(record);
+    const target = loaded.spec.partition?.(record) ?? "";
+    for (const [name, partition2] of loaded.partitions) {
+      if (name !== target && partition2.records.delete(key)) partition2.dirty = true;
+    }
+    const partition = this.partitionFor(loaded, target);
+    partition.records.set(key, record);
+    partition.dirty = true;
+    this.scheduleFlush();
+  }
+  remove(loaded, key) {
+    for (const partition of loaded.partitions.values()) {
+      if (partition.records.delete(key)) partition.dirty = true;
+    }
+    this.scheduleFlush();
+  }
+  partitionFor(loaded, name) {
+    const existing = loaded.partitions.get(name);
+    if (existing) return existing;
+    const created = { records: /* @__PURE__ */ new Map(), dirty: true };
+    loaded.partitions.set(name, created);
+    return created;
+  }
+  scheduleFlush() {
+    if (this.closed || this.flushTimer) return;
+    this.flushTimer = setTimeout(() => {
+      this.flushTimer = null;
+      void this.flush().catch((error) => console.error("[storage] flush failed", error));
+    }, FLUSH_DEBOUNCE_MS);
+  }
+  fileFor(spec, partition) {
+    return partition ? path.join(this.root, spec.name, `${partition}.json`) : path.join(this.root, `${spec.name}.json`);
+  }
+  async readCollection(spec) {
+    const out = /* @__PURE__ */ new Map();
+    for (const partition of await this.partitionNames(spec)) {
+      const records = await this.readFile(spec, this.fileFor(spec, partition));
+      if (records) out.set(partition, records);
+    }
+    return out;
+  }
+  async partitionNames(spec) {
+    if (!spec.partition) return [""];
+    try {
+      const entries = await promises.readdir(path.join(this.root, spec.name));
+      return entries.filter((f) => f.endsWith(".json")).map((f) => f.slice(0, -".json".length));
+    } catch {
+      return [];
+    }
+  }
+  async readFile(spec, file) {
+    const raw = await readFileIfExists(file);
+    if (raw === null) return null;
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (error) {
+      this.events.onUnreadable?.(file, `not valid JSON: ${error.message}`);
+      return null;
+    }
+    if (!Array.isArray(parsed)) {
+      this.events.onUnreadable?.(file, "expected an array of records");
+      return null;
+    }
+    const records = /* @__PURE__ */ new Map();
+    let rejected = 0;
+    for (const candidate of parsed) {
+      const result = spec.schema.safeParse(candidate);
+      if (!result.success) {
+        rejected += 1;
+        continue;
+      }
+      records.set(spec.key(result.data), result.data);
+    }
+    if (rejected > 0) {
+      this.events.onUnreadable?.(file, `${rejected} record(s) did not match the schema`);
+    }
+    return records;
+  }
+}
+function monthOf(localDate2) {
+  return localDate2.slice(0, 7);
+}
 const collections = [
   defineCollection({
-    name: COLLECTION.activeThreads,
-    dir: "threads",
-    prefix: "thr",
-    singleFile: "threads/active.json",
+    name: COLLECTION.threads,
     schema: threadSchema,
-    key: (thread) => thread.id,
-    updatedAt: (thread) => thread.updatedAt
-  }),
-  defineCollection({
-    name: COLLECTION.archivedThreads,
-    dir: "threads/archive",
-    prefix: "thr",
-    schema: threadSchema,
-    key: (thread) => thread.id,
-    updatedAt: (thread) => thread.updatedAt
+    key: (thread) => thread.id
   }),
   defineCollection({
     name: COLLECTION.days,
-    dir: "days",
-    prefix: "day",
     schema: daySchema,
     key: (day) => day.localDate,
-    updatedAt: (day) => day.createdAt
+    partition: (day) => monthOf(day.localDate)
   }),
   defineCollection({
     name: COLLECTION.sessions,
-    dir: "sessions",
-    prefix: "ses",
     schema: sessionSchema,
     key: (session) => session.id,
-    updatedAt: (session) => session.endedAt ?? session.startedAt
+    // Bucketed by the local date already stamped on the record at write time, never re-derived
+    // from the UTC timestamp — that is how sessions land on the wrong side of a DST boundary.
+    partition: (session) => monthOf(session.localDate)
   })
 ];
 function systemTimezone() {
   return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 }
-function localDateOf(instant, timezone) {
+function localDateOf$1(instant, timezone) {
   const date = typeof instant === "string" ? new Date(instant) : instant;
   return format(toZonedTime(date, timezone), "yyyy-MM-dd", { timeZone: timezone });
 }
@@ -260,827 +498,109 @@ function systemClock(timezone = systemTimezone) {
   return {
     now: nowIso,
     timezone,
-    today: () => localDateOf(/* @__PURE__ */ new Date(), timezone()),
-    localDateOf: (instant) => localDateOf(instant, timezone())
+    today: () => localDateOf$1(/* @__PURE__ */ new Date(), timezone()),
+    localDateOf: (instant) => localDateOf$1(instant, timezone())
   };
 }
-const SHARD_MAX_BYTES = 512 * 1024;
-const SHARD_MAX_RECORDS = 1500;
-const SEALED_OVERFLOW_FACTOR = 2;
-const SHARD_CACHE_LIMIT = 6;
-const FLUSH_DEBOUNCE_MS = 500;
-const COMPACT_FILL_RATIO = 0.4;
-const ACTIVE_THREAD_CAP = 5;
-const DEFAULT_SESSION_MS = 25 * 60 * 1e3;
-const DEFAULT_DISTRACTION_GRACE_MS = 120 * 1e3;
-const DISTRACTION_GRACE_MIN_MS = 0;
-const DISTRACTION_GRACE_MAX_MS = 300 * 1e3;
-const SESSION_CHECKPOINT_MS = 5e3;
-const HUD_TICK_MS = 1e3;
-const BREAK_MS = 5 * 60 * 1e3;
-const ORDER_STEP = 1e3;
-const ORDER_MIN_GAP = 1;
-const DMS_WEIGHTS = {
-  sessionStarted: { points: 12, cap: 35 },
-  focusMinute: { points: 0.5, cap: 30 },
-  stepCompleted: { points: 3, cap: 15 },
-  threadCompleted: { points: 10, cap: 20 }
-};
-const MOMENTUM_ALPHA = { day: 0.15 };
-const WEEK_SCORE_LIFT = 1.4;
-const CELEBRATION_HARD_TIMEOUT_MS = 6e3;
-const RARE_ROLL_CHANCE = 0.05;
-const CELEBRATION_ANTI_REPEAT = 2;
-const MILESTONE_STEP_COUNT = 10;
-class Journal {
-  constructor(file) {
-    this.file = file;
+const BACKUP_DIR = ".old-storage";
+async function needsMigration(root) {
+  if (await pathExists(path.join(root, BACKUP_DIR))) return false;
+  return pathExists(path.join(root, "manifest.json"));
+}
+async function migrate(root) {
+  if (!await needsMigration(root)) {
+    return { migrated: false, threads: 0, days: 0, sessions: 0 };
   }
-  handle = null;
-  seq = 0;
-  queue = Promise.resolve();
-  async open() {
-    await promises.mkdir(path.dirname(this.file), { recursive: true });
-    this.handle = await promises.open(this.file, "a+");
-    this.seq = (await this.readAll()).reduce((max, entry) => Math.max(max, entry.seq), 0);
-  }
-  /**
-   * `durable: false` skips the fsync. Used only for session heartbeats, where losing the last
-   * few seconds of a running clock is recoverable from `startedAt` anyway.
-   */
-  append(entry, durable = true) {
-    this.seq += 1;
-    const line = `${JSON.stringify({ ...entry, seq: this.seq, at: (/* @__PURE__ */ new Date()).toISOString() })}
-`;
-    this.queue = this.queue.then(async () => {
-      const handle = this.handle;
-      if (!handle) throw new Error("journal not open");
-      await handle.appendFile(line, "utf8");
-      if (durable) await handle.sync();
-    });
-    return this.queue;
-  }
-  async readAll() {
-    let raw;
-    try {
-      raw = await promises.readFile(this.file, "utf8");
-    } catch (error) {
-      if (error.code === "ENOENT") return [];
-      throw error;
-    }
-    const entries = [];
-    for (const line of raw.split("\n")) {
-      if (!line.trim()) continue;
-      try {
-        entries.push(JSON.parse(line));
-      } catch {
-      }
-    }
-    return entries.sort((a, b) => a.seq - b.seq);
-  }
-  /** Only ever called after a successful manifest write. */
-  async truncate() {
-    await this.queue;
-    await this.handle?.truncate(0);
-    await this.handle?.sync();
-    this.seq = 0;
-  }
-  async close() {
-    await this.queue;
-    await this.handle?.close();
-    this.handle = null;
-  }
-}
-async function atomicWriteFile(file, contents) {
-  const dir = path.dirname(file);
-  await promises.mkdir(dir, { recursive: true });
-  const tmp = path.join(dir, `.${path.basename(file)}.tmp-${process.pid}-${Date.now()}`);
-  const handle = await promises.open(tmp, "w");
-  try {
-    await handle.writeFile(contents, "utf8");
-    await handle.sync();
-  } finally {
-    await handle.close();
-  }
-  await promises.rename(tmp, file);
-  await syncDirectory(dir);
-}
-async function syncDirectory(dir) {
-  let handle;
-  try {
-    handle = await promises.open(dir, "r");
-    await handle.sync();
-  } catch {
-  } finally {
-    await handle?.close();
-  }
-}
-function checksum(contents) {
-  return createHash("sha256").update(contents, "utf8").digest("hex");
-}
-async function readFileIfExists(file) {
-  try {
-    return await promises.readFile(file, "utf8");
-  } catch (error) {
-    if (error.code === "ENOENT") return null;
-    throw error;
-  }
-}
-async function pathExists(file) {
-  try {
-    await promises.access(file);
-    return true;
-  } catch {
-    return false;
-  }
-}
-function sortValue(value) {
-  if (Array.isArray(value)) return value.map(sortValue);
-  if (value && typeof value === "object" && Object.getPrototypeOf(value) === Object.prototype) {
-    const source = value;
-    const out = {};
-    for (const key of Object.keys(source).sort()) {
-      if (source[key] === void 0) continue;
-      out[key] = sortValue(source[key]);
-    }
-    return out;
-  }
-  return value;
-}
-function serialise(value) {
-  return `${JSON.stringify(sortValue(value), null, 2)}
-`;
-}
-function byteLength(text) {
-  return Buffer.byteLength(text, "utf8");
-}
-const shardMetaSchema = z.object({
-  id: z.string(),
-  file: z.string(),
-  count: z.number().nonnegative(),
-  bytes: z.number().nonnegative(),
-  /** Inclusive. */
-  minKey: z.string(),
-  /** Inclusive. */
-  maxKey: z.string(),
-  sealed: z.boolean(),
-  /** sha256 of the file contents as written. */
-  checksum: z.string(),
-  updatedAt: isoTimestamp
-});
-const collectionIndexSchema = z.object({
-  headShardId: z.string(),
-  shards: z.array(shardMetaSchema)
-});
-const manifestSchema = z.object({
-  version: z.literal(2),
-  updatedAt: isoTimestamp,
-  collections: z.record(z.string(), collectionIndexSchema)
-});
-const shardFileSchema = z.object({
-  id: z.string(),
-  records: z.array(z.unknown())
-});
-const MANIFEST_FILE = "manifest.json";
-function emptyManifest() {
-  return { version: 2, updatedAt: (/* @__PURE__ */ new Date()).toISOString(), collections: {} };
-}
-function manifestPath(root) {
-  return path.join(root, MANIFEST_FILE);
-}
-async function loadManifest(root) {
-  const raw = await readFileIfExists(manifestPath(root));
-  if (raw === null) return null;
-  try {
-    return manifestSchema.parse(JSON.parse(raw));
-  } catch {
-    return null;
-  }
-}
-async function saveManifest(root, manifest) {
-  manifest.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
-  for (const index of Object.values(manifest.collections)) {
-    index.shards.sort((a, b) => compareShards(a, b));
-  }
-  await atomicWriteFile(manifestPath(root), serialise(manifest));
-}
-function compareShards(a, b) {
-  if (a.count === 0 && b.count === 0) return a.id.localeCompare(b.id);
-  if (a.count === 0) return 1;
-  if (b.count === 0) return -1;
-  if (a.minKey !== b.minKey) return a.minKey < b.minKey ? -1 : 1;
-  return a.id.localeCompare(b.id);
-}
-function shardFileName(prefix, sequence) {
-  return `${prefix}-${String(sequence).padStart(6, "0")}`;
-}
-function shardSequence(id) {
-  const match = /-(\d+)$/.exec(id);
-  return match?.[1] ? Number(match[1]) : 0;
-}
-function nextShardId(prefix, index) {
-  const highest = (index?.shards ?? []).reduce((max, shard) => Math.max(max, shardSequence(shard.id)), 0);
-  return shardFileName(prefix, highest + 1);
-}
-function isEmpty(shard) {
-  return shard.count === 0;
-}
-function headOf(index) {
-  return index.shards.find((shard) => shard.id === index.headShardId);
-}
-function resolveShardId(index, key) {
-  for (const shard of index.shards) {
-    if (isEmpty(shard)) continue;
-    if (key >= shard.minKey && key <= shard.maxKey) return shard.id;
-  }
-  const head = headOf(index);
-  if (!head) return index.headShardId;
-  if (isEmpty(head) || key > head.maxKey) return head.id;
-  let candidate;
-  for (const shard of index.shards) {
-    if (isEmpty(shard)) continue;
-    if (shard.minKey <= key) candidate = shard;
-  }
-  if (candidate) return candidate.id;
-  const earliest = index.shards.find((shard) => !isEmpty(shard));
-  return earliest?.id ?? head.id;
-}
-function shardsForRange(index, minKey, maxKey) {
-  return index.shards.filter(
-    (shard) => !isEmpty(shard) && !(shard.maxKey < minKey || shard.minKey > maxKey)
+  const threads = [
+    ...await readShard(path.join(root, "threads", "active.json")),
+    ...await readShardsIn(path.join(root, "threads", "archive"))
+  ];
+  const days = await readShardsIn(path.join(root, "days"));
+  const sessions = await readShardsIn(path.join(root, "sessions"));
+  await atomicWriteFile(path.join(root, "threads.json"), serialise(threads));
+  await writePartitioned(path.join(root, "days"), days, (day) => localDateOf(day).slice(0, 7));
+  await writePartitioned(
+    path.join(root, "sessions"),
+    sessions,
+    (s) => localDateOf(s).slice(0, 7)
   );
-}
-function nonEmptyShards(index) {
-  return index.shards.filter((shard) => !isEmpty(shard));
-}
-function shardPath(root, meta) {
-  return path.join(root, meta.file);
-}
-function relativeShardFile(config, shardId) {
-  if (config.singleFile) return config.singleFile;
-  return path.posix.join(config.dir, `${shardId}.json`);
-}
-async function readShard(root, config, meta) {
-  const raw = await readFileIfExists(shardPath(root, meta));
-  if (raw === null) return { kind: "missing" };
-  let records;
-  try {
-    const file = shardFileSchema.parse(JSON.parse(raw));
-    records = /* @__PURE__ */ new Map();
-    for (const candidate of file.records) {
-      const record = config.schema.parse(candidate);
-      records.set(config.key(record), record);
-    }
-  } catch (error) {
-    return { kind: "corrupt", reason: error instanceof Error ? error.message : String(error) };
+  const backup = path.join(root, BACKUP_DIR);
+  await promises.mkdir(backup, { recursive: true });
+  for (const stale of ["manifest.json", "journal.jsonl"]) {
+    await move(path.join(root, stale), path.join(backup, stale));
   }
-  const checksumMismatch = checksum(raw) !== meta.checksum;
-  const bounds = keyBounds(records);
-  const shard = {
-    collection: config.name,
-    meta: { ...meta, ...bounds, count: records.size, bytes: byteLength(raw), checksum: checksum(raw) },
-    records,
-    dirty: false,
-    version: 0
-  };
-  return { kind: "ok", shard, checksumMismatch };
-}
-async function writeShard(root, shard) {
-  const sorted = [...shard.records.entries()].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
-  const text = serialise({ id: shard.meta.id, records: sorted.map(([, record]) => record) });
-  await atomicWriteFile(path.join(root, shard.meta.file), text);
-  Object.assign(shard.meta, {
-    ...keyBounds(shard.records),
-    count: shard.records.size,
-    bytes: byteLength(text),
-    checksum: checksum(text),
-    updatedAt: (/* @__PURE__ */ new Date()).toISOString()
-  });
-}
-function keyBounds(records) {
-  let minKey = "";
-  let maxKey = "";
-  for (const key of records.keys()) {
-    if (minKey === "" || key < minKey) minKey = key;
-    if (maxKey === "" || key > maxKey) maxKey = key;
-  }
-  return { minKey, maxKey };
-}
-async function quarantineFile(root, relative) {
-  const from = path.join(root, relative);
-  const to = `${from}.corrupt-${Date.now()}`;
-  await promises.rename(from, to);
-  return path.relative(root, to);
-}
-function emptyShardMeta(id, file) {
+  await move(path.join(root, "threads"), path.join(backup, "threads"));
+  await moveOldShards(path.join(root, "days"), path.join(backup, "days"));
+  await moveOldShards(path.join(root, "sessions"), path.join(backup, "sessions"));
   return {
-    id,
-    file,
-    count: 0,
-    bytes: 0,
-    minKey: "",
-    maxKey: "",
-    sealed: false,
-    checksum: "",
-    updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+    migrated: true,
+    threads: threads.length,
+    days: days.length,
+    sessions: sessions.length,
+    backupDir: backup
   };
 }
-async function listShardFiles(root, config) {
-  if (config.singleFile) return [config.singleFile];
-  const dir = path.join(root, config.dir);
+function localDateOf(record) {
+  const value = record.localDate;
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : "0000-00-00";
+}
+async function readShard(file) {
+  const raw = await readFileIfExists(file);
+  if (raw === null) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) return parsed;
+    const records = parsed.records;
+    return Array.isArray(records) ? records : [];
+  } catch {
+    console.warn("[migrate] could not read", file);
+    return [];
+  }
+}
+async function readShardsIn(dir) {
   let entries;
   try {
     entries = await promises.readdir(dir);
   } catch {
     return [];
   }
-  return entries.filter((name) => name.startsWith(`${config.prefix}-`) && name.endsWith(".json")).sort().map((name) => path.posix.join(config.dir, name));
+  const out = [];
+  for (const entry of entries.sort()) {
+    if (!entry.endsWith(".json") || entry === "index.json") continue;
+    out.push(...await readShard(path.join(dir, entry)));
+  }
+  return out;
 }
-async function rebuildManifest(root, configs, events) {
-  const manifest = emptyManifest();
-  for (const config of configs) {
-    const shards = [];
-    for (const file of await listShardFiles(root, config)) {
-      const id = config.singleFile ? `${config.prefix}-active` : path.basename(file, ".json");
-      const probe = emptyShardMeta(id, file);
-      const result = await readShard(root, config, probe);
-      if (result.kind === "missing") continue;
-      if (result.kind === "corrupt") {
-        const movedTo = await quarantineFile(root, file);
-        events?.onQuarantine?.(file, movedTo, result.reason);
-        continue;
-      }
-      shards.push({ ...result.shard.meta, sealed: true });
-    }
-    if (shards.length === 0) {
-      const id = config.singleFile ? `${config.prefix}-active` : `${config.prefix}-000001`;
-      shards.push(emptyShardMeta(id, relativeShardFile(config, id)));
-    }
-    const head = shards.reduce(
-      (best, shard) => shardSequence(shard.id) >= shardSequence(best.id) ? shard : best
-    );
-    head.sealed = false;
-    manifest.collections[config.name] = { headShardId: head.id, shards };
+async function writePartitioned(dir, records, partition) {
+  const groups = /* @__PURE__ */ new Map();
+  for (const record of records) {
+    const key = partition(record);
+    const list = groups.get(key);
+    if (list) list.push(record);
+    else groups.set(key, [record]);
   }
-  await saveManifest(root, manifest);
-  return manifest;
+  for (const [key, list] of groups) {
+    await atomicWriteFile(path.join(dir, `${key}.json`), serialise(list));
+  }
 }
-async function compact(root, configs, manifest, events) {
-  let before = 0;
-  let after = 0;
-  for (const config of configs) {
-    const index = manifest.collections[config.name];
-    if (!index || config.singleFile) continue;
-    before += index.shards.length;
-    const loaded = [];
-    for (const meta of index.shards) {
-      const result = await readShard(root, config, meta);
-      if (result.kind === "ok") {
-        loaded.push({
-          collection: config.name,
-          meta,
-          records: result.shard.records,
-          dirty: false,
-          version: 0
-        });
-      } else {
-        loaded.push({ collection: config.name, meta, records: /* @__PURE__ */ new Map(), dirty: false, version: 0 });
-      }
-    }
-    loaded.sort((a, b) => shardSequence(a.meta.id) - shardSequence(b.meta.id));
-    const merged = [];
-    for (const shard of loaded) {
-      const previous = merged[merged.length - 1];
-      const bothSparse = previous && isSparse(previous.meta) && isSparse(shard.meta);
-      const headInvolved = shard.meta.id === index.headShardId;
-      if (previous && bothSparse && !headInvolved) {
-        for (const [key, record] of shard.records) previous.records.set(key, record);
-        previous.dirty = true;
-        await promises.rm(path.join(root, shard.meta.file), { force: true });
-        events?.onWarning?.(`compacted ${shard.meta.file} into ${previous.meta.file}`);
-        continue;
-      }
-      merged.push(shard);
-    }
-    for (const shard of merged) {
-      if (shard.dirty) await writeShard(root, shard);
-    }
-    index.shards = merged.map((shard) => shard.meta);
-    if (!index.shards.some((shard) => shard.id === index.headShardId)) {
-      const last = index.shards[index.shards.length - 1];
-      if (last) index.headShardId = last.id;
-    }
-    after += index.shards.length;
+async function move(from, to) {
+  try {
+    await promises.rename(from, to);
+  } catch {
   }
-  await saveManifest(root, manifest);
-  return { before, after };
 }
-function isSparse(meta) {
-  return meta.bytes < SHARD_MAX_BYTES * COMPACT_FILL_RATIO && meta.count < SHARD_MAX_RECORDS * COMPACT_FILL_RATIO;
-}
-async function exportSnapshot(root, configs, manifest, destination) {
-  const payload = {};
-  for (const config of configs) {
-    const index = manifest.collections[config.name];
-    if (!index) continue;
-    const records = [];
-    for (const meta of index.shards) {
-      const result = await readShard(root, config, meta);
-      if (result.kind === "ok") records.push(...result.shard.records.values());
-    }
-    payload[config.name] = records;
+async function moveOldShards(dir, backup) {
+  let entries;
+  try {
+    entries = await promises.readdir(dir);
+  } catch {
+    return;
   }
-  await atomicWriteFile(destination, serialise({ exportedAt: (/* @__PURE__ */ new Date()).toISOString(), ...payload }));
-}
-class ShardedStore {
-  constructor(options) {
-    this.options = options;
-    for (const config of options.collections) this.configs.set(config.name, config);
-    this.journal = new Journal(path.join(options.root, "journal.jsonl"));
-  }
-  manifest = emptyManifest();
-  cache = /* @__PURE__ */ new Map();
-  configs = /* @__PURE__ */ new Map();
-  journal;
-  quarantined = [];
-  flushTimer = null;
-  flushChain = Promise.resolve();
-  manifestDirty = false;
-  closed = false;
-  async init() {
-    await this.journal.open();
-    let manifest = await loadManifest(this.options.root);
-    let manifestRebuilt = false;
-    if (!manifest || !await this.allShardFilesPresent(manifest)) {
-      manifest = await rebuildManifest(
-        this.options.root,
-        [...this.configs.values()],
-        this.collectQuarantine()
-      );
-      manifestRebuilt = true;
-      this.manifestDirty = true;
-    }
-    this.manifest = manifest;
-    for (const config of this.configs.values()) this.indexFor(config);
-    const journalEntriesReplayed = await this.replayJournal();
-    if (manifestRebuilt || journalEntriesReplayed > 0 || this.manifestDirty) await this.flush();
-    return { manifestRebuilt, journalEntriesReplayed, quarantined: [...this.quarantined] };
-  }
-  collection(name) {
-    const config = this.configs.get(name);
-    if (!config) throw new Error(`unknown collection: ${name}`);
-    return {
-      get: async (key) => await this.getRecord(config, key),
-      put: (record) => this.putRecord(config, record),
-      delete: (key) => this.deleteRecord(config, key),
-      range: async (min, max) => await this.rangeRecords(config, min, max),
-      all: async () => await this.allRecords(config),
-      shards: () => nonEmptyShards(this.indexFor(config)).map(({ id, minKey, maxKey, count }) => ({ id, minKey, maxKey, count })).reverse(),
-      recordsIn: async (shardId) => await this.recordsInShard(config, shardId)
-    };
-  }
-  /** Forced on quit, window blur and session end; otherwise debounced. */
-  flush() {
-    if (this.flushTimer) {
-      clearTimeout(this.flushTimer);
-      this.flushTimer = null;
-    }
-    this.flushChain = this.flushChain.then(() => this.flushNow()).catch((error) => {
-      this.options.events?.onWarning?.(`flush failed: ${String(error)}`);
-    });
-    return this.flushChain;
-  }
-  async close() {
-    this.closed = true;
-    await this.flush();
-    await this.journal.close();
-  }
-  get manifestSnapshot() {
-    return this.manifest;
-  }
-  get shardCount() {
-    return Object.values(this.manifest.collections).reduce(
-      (total, index) => total + index.shards.length,
-      0
-    );
-  }
-  /** Settings → Repair data. Rebuilds the index from disk, then merges sparse shards. */
-  async repair() {
-    await this.flush();
-    this.cache.clear();
-    const configs = [...this.configs.values()];
-    const before = this.quarantined.length;
-    this.manifest = await rebuildManifest(this.options.root, configs, this.collectQuarantine());
-    const compacted = await compact(this.options.root, configs, this.manifest, this.options.events);
-    this.manifestDirty = false;
-    return { quarantined: this.quarantined.slice(before), compacted };
-  }
-  async exportTo(destination) {
-    await this.flush();
-    await exportSnapshot(this.options.root, [...this.configs.values()], this.manifest, destination);
-  }
-  collectQuarantine() {
-    return {
-      onWarning: this.options.events?.onWarning,
-      onQuarantine: (file, movedTo, reason) => {
-        this.quarantined.push(movedTo);
-        this.options.events?.onQuarantine?.(file, movedTo, reason);
-      }
-    };
-  }
-  // ---------------------------------------------------------------- mutations
-  async getRecord(config, key) {
-    const shard = await this.shardForKey(config, key);
-    return shard.records.get(key) ?? null;
-  }
-  async putRecord(config, record) {
-    const parsed = config.schema.parse(record);
-    const key = config.key(parsed);
-    await this.journal.append({
-      collection: config.name,
-      key,
-      op: "put",
-      updatedAt: config.updatedAt(parsed),
-      record: parsed
-    });
-    const shard = await this.shardForKey(config, key);
-    this.touch(shard);
-    shard.records.set(key, parsed);
-    this.scheduleFlush();
-  }
-  async deleteRecord(config, key) {
-    await this.journal.append({
-      collection: config.name,
-      key,
-      op: "delete",
-      updatedAt: (/* @__PURE__ */ new Date()).toISOString()
-    });
-    const shard = await this.shardForKey(config, key);
-    if (shard.records.delete(key)) {
-      this.touch(shard);
-      this.scheduleFlush();
-    }
-  }
-  async rangeRecords(config, minKey, maxKey) {
-    const index = this.indexFor(config);
-    const out = [];
-    for (const meta of shardsForRange(index, minKey, maxKey)) {
-      const shard = await this.loadShard(config, meta);
-      for (const [key, record] of shard.records) {
-        if (key >= minKey && key <= maxKey) out.push(record);
-      }
-    }
-    return out;
-  }
-  async recordsInShard(config, shardId) {
-    const meta = this.indexFor(config).shards.find((shard2) => shard2.id === shardId);
-    if (!meta) return [];
-    const shard = await this.loadShard(config, meta);
-    return [...shard.records.values()];
-  }
-  async allRecords(config) {
-    const index = this.indexFor(config);
-    const out = [];
-    for (const meta of [...index.shards]) {
-      const shard = await this.loadShard(config, meta);
-      out.push(...shard.records.values());
-    }
-    return out;
-  }
-  // ------------------------------------------------------------------ shards
-  indexFor(config) {
-    const existing = this.manifest.collections[config.name];
-    if (existing && existing.shards.length > 0) return existing;
-    const id = config.singleFile ? `${config.prefix}-active` : nextShardId(config.prefix, existing);
-    const index = {
-      headShardId: id,
-      shards: [emptyShardMeta(id, relativeShardFile(config, id))]
-    };
-    this.manifest.collections[config.name] = index;
-    this.manifestDirty = true;
-    return index;
-  }
-  async shardForKey(config, key) {
-    const index = this.indexFor(config);
-    const shardId = config.singleFile ? index.headShardId : resolveShardId(index, key);
-    const meta = index.shards.find((shard) => shard.id === shardId) ?? index.shards[0];
-    if (!meta) throw new Error(`collection ${config.name} has no shards`);
-    return this.loadShard(config, meta);
-  }
-  async loadShard(config, meta) {
-    const cacheKey = `${config.name}/${meta.id}`;
-    const cached = this.cache.get(cacheKey);
-    if (cached) {
-      this.cache.delete(cacheKey);
-      this.cache.set(cacheKey, cached);
-      return cached;
-    }
-    const result = await readShard(this.options.root, config, meta);
-    if (result.kind === "corrupt") {
-      return this.quarantineAndReplace(config, meta, result.reason);
-    }
-    const shard = result.kind === "missing" ? { collection: config.name, meta, records: /* @__PURE__ */ new Map(), dirty: false, version: 0 } : { collection: config.name, meta, records: result.shard.records, dirty: false, version: 0 };
-    if (result.kind === "ok") {
-      Object.assign(meta, result.shard.meta, { id: meta.id, file: meta.file, sealed: meta.sealed });
-      if (result.checksumMismatch) {
-        this.manifestDirty = true;
-        this.options.events?.onWarning?.(`checksum corrected for ${meta.file}`);
-      }
-    }
-    this.cache.set(cacheKey, shard);
-    await this.evictIfNeeded();
-    return shard;
-  }
-  async quarantineAndReplace(config, meta, reason) {
-    const movedTo = await quarantineFile(this.options.root, meta.file);
-    this.quarantined.push(movedTo);
-    this.options.events?.onQuarantine?.(meta.file, movedTo, reason);
-    const index = this.indexFor(config);
-    index.shards = index.shards.filter((shard) => shard.id !== meta.id);
-    this.cache.delete(`${config.name}/${meta.id}`);
-    this.manifestDirty = true;
-    if (index.shards.length === 0 || index.headShardId === meta.id) {
-      const id = config.singleFile ? `${config.prefix}-active` : nextShardId(config.prefix, index);
-      const fresh = emptyShardMeta(id, relativeShardFile(config, id));
-      index.shards.push(fresh);
-      index.headShardId = id;
-      const shard = {
-        collection: config.name,
-        meta: fresh,
-        records: /* @__PURE__ */ new Map(),
-        dirty: true,
-        version: 1
-      };
-      this.cache.set(`${config.name}/${id}`, shard);
-      return shard;
-    }
-    const head = headOf(index);
-    if (!head) throw new Error(`collection ${config.name} lost its head shard`);
-    return this.loadShard(config, head);
-  }
-  async evictIfNeeded() {
-    const limit = this.options.cacheLimit ?? SHARD_CACHE_LIMIT;
-    for (const [key, shard] of this.cache) {
-      if (this.cache.size <= limit) break;
-      const config = this.configs.get(shard.collection);
-      if (config?.singleFile) continue;
-      if (shard.dirty && config) await this.persistShard(config, shard);
-      this.cache.delete(key);
-      this.manifestDirty = true;
-    }
-  }
-  // ------------------------------------------------------------------- flush
-  touch(shard) {
-    shard.dirty = true;
-    shard.version += 1;
-  }
-  /**
-   * Clears `dirty` only if nothing mutated the shard while the write was in flight. Without the
-   * version check a concurrent put is written nowhere and then dropped by the journal truncate.
-   */
-  async persistShard(_config, shard) {
-    const version = shard.version;
-    await writeShard(this.options.root, shard);
-    if (shard.version === version) shard.dirty = false;
-  }
-  scheduleFlush() {
-    if (this.closed || this.flushTimer) return;
-    this.flushTimer = setTimeout(() => {
-      this.flushTimer = null;
-      void this.flush();
-    }, this.options.flushDebounceMs ?? FLUSH_DEBOUNCE_MS);
-    this.flushTimer.unref?.();
-  }
-  async flushNow() {
-    for (let pass = 0; pass < 6; pass += 1) {
-      const dirty = [...this.cache.values()].filter((shard) => shard.dirty);
-      if (dirty.length === 0) break;
-      for (const shard of dirty) {
-        const config = this.configs.get(shard.collection);
-        if (!config) continue;
-        await this.persistShard(config, shard);
-        this.manifestDirty = true;
-      }
-      await this.applyStructure();
-    }
-    if (this.manifestDirty) {
-      await saveManifest(this.options.root, this.manifest);
-      this.manifestDirty = false;
-    }
-    if (![...this.cache.values()].some((shard) => shard.dirty)) {
-      await this.journal.truncate();
-    } else {
-      this.scheduleFlush();
-    }
-  }
-  // --------------------------------------------------------------- structure
-  overThreshold(meta, factor) {
-    const maxBytes = (this.options.maxBytes ?? SHARD_MAX_BYTES) * factor;
-    const maxRecords = (this.options.maxRecords ?? SHARD_MAX_RECORDS) * factor;
-    return meta.bytes > maxBytes || meta.count > maxRecords;
-  }
-  async applyStructure() {
-    let changed = false;
-    for (const config of this.configs.values()) {
-      if (config.singleFile) continue;
-      const index = this.indexFor(config);
-      const head = headOf(index);
-      if (head && this.overThreshold(head, 1)) {
-        await this.splitShard(config, index, head, true);
-        changed = true;
-      }
-      for (const meta of [...index.shards]) {
-        if (!meta.sealed || !this.overThreshold(meta, SEALED_OVERFLOW_FACTOR)) continue;
-        await this.splitShard(config, index, meta, false);
-        changed = true;
-      }
-    }
-    return changed;
-  }
-  /**
-   * Splits by record count — never at a byte offset, which would leave two unparseable files.
-   * The upper half moves into a new shard; when the source was the head, that new shard becomes
-   * the head so subsequent appends keep flowing forwards.
-   */
-  async splitShard(config, index, meta, isHead) {
-    const source = await this.loadShard(config, meta);
-    const keys = [...source.records.keys()].sort();
-    if (keys.length < 2) {
-      meta.sealed = true;
-      if (isHead) this.openNewHead(config, index);
-      this.manifestDirty = true;
-      return;
-    }
-    const pivot = Math.ceil(keys.length / 2);
-    const upperId = nextShardId(config.prefix, index);
-    const upperMeta = emptyShardMeta(upperId, relativeShardFile(config, upperId));
-    const upper = {
-      collection: config.name,
-      meta: upperMeta,
-      records: /* @__PURE__ */ new Map(),
-      dirty: true,
-      version: 1
-    };
-    for (const key of keys.slice(pivot)) {
-      upper.records.set(key, source.records.get(key));
-      source.records.delete(key);
-    }
-    meta.sealed = true;
-    upperMeta.sealed = !isHead;
-    Object.assign(meta, keyBounds(source.records), { count: source.records.size });
-    Object.assign(upperMeta, keyBounds(upper.records), { count: upper.records.size });
-    this.touch(source);
-    index.shards.push(upperMeta);
-    if (isHead) index.headShardId = upperId;
-    this.cache.set(`${config.name}/${upperId}`, upper);
-    this.manifestDirty = true;
-  }
-  openNewHead(config, index) {
-    const id = nextShardId(config.prefix, index);
-    const meta = emptyShardMeta(id, relativeShardFile(config, id));
-    index.shards.push(meta);
-    index.headShardId = id;
-    this.cache.set(`${config.name}/${id}`, {
-      collection: config.name,
-      meta,
-      records: /* @__PURE__ */ new Map(),
-      dirty: true,
-      version: 1
-    });
-  }
-  // -------------------------------------------------------------- boot paths
-  async allShardFilesPresent(manifest) {
-    for (const index of Object.values(manifest.collections)) {
-      for (const shard of index.shards) {
-        if (shard.count === 0) continue;
-        if (!await pathExists(path.join(this.options.root, shard.file))) return false;
-      }
-    }
-    return true;
-  }
-  async replayJournal() {
-    const entries = await this.journal.readAll();
-    let applied = 0;
-    for (const entry of entries) {
-      const config = this.configs.get(entry.collection);
-      if (!config) continue;
-      const shard = await this.shardForKey(config, entry.key);
-      const existing = shard.records.get(entry.key);
-      if (existing && config.updatedAt(existing) > entry.updatedAt) continue;
-      if (entry.op === "delete") {
-        if (!shard.records.delete(entry.key)) continue;
-      } else {
-        const parsed = config.schema.safeParse(entry.record);
-        if (!parsed.success) {
-          this.options.events?.onWarning?.(`skipped invalid journal entry ${entry.seq}`);
-          continue;
-        }
-        shard.records.set(entry.key, parsed.data);
-      }
-      this.touch(shard);
-      applied += 1;
-    }
-    return applied;
+  await promises.mkdir(backup, { recursive: true });
+  for (const entry of entries) {
+    if (!entry.endsWith(".json")) continue;
+    if (/^\d{4}-\d{2}\.json$/.test(entry)) continue;
+    await move(path.join(dir, entry), path.join(backup, entry));
   }
 }
 const ENCODING = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
@@ -1122,9 +642,6 @@ function ulid(now = Date.now()) {
     lastRandom = randomChars();
   }
   return encodeTime(now) + lastRandom.map((i) => ENCODING[i]).join("");
-}
-function ulidTime(id) {
-  return id.slice(0, TIME_LEN).split("").reduce((acc, ch) => acc * ENCODING.length + ENCODING.indexOf(ch), 0);
 }
 function sortByOrder(items) {
   return [...items].sort((a, b) => a.order - b.order);
@@ -1174,41 +691,23 @@ function nextAction(steps) {
   return sortByOrder(steps).find((step) => !step.done) ?? null;
 }
 class DayRepo {
-  constructor(store, clock, root) {
+  constructor(store, clock) {
     this.store = store;
     this.clock = clock;
-    this.root = root;
   }
-  /** Sorted list of dates that exist, so the navigator never loads day shards to know. */
-  dates = [];
   get days() {
     return this.store.collection(COLLECTION.days);
   }
-  get indexFile() {
-    return path.join(this.root, "days", "index.json");
-  }
-  async load() {
-    const raw = await readFileIfExists(this.indexFile);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        this.dates = parsed.filter((value) => typeof value === "string").sort();
-        return;
-      }
-    }
-    await this.rebuildIndex();
-  }
-  /** Cheap to redo: the index is derived, the day shards are truth. */
-  async rebuildIndex() {
+  /**
+   * Dates that exist, for the sidebar. This used to be a hand-maintained `days/index.json` so
+   * the navigator would not have to load day shards; every day is already in memory now, so
+   * that index was a second source of truth for something free to derive.
+   */
+  async listDates() {
     const all = await this.days.all();
-    this.dates = all.map((day) => day.localDate).sort();
-    await this.persistIndex();
-  }
-  listDates() {
-    return [...this.dates];
+    return all.map((day) => day.localDate).sort();
   }
   async get(localDate2) {
-    if (!this.dates.includes(localDate2)) return null;
     return this.days.get(localDate2);
   }
   /** Read-only peek at today. Returns null when today has not happened yet. */
@@ -1240,21 +739,14 @@ class DayRepo {
   }
   async write(day) {
     await this.days.put(day);
-    if (!this.dates.includes(day.localDate)) {
-      this.dates = [...this.dates, day.localDate].sort();
-      await this.persistIndex();
-    }
     return day;
-  }
-  async persistIndex() {
-    await atomicWriteFile(this.indexFile, serialise(this.dates));
-  }
-  /** Writes land on `localDate` when given, otherwise today. Creates the day if it is new. */
-  async mutateDay(localDate2, change) {
-    return this.write(change(await this.ensure(localDate2)));
   }
   async mutateToday(change) {
     return this.mutateDay(void 0, change);
+  }
+  /** Mutates a given day, creating it if it does not exist yet. Defaults to today. */
+  async mutateDay(localDate2, change) {
+    return this.write(change(await this.ensure(localDate2)));
   }
   async mutate(localDate2, change) {
     const day = await this.get(localDate2);
@@ -1374,8 +866,8 @@ class DayRepo {
   // ------------------------------------------------------ global carry-forward
   /**
    * To-dos and blockers are global (§5): they live on the day that raised them, but every daily
-   * page reads all of them until they are completed or resolved. The day index is small and the
-   * shards are already cached, so a full scan here is cheaper than a second storage location.
+   * page reads all of them until they are completed or resolved. Every day is already in
+   * memory, so a scan is cheaper than maintaining a second place for these to live.
    */
   async carryForward() {
     const all = await this.days.all();
@@ -1471,7 +963,6 @@ class DayRepo {
     return day ? sortByOrder(day.todos) : [];
   }
 }
-const RANGE_SLACK_MS = 2 * 864e5;
 class SessionRepo {
   constructor(store) {
     this.store = store;
@@ -1493,29 +984,17 @@ class SessionRepo {
     return all.filter((session) => session.threadId === threadId).sort((a, b) => b.startedAt.localeCompare(a.startedAt));
   }
   /**
-   * Sessions falling on local dates in [from, to]. Session ids are ULIDs, so the timestamp
-   * embedded in each shard's key bounds tells us which shards cannot possibly contain the
-   * range — that is what keeps analytics from loading three years of history to draw one week.
+   * Sessions falling on local dates in [from, to]. This used to reason about ULID timestamps to
+   * decide which shards it could skip; everything is already in memory now, so it is a filter.
    */
   async inLocalDateRange(from, to) {
-    const lower = Date.parse(`${from}T00:00:00.000Z`) - RANGE_SLACK_MS;
-    const upper = Date.parse(`${to}T23:59:59.999Z`) + RANGE_SLACK_MS;
-    const out = [];
-    for (const shard of this.sessions.shards()) {
-      if (ulidTime(shard.maxKey) < lower || ulidTime(shard.minKey) > upper) continue;
-      const records = await this.sessions.recordsIn(shard.id);
-      out.push(...records.filter((session) => session.localDate >= from && session.localDate <= to));
-    }
-    return out.sort((a, b) => a.startedAt.localeCompare(b.startedAt));
+    const all = await this.sessions.all();
+    return all.filter((session) => session.localDate >= from && session.localDate <= to).sort((a, b) => a.startedAt.localeCompare(b.startedAt));
   }
-  /** Walks shards newest-first; used to find a session left open by a crash. */
+  /** A session left open by a crash — the most recent one that never got an end time. */
   async findOpen() {
-    for (const shard of this.sessions.shards()) {
-      const records = await this.sessions.recordsIn(shard.id);
-      const open = records.filter((session) => !session.endedAt).sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0];
-      if (open) return open;
-    }
-    return null;
+    const all = await this.sessions.all();
+    return all.filter((session) => !session.endedAt).sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0] ?? null;
   }
 }
 const settingsSchema = z.object({
@@ -1578,14 +1057,11 @@ class ThreadRepo {
     this.store = store;
     this.clock = clock;
   }
-  get active() {
-    return this.store.collection(COLLECTION.activeThreads);
-  }
-  get archive() {
-    return this.store.collection(COLLECTION.archivedThreads);
+  get threads() {
+    return this.store.collection(COLLECTION.threads);
   }
   async list() {
-    const threads = await this.active.all();
+    const threads = await this.threads.all();
     return threads.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
   /** On the board (§2): not done, not dormant. This is the list the cap of 5 applies to. */
@@ -1598,7 +1074,7 @@ class ThreadRepo {
     return threads.filter((thread) => thread.status === "dormant");
   }
   async get(id) {
-    return await this.active.get(id) ?? await this.archive.get(id);
+    return this.threads.get(id);
   }
   async create(title, notes = "") {
     const now = this.clock.now();
@@ -1621,20 +1097,13 @@ class ThreadRepo {
     await this.save(thread);
     return thread;
   }
-  /** Routes to active.json or the archive shards depending on `archived`. */
   async save(thread) {
     const next = { ...thread, updatedAt: this.clock.now() };
-    if (next.archived) {
-      await this.archive.put(next);
-      await this.active.delete(next.id);
-    } else {
-      await this.active.put(next);
-    }
+    await this.threads.put(next);
     return next;
   }
   async remove(id) {
-    await this.active.delete(id);
-    await this.archive.delete(id);
+    await this.threads.delete(id);
   }
   async setStatus(id, status, waitingOn) {
     const thread = await this.require(id);
@@ -1725,29 +1194,21 @@ class ThreadRepo {
     }
     return written;
   }
-  // ------------------------------------------------------------- done + archive
+  // ----------------------------------------------------------------- done
   /**
-   * Walks archive shards newest-first rather than loading the whole archive, so "load more"
-   * costs one shard read.
+   * The done pile, newest first. This used to walk archive shards to avoid loading the whole
+   * archive; there is one threads file now and it is already in memory, so it is a filter and
+   * a slice.
    */
   async donePage({ before, limit }) {
-    const collected = (await this.list()).filter((thread) => thread.status === "done");
-    const shardIds = this.archive.shards().map((shard) => shard.id);
-    let cursor = 0;
-    while (collected.length <= limit && cursor < shardIds.length) {
-      const shardId = shardIds[cursor];
-      cursor += 1;
-      if (!shardId) break;
-      const records = await this.archive.recordsIn(shardId);
-      collected.push(...records.filter((thread) => thread.status === "done"));
-    }
-    const sorted = collected.filter((thread) => !before || (thread.completedLocalDate ?? "") < before).sort((a, b) => (b.completedAt ?? "").localeCompare(a.completedAt ?? ""));
-    return {
-      threads: sorted.slice(0, limit),
-      hasMore: sorted.length > limit || cursor < shardIds.length
-    };
+    const done = (await this.threads.all()).filter((thread) => thread.status === "done").filter((thread) => !before || (thread.completedLocalDate ?? "") < before).sort((a, b) => (b.completedAt ?? "").localeCompare(a.completedAt ?? ""));
+    return { threads: done.slice(0, limit), hasMore: done.length > limit };
   }
-  /** Keeps active.json small: threads completed long ago move into archive shards on boot. */
+  /**
+   * Marks long-finished threads archived on boot. This used to move them into separate shard
+   * files to keep active.json small; there is one file now, so the flag is only a marker for
+   * anything that wants to tell old completions from recent ones.
+   */
   async archiveStale() {
     const cutoff = addLocalDays(this.clock.today(), -30);
     const stale = (await this.list()).filter(
@@ -1777,7 +1238,7 @@ function withOrders(threads) {
   }));
 }
 class Database {
-  constructor(root, store, clock, threads, days, sessions, settings, initReport) {
+  constructor(root, store, clock, threads, days, sessions, settings, migration) {
     this.root = root;
     this.store = store;
     this.clock = clock;
@@ -1785,19 +1246,20 @@ class Database {
     this.days = days;
     this.sessions = sessions;
     this.settings = settings;
-    this.initReport = initReport;
+    this.migration = migration;
   }
-  static async open(root, events) {
+  static async open(root, events = {}) {
     const settings = new SettingsRepo(root);
     await settings.load();
     const clock = systemClock(() => settings.get().timezone);
-    const store = new ShardedStore({ root, collections, events });
-    const initReport = await store.init();
-    const days = new DayRepo(store, clock, root);
-    await days.load();
+    const migration = await migrate(root);
+    const store = await JsonStore.open(root, collections, {
+      onUnreadable: events.onUnreadable
+    });
+    const days = new DayRepo(store, clock);
     const threads = new ThreadRepo(store, clock);
     const sessions = new SessionRepo(store);
-    return new Database(root, store, clock, threads, days, sessions, settings, initReport);
+    return new Database(root, store, clock, threads, days, sessions, settings, migration);
   }
   async close() {
     await this.store.close();
@@ -2921,13 +2383,13 @@ class AppContext {
   static async create(root) {
     const ctx2 = new AppContext();
     ctx2.db = await Database.open(root, {
-      onQuarantine: (file, movedTo) => {
+      onUnreadable: (file, reason) => {
+        console.warn("[storage]", file, reason);
         ctx2.broadcast("storage:banner", {
-          message: `A data file could not be read and was set aside: ${file}`,
-          files: [movedTo]
+          message: `Part of a data file could not be read (${reason}). Everything else loaded normally.`,
+          files: [file]
         });
-      },
-      onWarning: (message) => console.warn("[storage]", message)
+      }
     });
     ctx2.analytics = new AnalyticsService(
       ctx2.db,
@@ -3620,16 +3082,9 @@ function registerHandlers(ctx2) {
   on(
     "data:repair",
     async () => {
-      const { quarantined, compacted } = await db.store.repair();
+      await db.store.reload();
       await analytics.rebuild();
-      return {
-        manifestRebuilt: true,
-        rollupsRebuilt: true,
-        shardsScanned: db.store.shardCount,
-        quarantined,
-        compactedFrom: compacted.before,
-        compactedTo: compacted.after
-      };
+      return { filesRead: db.store.fileCount, rollupsRebuilt: true };
     },
     ctx2
   );

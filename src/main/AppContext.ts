@@ -45,13 +45,13 @@ export class AppContext {
 	static async create(root: string): Promise<AppContext> {
 		const ctx = new AppContext();
 		ctx.db = await Database.open(root, {
-			onQuarantine: (file, movedTo) => {
+			onUnreadable: (file, reason) => {
+				console.warn("[storage]", file, reason);
 				ctx.broadcast("storage:banner", {
-					message: `A data file could not be read and was set aside: ${file}`,
-					files: [movedTo],
+					message: `Part of a data file could not be read (${reason}). Everything else loaded normally.`,
+					files: [file],
 				} satisfies StorageBanner);
 			},
-			onWarning: (message) => console.warn("[storage]", message),
 		});
 
 		ctx.analytics = new AnalyticsService(ctx.db, () =>

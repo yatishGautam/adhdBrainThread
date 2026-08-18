@@ -3149,11 +3149,86 @@ function ThreadCard({
                   },
                   children: "▶ Start Focus"
                 }
-              )
+              ),
+              /* @__PURE__ */ jsxRuntimeExports.jsx(DeleteCross, { thread, visible: hover })
             ]
           }
         )
       ]
+    }
+  );
+}
+function DeleteCross({
+  thread,
+  visible
+}) {
+  const [confirming, setConfirming] = reactExports.useState(false);
+  reactExports.useEffect(() => {
+    if (!visible) setConfirming(false);
+  }, [visible]);
+  if (confirming) {
+    return /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { style: { display: "flex", alignItems: "center", gap: 6 }, children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { fontSize: 11, color: "var(--text-muted)" }, children: "Delete?" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx(
+        "button",
+        {
+          onClick: () => void window.thread.invoke["threads:remove"]({ id: thread.id }),
+          title: `Delete '${thread.title}' and its ${thread.steps.length} step${thread.steps.length === 1 ? "" : "s"}`,
+          style: {
+            background: "var(--clay)",
+            border: "none",
+            borderRadius: 7,
+            color: "#1a0f0c",
+            fontWeight: 600,
+            cursor: "pointer",
+            fontSize: 11,
+            padding: "4px 9px"
+          },
+          children: "Yes"
+        }
+      ),
+      /* @__PURE__ */ jsxRuntimeExports.jsx(
+        "button",
+        {
+          onClick: () => setConfirming(false),
+          style: {
+            background: "transparent",
+            border: "1px solid var(--line)",
+            borderRadius: 7,
+            color: "var(--text-muted)",
+            cursor: "pointer",
+            fontSize: 11,
+            padding: "4px 9px"
+          },
+          children: "No"
+        }
+      )
+    ] });
+  }
+  return /* @__PURE__ */ jsxRuntimeExports.jsx(
+    "button",
+    {
+      onClick: () => setConfirming(true),
+      title: "Delete this thread",
+      "aria-label": `Delete ${thread.title}`,
+      style: {
+        width: 24,
+        height: 24,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        borderRadius: "50%",
+        border: "none",
+        background: "transparent",
+        color: "var(--text-faint)",
+        cursor: "pointer",
+        fontSize: 13,
+        lineHeight: 1,
+        // Present but recessive until you go looking for it.
+        opacity: visible ? 1 : 0,
+        transition: "opacity var(--motion-fast) var(--ease-out)"
+      },
+      children: "✕"
     }
   );
 }
@@ -3797,20 +3872,7 @@ function ThreadDrawer({
             /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { marginTop: 18 }, children: [
               /* @__PURE__ */ jsxRuntimeExports.jsx(DrawerLabel, { children: "Notes" }),
               /* @__PURE__ */ jsxRuntimeExports.jsx(Notes, { thread })
-            ] }),
-            /* @__PURE__ */ jsxRuntimeExports.jsx(
-              "div",
-              {
-                style: {
-                  display: "flex",
-                  justifyContent: "flex-end",
-                  marginTop: 16,
-                  paddingTop: 12,
-                  borderTop: "1px solid var(--line)"
-                },
-                children: /* @__PURE__ */ jsxRuntimeExports.jsx(DeleteThread, { thread })
-              }
-            )
+            ] })
           ]
         }
       )
@@ -3851,73 +3913,6 @@ function Notes({ thread }) {
       }
     }
   );
-}
-function DeleteThread({ thread }) {
-  const [confirming, setConfirming] = reactExports.useState(false);
-  reactExports.useEffect(() => {
-    setConfirming(false);
-  }, [thread.id]);
-  if (!confirming) {
-    return /* @__PURE__ */ jsxRuntimeExports.jsx(
-      "button",
-      {
-        onClick: () => setConfirming(true),
-        style: {
-          background: "none",
-          border: "none",
-          color: "var(--text-faint)",
-          cursor: "pointer",
-          fontSize: 12,
-          padding: "4px 6px"
-        },
-        children: "Delete thread"
-      }
-    );
-  }
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 10 }, children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { style: { fontSize: 12, color: "var(--text-muted)" }, children: [
-      "Delete ‘",
-      thread.title,
-      "’ and its ",
-      thread.steps.length,
-      " step",
-      thread.steps.length === 1 ? "" : "s",
-      "?"
-    ] }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx(
-      "button",
-      {
-        onClick: () => setConfirming(false),
-        style: {
-          background: "transparent",
-          border: "1px solid var(--line)",
-          borderRadius: 8,
-          color: "var(--text-muted)",
-          cursor: "pointer",
-          fontSize: 12,
-          padding: "5px 12px"
-        },
-        children: "Keep"
-      }
-    ),
-    /* @__PURE__ */ jsxRuntimeExports.jsx(
-      "button",
-      {
-        onClick: () => void window.thread.invoke["threads:remove"]({ id: thread.id }),
-        style: {
-          background: "var(--clay)",
-          border: "none",
-          borderRadius: 8,
-          color: "#1a0f0c",
-          fontWeight: 600,
-          cursor: "pointer",
-          fontSize: 12,
-          padding: "5px 12px"
-        },
-        children: "Delete"
-      }
-    )
-  ] });
 }
 function DrawerLabel({ children }) {
   return /* @__PURE__ */ jsxRuntimeExports.jsx(

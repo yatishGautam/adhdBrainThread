@@ -496,19 +496,17 @@ export function registerHandlers(ctx: AppContext): void {
 
 	// -------------------------------------------------------------------- data
 
+	/**
+	 * "Repair" is now just: write everything pending, re-read it from disk, and recompute the
+	 * analytics cache from the raw records. There is no index to rebuild and no journal to
+	 * replay, because there is no index and no journal.
+	 */
 	on(
 		"data:repair",
 		async () => {
-			const { quarantined, compacted } = await db.store.repair();
+			await db.store.reload();
 			await analytics.rebuild();
-			return {
-				manifestRebuilt: true,
-				rollupsRebuilt: true,
-				shardsScanned: db.store.shardCount,
-				quarantined,
-				compactedFrom: compacted.before,
-				compactedTo: compacted.after,
-			};
+			return { filesRead: db.store.fileCount, rollupsRebuilt: true };
 		},
 		ctx,
 	);

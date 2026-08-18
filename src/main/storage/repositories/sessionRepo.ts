@@ -1,15 +1,10 @@
 import type { Session } from '@shared/domain.js';
-import { ulidTime } from '@shared/ids.js';
-import { COLLECTION } from '../collections.js';
-import type { CollectionHandle, ShardedStore } from '../ShardedStore.js';
-
-/** Slack around a date range, so a shard straddling a timezone boundary is never skipped. */
-const RANGE_SLACK_MS = 2 * 86_400_000;
+import { COLLECTION, type Collection, type Store } from '../Store.js';
 
 export class SessionRepo {
-  constructor(private readonly store: ShardedStore) {}
+  constructor(private readonly store: Store) {}
 
-  private get sessions(): CollectionHandle<Session> {
+  private get sessions(): Collection<Session> {
     return this.store.collection<Session>(COLLECTION.sessions);
   }
 
@@ -33,32 +28,23 @@ export class SessionRepo {
   }
 
   /**
-   * Sessions falling on local dates in [from, to]. Session ids are ULIDs, so the timestamp
-   * embedded in each shard's key bounds tells us which shards cannot possibly contain the
-   * range — that is what keeps analytics from loading three years of history to draw one week.
+   * Sessions falling on local dates in [from, to]. This used to reason about ULID timestamps to
+   * decide which shards it could skip; everything is already in memory now, so it is a filter.
    */
   async inLocalDateRange(from: string, to: string): Promise<Session[]> {
-    const lower = Date.parse(`${from}T00:00:00.000Z`) - RANGE_SLACK_MS;
-    const upper = Date.parse(`${to}T23:59:59.999Z`) + RANGE_SLACK_MS;
-    const out: Session[] = [];
-
-    for (const shard of this.sessions.shards()) {
-      if (ulidTime(shard.maxKey) < lower || ulidTime(shard.minKey) > upper) continue;
-      const records = await this.sessions.recordsIn(shard.id);
-      out.push(...records.filter((session) => session.localDate >= from && session.localDate <= to));
-    }
-    return out.sort((a, b) => a.startedAt.localeCompare(b.startedAt));
+    const all = await this.sessions.all();
+    return all
+      .filter((session) => session.localDate >= from && session.localDate <= to)
+      .sort((a, b) => a.startedAt.localeCompare(b.startedAt));
   }
 
-  /** Walks shards newest-first; used to find a session left open by a crash. */
+  /** A session left open by a crash — the most recent one that never got an end time. */
   async findOpen(): Promise<Session | null> {
-    for (const shard of this.sessions.shards()) {
-      const records = await this.sessions.recordsIn(shard.id);
-      const open = records
+    const all = await this.sessions.all();
+    return (
+      all
         .filter((session) => !session.endedAt)
-        .sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0];
-      if (open) return open;
-    }
-    return null;
+        .sort((a, b) => b.startedAt.localeCompare(a.startedAt))[0] ?? null
+    );
   }
 }

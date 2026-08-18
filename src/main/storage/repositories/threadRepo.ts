@@ -3,27 +3,22 @@ import type { Step, Thread, ThreadStatus } from '@shared/domain.js';
 import type { DonePage, DoneQuery } from '@shared/ipc/channels.js';
 import { ulid } from '@shared/ids.js';
 import { addLocalDays } from '@shared/time.js';
-import { COLLECTION } from '../collections.js';
 import type { Clock } from '../clock.js';
-import type { CollectionHandle, ShardedStore } from '../ShardedStore.js';
+import { COLLECTION, type Collection, type Store } from '../Store.js';
 import { nextOrder, orderAfter, reorder, sortByOrder } from '../stepOrder.js';
 
 export class ThreadRepo {
   constructor(
-    private readonly store: ShardedStore,
+    private readonly store: Store,
     private readonly clock: Clock,
   ) {}
 
-  private get active(): CollectionHandle<Thread> {
-    return this.store.collection<Thread>(COLLECTION.activeThreads);
-  }
-
-  private get archive(): CollectionHandle<Thread> {
-    return this.store.collection<Thread>(COLLECTION.archivedThreads);
+  private get threads(): Collection<Thread> {
+    return this.store.collection<Thread>(COLLECTION.threads);
   }
 
   async list(): Promise<Thread[]> {
-    const threads = await this.active.all();
+    const threads = await this.threads.all();
     return threads.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
 
@@ -39,7 +34,7 @@ export class ThreadRepo {
   }
 
   async get(id: string): Promise<Thread | null> {
-    return (await this.active.get(id)) ?? (await this.archive.get(id));
+    return this.threads.get(id);
   }
 
   async create(title: string, notes = ''): Promise<Thread> {
@@ -64,21 +59,14 @@ export class ThreadRepo {
     return thread;
   }
 
-  /** Routes to active.json or the archive shards depending on `archived`. */
   async save(thread: Thread): Promise<Thread> {
     const next: Thread = { ...thread, updatedAt: this.clock.now() };
-    if (next.archived) {
-      await this.archive.put(next);
-      await this.active.delete(next.id);
-    } else {
-      await this.active.put(next);
-    }
+    await this.threads.put(next);
     return next;
   }
 
   async remove(id: string): Promise<void> {
-    await this.active.delete(id);
-    await this.archive.delete(id);
+    await this.threads.delete(id);
   }
 
   async setStatus(id: string, status: ThreadStatus, waitingOn?: string): Promise<Thread> {
@@ -196,35 +184,27 @@ export class ThreadRepo {
     return written;
   }
 
-  // ------------------------------------------------------------- done + archive
+  // ----------------------------------------------------------------- done
 
   /**
-   * Walks archive shards newest-first rather than loading the whole archive, so "load more"
-   * costs one shard read.
+   * The done pile, newest first. This used to walk archive shards to avoid loading the whole
+   * archive; there is one threads file now and it is already in memory, so it is a filter and
+   * a slice.
    */
   async donePage({ before, limit }: DoneQuery): Promise<DonePage> {
-    const collected = (await this.list()).filter((thread) => thread.status === 'done');
-    const shardIds = this.archive.shards().map((shard) => shard.id);
-    let cursor = 0;
-    while (collected.length <= limit && cursor < shardIds.length) {
-      const shardId = shardIds[cursor];
-      cursor += 1;
-      if (!shardId) break;
-      const records = await this.archive.recordsIn(shardId);
-      collected.push(...records.filter((thread) => thread.status === 'done'));
-    }
-
-    const sorted = collected
+    const done = (await this.threads.all())
+      .filter((thread) => thread.status === 'done')
       .filter((thread) => !before || (thread.completedLocalDate ?? '') < before)
       .sort((a, b) => (b.completedAt ?? '').localeCompare(a.completedAt ?? ''));
 
-    return {
-      threads: sorted.slice(0, limit),
-      hasMore: sorted.length > limit || cursor < shardIds.length,
-    };
+    return { threads: done.slice(0, limit), hasMore: done.length > limit };
   }
 
-  /** Keeps active.json small: threads completed long ago move into archive shards on boot. */
+  /**
+   * Marks long-finished threads archived on boot. This used to move them into separate shard
+   * files to keep active.json small; there is one file now, so the flag is only a marker for
+   * anything that wants to tell old completions from recent ones.
+   */
   async archiveStale(): Promise<number> {
     const cutoff = addLocalDays(this.clock.today(), -AUTO_ARCHIVE_AFTER_DAYS);
     const stale = (await this.list()).filter(
