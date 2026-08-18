@@ -8,6 +8,7 @@ import { app, ipcMain, shell } from "electron";
 import path from "node:path";
 import type { Requests } from "@shared/ipc/channels.js";
 import { ACTIVE_THREAD_CAP } from "@shared/constants.js";
+import { MIN_PASSWORD_LENGTH } from "@shared/auth.js";
 import type { AppContext } from "../AppContext.js";
 import { openLink } from "../services/openLink.js";
 import { launchesAtStartup, setLaunchAtStartup } from "../services/startup.js";
@@ -487,6 +488,33 @@ export function registerHandlers(ctx: AppContext): void {
 		},
 		ctx,
 	);
+
+	// ----------------------------------------------------------------- account
+
+	/**
+	 * Signing in is the one place the app waits on the network, and it waits in the form, not
+	 * in the way of anything else. Errors are thrown so the renderer gets them as a rejected
+	 * promise it can print next to the button that caused them — `ApiClient` has already turned
+	 * every status code into a sentence meant for a person.
+	 */
+	on("auth:state", async () => ctx.auth.state(), ctx);
+	on(
+		"auth:register",
+		async (_c, { email, password }) => {
+			// Checked here as well as on the server so the common mistake costs no round trip
+			// and, more to the point, no slice of the five-per-hour registration limit.
+			if (!email.includes("@")) throw new Error("That does not look like an email address.");
+			if (password.length < MIN_PASSWORD_LENGTH) {
+				throw new Error(`Use at least ${MIN_PASSWORD_LENGTH} characters — a short phrase beats a clever word.`);
+			}
+			return ctx.auth.register(email, password);
+		},
+		ctx,
+	);
+	on("auth:login", async (_c, { email, password }) => ctx.auth.login(email, password), ctx);
+	on("auth:logout", async () => ctx.auth.logout(), ctx);
+	on("auth:deleteAccount", async () => ctx.auth.deleteAccount(), ctx);
+	on("auth:setServer", async (_c, { url }) => ctx.auth.setServerUrl(url), ctx);
 
 	// -------------------------------------------------------------------- links
 

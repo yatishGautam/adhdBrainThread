@@ -9,6 +9,7 @@ import {
 } from "@shared/format.js";
 import { useDayStore, loadDay } from "../stores/dayStore.js";
 import { useUiStore } from "../stores/uiStore.js";
+import { useAuthStore } from "../stores/authStore.js";
 
 /**
  * Grouped year → month → day (§1). A day that does not exist is not shown — there is no
@@ -162,6 +163,7 @@ export function SideRail(): React.JSX.Element {
 				))}
 			</div>
 
+			<AccountRow collapsed={collapsed} />
 			<StartupToggle collapsed={collapsed} />
 		</div>
 	);
@@ -221,6 +223,63 @@ function DayRow({
 				<span style={{ whiteSpace: "nowrap" }}>
 					{formatCollapsedDate(date)}
 					{weekend ? " ★" : ""}
+				</span>
+			)}
+		</button>
+	);
+}
+
+/**
+ * The account lives at the bottom of the rail, next to the other things you set once and forget.
+ * Not a tab and not a modal on launch: signing in is optional, so it must not look like a step.
+ */
+function AccountRow({ collapsed }: { collapsed: boolean }): React.JSX.Element {
+	const account = useAuthStore((s) => s.account);
+	const offline = useAuthStore((s) => s.offline);
+	const openPanel = useAuthStore((s) => s.setPanelOpen);
+
+	return (
+		<button
+			onClick={() => openPanel(true)}
+			title={account ? `Signed in as ${account.email}` : "Sign in or create an account"}
+			style={{
+				display: "flex",
+				alignItems: "center",
+				gap: 8,
+				margin: "0 12px 8px",
+				padding: "8px 10px",
+				borderRadius: 8,
+				border: "1px solid var(--line)",
+				background: "transparent",
+				color: "var(--text-faint)",
+				cursor: "pointer",
+				fontSize: 11,
+				textAlign: "left",
+				justifyContent: collapsed ? "center" : "flex-start",
+				overflow: "hidden",
+			}}
+		>
+			<span
+				style={{
+					width: 12,
+					height: 12,
+					borderRadius: 999,
+					flexShrink: 0,
+					border: `1px solid ${account ? "var(--emerald)" : "var(--line-strong)"}`,
+					// Signed in but unreachable is its own state, and it is not a failure —
+					// hollow rather than red.
+					background: account && !offline ? "var(--emerald)" : "transparent",
+				}}
+			/>
+			{collapsed ? null : (
+				<span
+					style={{
+						overflow: "hidden",
+						textOverflow: "ellipsis",
+						whiteSpace: "nowrap",
+					}}
+				>
+					{account ? account.email : "Sign in"}
 				</span>
 			)}
 		</button>

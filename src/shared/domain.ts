@@ -163,6 +163,28 @@ export interface Session {
   pauses: Pause[];
 }
 
+/**
+ * A sit. Deliberately not a `Session`: momentum is computed from focus sessions, so letting
+ * meditation land there would inflate the focus number and make it stop meaning anything — the
+ * same reason a break is not a Session.
+ *
+ * Recorded on the phone today; this type exists here so the desktop can hold and display them
+ * once the sync engine lands.
+ */
+export interface MindfulSession {
+  id: string;
+  startedAt: string;
+  endedAt?: string | null;
+  localDate: string;
+  plannedMs: number;
+  /** What was actually sat. A sit ended early still counts for what it was. */
+  actualMs: number;
+  /** Whether the bell got to ring on its own. */
+  completed: boolean;
+  updatedAt?: string;
+  deletedAt?: string | null;
+}
+
 export interface Settings {
   version: 1;
   defaultSessionMs: number;

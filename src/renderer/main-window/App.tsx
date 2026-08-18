@@ -5,6 +5,7 @@ import { initThreadStore } from './stores/threadStore.js';
 import { initDayStore } from './stores/dayStore.js';
 import { initCarryStore } from './stores/carryStore.js';
 import { initSessionStore, useSessionStore } from './stores/sessionStore.js';
+import { initAuthStore } from './stores/authStore.js';
 import { Shell } from './layout/Shell.js';
 
 let initialized = false;
@@ -26,6 +27,7 @@ export function App(): React.JSX.Element {
       initDayStore(),
       initCarryStore(),
       initSessionStore(),
+      initAuthStore(),
     ]).then(() => setReady(true));
     window.thread.on('storage:banner', setBanner);
   }, []);

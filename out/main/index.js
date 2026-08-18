@@ -1,4 +1,4 @@
-import { BrowserWindow, screen, app, nativeImage, shell, Tray, Menu, nativeTheme, Notification, ipcMain, powerMonitor } from "electron";
+import { safeStorage, BrowserWindow, screen, app, nativeImage, shell, Tray, Menu, nativeTheme, Notification, ipcMain, powerMonitor } from "electron";
 import { z } from "zod";
 import { promises } from "node:fs";
 import path from "node:path";
@@ -1738,6 +1738,298 @@ class AnalyticsService {
     return [...byId.values()];
   }
 }
+const MIN_PASSWORD_LENGTH = 10;
+const DEFAULT_SERVER_URL = "https://api.yatishgautam.com";
+class ApiError extends Error {
+  constructor(status, message) {
+    super(message);
+    this.status = status;
+    this.name = "ApiError";
+  }
+  /** The token is gone or expired — the only condition that signs a user out. */
+  get isUnauthorized() {
+    return this.status === 401;
+  }
+}
+class NetworkError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "NetworkError";
+  }
+}
+const TIMEOUT_MS = 15e3;
+class ApiClient {
+  constructor(baseUrl) {
+    this.baseUrl = baseUrl;
+  }
+  setBaseUrl(url) {
+    this.baseUrl = normaliseUrl(url);
+  }
+  get url() {
+    return this.baseUrl;
+  }
+  register(email, password, timezone) {
+    return this.request("POST", "/auth/register", {
+      body: { email, password, timezone }
+    });
+  }
+  login(email, password) {
+    return this.request("POST", "/auth/login", {
+      body: { email, password }
+    });
+  }
+  logout(token) {
+    return this.request("POST", "/auth/logout", { token });
+  }
+  me(token) {
+    return this.request("GET", "/auth/me", { token });
+  }
+  deleteAccount(token) {
+    return this.request("DELETE", "/auth/account", { token });
+  }
+  async request(method, path2, options = {}) {
+    const headers = {};
+    if (options.body !== void 0) headers["content-type"] = "application/json";
+    if (options.token) headers.authorization = `Bearer ${options.token}`;
+    let response;
+    try {
+      response = await fetch(`${this.baseUrl}${path2}`, {
+        method,
+        headers,
+        body: options.body === void 0 ? void 0 : JSON.stringify(options.body),
+        signal: AbortSignal.timeout(TIMEOUT_MS)
+      });
+    } catch (error) {
+      throw new NetworkError(unreachable(this.baseUrl, error));
+    }
+    if (!response.ok) {
+      throw new ApiError(response.status, await describe(response, path2));
+    }
+    const text = await response.text();
+    if (!text) return void 0;
+    try {
+      return JSON.parse(text);
+    } catch {
+      throw new ApiError(response.status, "The server sent a reply this app could not read.");
+    }
+  }
+}
+function normaliseUrl(url) {
+  return url.trim().replace(/\/+$/, "");
+}
+function unreachable(baseUrl, error) {
+  const timedOut = error instanceof Error && error.name === "TimeoutError";
+  const host = hostOf(baseUrl);
+  return timedOut ? `${host} did not answer in time. Your work is saved locally either way.` : `Could not reach ${host}. Check your connection — your work is saved locally either way.`;
+}
+function hostOf(baseUrl) {
+  try {
+    return new URL(baseUrl).host;
+  } catch {
+    return baseUrl;
+  }
+}
+async function describe(response, path2) {
+  const fromServer = await serverMessage(response);
+  switch (response.status) {
+    case 400:
+      return fromServer ?? "That does not look right — check the email and password.";
+    case 401:
+      return path2 === "/auth/login" ? "Email or password is wrong." : "Your session has expired. Sign in again.";
+    case 409:
+      return "That email already has an account. Sign in instead.";
+    case 429:
+      return "Too many attempts. Wait a few minutes and try again.";
+    default:
+      if (response.status >= 500) {
+        return "The server is having trouble. Nothing was lost — try again shortly.";
+      }
+      return fromServer ?? `The server refused that (${response.status}).`;
+  }
+}
+async function serverMessage(response) {
+  try {
+    const body = await response.json();
+    if (typeof body.error !== "string" || !body.error) return null;
+    return body.error.charAt(0).toUpperCase() + body.error.slice(1);
+  } catch {
+    return null;
+  }
+}
+class AuthService {
+  constructor(root, onChanged) {
+    this.root = root;
+    this.onChanged = onChanged;
+    this.api = new ApiClient(normaliseUrl(process.env.ADHD_API_URL || DEFAULT_SERVER_URL));
+  }
+  account = null;
+  token = null;
+  offline = false;
+  busy = false;
+  api;
+  get file() {
+    return path.join(this.root, "account.json");
+  }
+  state() {
+    return {
+      account: this.account,
+      serverUrl: this.api.url,
+      offline: this.offline,
+      busy: this.busy
+    };
+  }
+  /** For the sync engine, when it lands. Null means there is nothing to push with. */
+  currentToken() {
+    return this.token;
+  }
+  // ------------------------------------------------------------------- boot
+  async load() {
+    const raw = await readFileIfExists(this.file);
+    if (raw === null) return;
+    let stored;
+    try {
+      stored = JSON.parse(raw);
+    } catch {
+      console.warn("[auth] account.json unreadable — starting signed out");
+      return;
+    }
+    if (stored.serverUrl && !process.env.ADHD_API_URL) {
+      this.api.setBaseUrl(stored.serverUrl);
+    }
+    this.account = stored.account ?? null;
+    this.token = stored.token ? decrypt(stored.token) : null;
+    if (this.account && !this.token) {
+      this.account = null;
+    }
+  }
+  /**
+   * Confirms the stored token is still good, and refreshes the profile. Fire-and-forget from
+   * boot: it must never be awaited on the path to a visible window.
+   */
+  async revalidate() {
+    if (!this.token) return;
+    try {
+      this.account = await this.api.me(this.token);
+      this.offline = false;
+      await this.persist();
+    } catch (error) {
+      if (error instanceof ApiError && error.isUnauthorized) {
+        await this.clear();
+      } else {
+        this.offline = true;
+      }
+    }
+    this.emit();
+  }
+  // ---------------------------------------------------------------- actions
+  async register(email, password) {
+    return this.authenticate(
+      () => this.api.register(email.trim(), password, systemTimezone())
+    );
+  }
+  async login(email, password) {
+    return this.authenticate(() => this.api.login(email.trim(), password));
+  }
+  /**
+   * Tells the server to burn the token, then forgets it locally either way. A logout that
+   * fails to reach the server must still log you out of this machine — that is the whole
+   * point of pressing it.
+   */
+  async logout() {
+    const token = this.token;
+    await this.clear();
+    this.emit();
+    if (token) {
+      try {
+        await this.api.logout(token);
+      } catch {
+      }
+    }
+    return this.state();
+  }
+  /** Irreversible, and the server does the cascade. Local data is untouched and still yours. */
+  async deleteAccount() {
+    if (!this.token) return this.state();
+    this.setBusy(true);
+    try {
+      await this.api.deleteAccount(this.token);
+      await this.clear();
+      return this.state();
+    } finally {
+      this.setBusy(false);
+    }
+  }
+  async setServerUrl(url) {
+    const next = normaliseUrl(url) || DEFAULT_SERVER_URL;
+    if (next === this.api.url) return this.state();
+    await this.clear();
+    this.api.setBaseUrl(next);
+    await this.persist();
+    this.emit();
+    return this.state();
+  }
+  // ---------------------------------------------------------------- private
+  async authenticate(call) {
+    this.setBusy(true);
+    try {
+      const result = await call();
+      this.token = result.token;
+      this.account = {
+        id: result.user.id,
+        email: result.user.email,
+        displayName: null,
+        timezone: systemTimezone()
+      };
+      this.offline = false;
+      await this.persist();
+      return this.state();
+    } finally {
+      this.setBusy(false);
+    }
+  }
+  async clear() {
+    this.account = null;
+    this.token = null;
+    this.offline = false;
+    await this.persist();
+  }
+  async persist() {
+    const encrypted = this.token ? encrypt(this.token) : null;
+    const stored = {
+      version: 1,
+      serverUrl: this.api.url,
+      // Remembering who you are without being able to prove it just produces a signed-in
+      // shell that cannot sync, so the pair is written together or not at all.
+      account: encrypted ? this.account : null,
+      ...encrypted ? { token: encrypted } : {}
+    };
+    await atomicWriteFile(this.file, `${JSON.stringify(stored, null, 2)}
+`);
+  }
+  setBusy(busy) {
+    this.busy = busy;
+    this.emit();
+  }
+  emit() {
+    this.onChanged(this.state());
+  }
+}
+function encrypt(token) {
+  if (!safeStorage.isEncryptionAvailable()) {
+    console.warn("[auth] no OS keychain — the session will not survive a restart");
+    return null;
+  }
+  return safeStorage.encryptString(token).toString("base64");
+}
+function decrypt(stored) {
+  if (!safeStorage.isEncryptionAvailable()) return null;
+  try {
+    return safeStorage.decryptString(Buffer.from(stored, "base64"));
+  } catch {
+    console.warn("[auth] stored session could not be decrypted — signing out");
+    return null;
+  }
+}
 class SessionService {
   constructor(db, events) {
     this.db = db;
@@ -2374,6 +2666,7 @@ class AppContext {
   stages;
   analytics;
   celebrations;
+  auth;
   main = null;
   hud = null;
   overlay;
@@ -2396,6 +2689,8 @@ class AppContext {
       () => ctx2.broadcast("analytics:changed", void 0)
     );
     await ctx2.analytics.load();
+    ctx2.auth = new AuthService(root, (state) => ctx2.broadcast("auth:changed", state));
+    await ctx2.auth.load();
     ctx2.sessions = new SessionService(ctx2.db, {
       onTick: (tick) => ctx2.broadcast("session:tick", tick),
       onChanged: (state) => {
@@ -3076,6 +3371,22 @@ function registerHandlers(ctx2) {
     },
     ctx2
   );
+  on("auth:state", async () => ctx2.auth.state(), ctx2);
+  on(
+    "auth:register",
+    async (_c, { email, password }) => {
+      if (!email.includes("@")) throw new Error("That does not look like an email address.");
+      if (password.length < MIN_PASSWORD_LENGTH) {
+        throw new Error(`Use at least ${MIN_PASSWORD_LENGTH} characters — a short phrase beats a clever word.`);
+      }
+      return ctx2.auth.register(email, password);
+    },
+    ctx2
+  );
+  on("auth:login", async (_c, { email, password }) => ctx2.auth.login(email, password), ctx2);
+  on("auth:logout", async () => ctx2.auth.logout(), ctx2);
+  on("auth:deleteAccount", async () => ctx2.auth.deleteAccount(), ctx2);
+  on("auth:setServer", async (_c, { url }) => ctx2.auth.setServerUrl(url), ctx2);
   on("link:open", async (_c, { url }) => openLink(url), ctx2);
   on("startup:get", async () => launchesAtStartup(), ctx2);
   on("startup:set", async (_c, { enabled }) => setLaunchAtStartup(enabled), ctx2);
@@ -3193,6 +3504,7 @@ async function bootstrap() {
   ctx.openMainWindow();
   ctx.openHud();
   await ctx.checkRecovery();
+  void ctx.auth.revalidate();
   powerMonitor.on("suspend", () => void ctx?.db.store.flush());
   powerMonitor.on("lock-screen", () => void ctx?.db.store.flush());
 }

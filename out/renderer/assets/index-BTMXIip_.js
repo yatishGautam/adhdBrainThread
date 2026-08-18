@@ -2165,6 +2165,41 @@ async function initSessionStore() {
   window.thread.on("session:changed", (state2) => useSessionStore.getState().setState(state2));
   window.thread.on("session:recovery", (offer) => useSessionStore.getState().setRecovery(offer));
 }
+const MIN_PASSWORD_LENGTH = 10;
+const DEFAULT_SERVER_URL = "https://api.yatishgautam.com";
+const useAuthStore = create((set) => ({
+  account: null,
+  serverUrl: DEFAULT_SERVER_URL,
+  offline: false,
+  busy: false,
+  error: null,
+  panelOpen: false,
+  setPanelOpen: (panelOpen) => set({ panelOpen, error: null }),
+  setError: (error) => set({ error })
+}));
+function apply$2(state) {
+  useAuthStore.setState(state);
+}
+async function initAuthStore() {
+  apply$2(await window.thread.invoke["auth:state"](void 0));
+  window.thread.on("auth:changed", apply$2);
+}
+async function runAuth(action2) {
+  useAuthStore.setState({ error: null });
+  try {
+    apply$2(await action2());
+    return true;
+  } catch (error) {
+    useAuthStore.setState({ error: readableError(error), busy: false });
+    return false;
+  }
+}
+function readableError(error) {
+  const raw = error instanceof Error ? error.message : String(error);
+  const parts = raw.split("Error: ");
+  const message2 = (parts[parts.length - 1] ?? raw).trim();
+  return message2 || "Something went wrong. Try again.";
+}
 const useUiStore = create((set) => ({
   // Threads is the first tab and the board is the inventory you open the app to look at.
   tab: "threads",
@@ -2320,6 +2355,7 @@ function SideRail() {
             ] }, month.key))
           ] }, year.key))
         ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(AccountRow, { collapsed }),
         /* @__PURE__ */ jsxRuntimeExports.jsx(StartupToggle, { collapsed })
       ]
     }
@@ -2371,6 +2407,62 @@ function DayRow({
         formatCollapsedDate(date2),
         weekend ? " ★" : ""
       ] })
+    }
+  );
+}
+function AccountRow({ collapsed }) {
+  const account = useAuthStore((s2) => s2.account);
+  const offline = useAuthStore((s2) => s2.offline);
+  const openPanel = useAuthStore((s2) => s2.setPanelOpen);
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(
+    "button",
+    {
+      onClick: () => openPanel(true),
+      title: account ? `Signed in as ${account.email}` : "Sign in or create an account",
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        margin: "0 12px 8px",
+        padding: "8px 10px",
+        borderRadius: 8,
+        border: "1px solid var(--line)",
+        background: "transparent",
+        color: "var(--text-faint)",
+        cursor: "pointer",
+        fontSize: 11,
+        textAlign: "left",
+        justifyContent: collapsed ? "center" : "flex-start",
+        overflow: "hidden"
+      },
+      children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "span",
+          {
+            style: {
+              width: 12,
+              height: 12,
+              borderRadius: 999,
+              flexShrink: 0,
+              border: `1px solid ${account ? "var(--emerald)" : "var(--line-strong)"}`,
+              // Signed in but unreachable is its own state, and it is not a failure —
+              // hollow rather than red.
+              background: account && !offline ? "var(--emerald)" : "transparent"
+            }
+          }
+        ),
+        collapsed ? null : /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "span",
+          {
+            style: {
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap"
+            },
+            children: account ? account.email : "Sign in"
+          }
+        )
+      ]
     }
   );
 }
@@ -26935,6 +27027,310 @@ function groupByDate(thoughts) {
   }
   return [...map2.entries()].sort((a2, b2) => a2[0] < b2[0] ? 1 : -1).map(([date2, list]) => ({ date: date2, thoughts: list }));
 }
+function AccountPanel() {
+  const open = useAuthStore((s2) => s2.panelOpen);
+  const close = useAuthStore((s2) => s2.setPanelOpen);
+  const account = useAuthStore((s2) => s2.account);
+  reactExports.useEffect(() => {
+    if (!open) return;
+    const onKey = (event) => {
+      if (event.key === "Escape") close(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, close]);
+  if (!open) return null;
+  return /* @__PURE__ */ jsxRuntimeExports.jsx(
+    "div",
+    {
+      onClick: () => close(false),
+      style: {
+        position: "fixed",
+        inset: 0,
+        background: "rgba(15,17,21,0.7)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 120
+      },
+      children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+        "div",
+        {
+          onClick: (event) => event.stopPropagation(),
+          style: {
+            background: "var(--surface-raised)",
+            border: "1px solid var(--line)",
+            borderRadius: "var(--radius-lg)",
+            boxShadow: "var(--shadow-card)",
+            padding: 24,
+            width: 380,
+            maxWidth: "90vw"
+          },
+          children: account ? /* @__PURE__ */ jsxRuntimeExports.jsx(SignedIn, {}) : /* @__PURE__ */ jsxRuntimeExports.jsx(SignedOut, {})
+        }
+      )
+    }
+  );
+}
+function SignedOut() {
+  const [mode, setMode] = reactExports.useState("signin");
+  const [email, setEmail] = reactExports.useState("");
+  const [password, setPassword] = reactExports.useState("");
+  const busy = useAuthStore((s2) => s2.busy);
+  const error = useAuthStore((s2) => s2.error);
+  const setError = useAuthStore((s2) => s2.setError);
+  const emailField = reactExports.useRef(null);
+  reactExports.useEffect(() => emailField.current?.focus(), []);
+  const tooShort = mode === "create" && password.length > 0 && password.length < MIN_PASSWORD_LENGTH;
+  const canSubmit = email.trim().length > 0 && password.length > 0 && !tooShort && !busy;
+  const submit = async (event) => {
+    event.preventDefault();
+    if (!canSubmit) return;
+    const ok = await runAuth(
+      () => mode === "create" ? window.thread.invoke["auth:register"]({ email, password }) : window.thread.invoke["auth:login"]({ email, password })
+    );
+    if (ok) setPassword("");
+  };
+  const switchTo = (next) => {
+    setMode(next);
+    setError(null);
+  };
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("form", { onSubmit: (event) => void submit(event), children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("h2", { style: { margin: "0 0 4px", fontSize: "var(--text-lg)", fontWeight: 600 }, children: mode === "create" ? "Create an account" : "Sign in" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: { margin: "0 0 18px", fontSize: "var(--text-xs)", color: "var(--text-faint)", lineHeight: 1.5 }, children: "Everything already works without one. An account is what lets the same threads and days show up on your phone." }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx(Field, { label: "Email", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+      "input",
+      {
+        ref: emailField,
+        type: "email",
+        value: email,
+        onChange: (event) => setEmail(event.target.value),
+        autoComplete: "username",
+        spellCheck: false,
+        style: inputStyle
+      }
+    ) }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx(Field, { label: "Password", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+      "input",
+      {
+        type: "password",
+        value: password,
+        onChange: (event) => setPassword(event.target.value),
+        autoComplete: mode === "create" ? "new-password" : "current-password",
+        style: inputStyle
+      }
+    ) }),
+    mode === "create" ? /* @__PURE__ */ jsxRuntimeExports.jsxs(
+      "p",
+      {
+        style: {
+          margin: "-6px 0 12px",
+          fontSize: "var(--text-xs)",
+          color: tooShort ? "var(--coral)" : "var(--text-faint)"
+        },
+        children: [
+          "At least ",
+          MIN_PASSWORD_LENGTH,
+          " characters. A short phrase you can actually recall beats a clever word you can’t."
+        ]
+      }
+    ) : null,
+    error ? /* @__PURE__ */ jsxRuntimeExports.jsx(
+      "p",
+      {
+        role: "alert",
+        style: {
+          margin: "0 0 12px",
+          padding: "8px 10px",
+          borderRadius: "var(--radius-sm)",
+          background: "rgba(224, 108, 90, 0.12)",
+          border: "1px solid rgba(224, 108, 90, 0.35)",
+          fontSize: "var(--text-xs)",
+          color: "var(--coral)",
+          lineHeight: 1.5
+        },
+        children: error
+      }
+    ) : null,
+    /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "submit", disabled: !canSubmit, className: "btn-launch", style: primaryStyle(canSubmit), children: busy ? "Working…" : mode === "create" ? "Create account" : "Sign in" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx(
+      "button",
+      {
+        type: "button",
+        onClick: () => switchTo(mode === "create" ? "signin" : "create"),
+        style: linkStyle,
+        children: mode === "create" ? "I already have an account" : "Create an account instead"
+      }
+    ),
+    /* @__PURE__ */ jsxRuntimeExports.jsx(ServerField, {})
+  ] });
+}
+function SignedIn() {
+  const account = useAuthStore((s2) => s2.account);
+  const serverUrl = useAuthStore((s2) => s2.serverUrl);
+  const offline = useAuthStore((s2) => s2.offline);
+  const busy = useAuthStore((s2) => s2.busy);
+  const error = useAuthStore((s2) => s2.error);
+  const [confirmingDelete, setConfirmingDelete] = reactExports.useState(false);
+  if (!account) return /* @__PURE__ */ jsxRuntimeExports.jsx(jsxRuntimeExports.Fragment, {});
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx("h2", { style: { margin: "0 0 4px", fontSize: "var(--text-lg)", fontWeight: 600 }, children: "Account" }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: { margin: "0 0 2px", fontSize: "var(--text-sm)", color: "var(--text)" }, children: account.email }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { style: { margin: "0 0 18px", fontSize: "var(--text-xs)", color: "var(--text-faint)" }, children: [
+      hostOf(serverUrl),
+      offline ? " · offline right now, still signed in" : ""
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx(
+      "p",
+      {
+        style: {
+          margin: "0 0 18px",
+          padding: "10px 12px",
+          borderRadius: "var(--radius-sm)",
+          background: "var(--surface)",
+          border: "1px solid var(--line)",
+          fontSize: "var(--text-xs)",
+          color: "var(--text-muted)",
+          lineHeight: 1.55
+        },
+        children: "Your threads, days and sessions still live on this Mac and nowhere else. Uploading them to this account is the next piece of work — the account itself is ready for it."
+      }
+    ),
+    error ? /* @__PURE__ */ jsxRuntimeExports.jsx("p", { role: "alert", style: { margin: "0 0 12px", fontSize: "var(--text-xs)", color: "var(--coral)" }, children: error }) : null,
+    /* @__PURE__ */ jsxRuntimeExports.jsx(
+      "button",
+      {
+        type: "button",
+        disabled: busy,
+        onClick: () => void runAuth(() => window.thread.invoke["auth:logout"](void 0)),
+        style: secondaryStyle,
+        children: "Sign out"
+      }
+    ),
+    confirmingDelete ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { marginTop: 16, paddingTop: 14, borderTop: "1px solid var(--line)" }, children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: { margin: "0 0 10px", fontSize: "var(--text-xs)", color: "var(--text-muted)", lineHeight: 1.5 }, children: "This deletes the account and everything stored under it on the server, permanently. What is on this Mac stays." }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", gap: 8 }, children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", onClick: () => setConfirmingDelete(false), style: secondaryStyle, children: "Keep it" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "button",
+          {
+            type: "button",
+            disabled: busy,
+            onClick: () => void runAuth(() => window.thread.invoke["auth:deleteAccount"](void 0)),
+            style: { ...secondaryStyle, borderColor: "var(--coral)", color: "var(--coral)" },
+            children: "Delete permanently"
+          }
+        )
+      ] })
+    ] }) : /* @__PURE__ */ jsxRuntimeExports.jsx("button", { type: "button", onClick: () => setConfirmingDelete(true), style: { ...linkStyle, color: "var(--text-faint)" }, children: "Delete this account" })
+  ] });
+}
+function ServerField() {
+  const serverUrl = useAuthStore((s2) => s2.serverUrl);
+  const [shown, setShown] = reactExports.useState(false);
+  const [draft, setDraft] = reactExports.useState(serverUrl);
+  reactExports.useEffect(() => setDraft(serverUrl), [serverUrl]);
+  if (!shown) {
+    return /* @__PURE__ */ jsxRuntimeExports.jsxs("button", { type: "button", onClick: () => setShown(true), style: { ...linkStyle, color: "var(--text-faint)" }, children: [
+      "Server: ",
+      hostOf(serverUrl)
+    ] });
+  }
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--line)" }, children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx(Field, { label: "Server", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+      "input",
+      {
+        value: draft,
+        onChange: (event) => setDraft(event.target.value),
+        spellCheck: false,
+        style: inputStyle
+      }
+    ) }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx(
+      "button",
+      {
+        type: "button",
+        onClick: () => {
+          void runAuth(() => window.thread.invoke["auth:setServer"]({ url: draft }));
+          setShown(false);
+        },
+        style: secondaryStyle,
+        children: "Use this server"
+      }
+    )
+  ] });
+}
+function Field({ label, children }) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { style: { display: "block", marginBottom: 12 }, children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx(
+      "span",
+      {
+        style: {
+          display: "block",
+          marginBottom: 5,
+          fontSize: "var(--text-xs)",
+          color: "var(--text-muted)"
+        },
+        children: label
+      }
+    ),
+    children
+  ] });
+}
+function hostOf(url) {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+}
+const inputStyle = {
+  width: "100%",
+  boxSizing: "border-box",
+  padding: "9px 11px",
+  borderRadius: "var(--radius-sm)",
+  border: "1px solid var(--line)",
+  background: "var(--surface)",
+  color: "var(--text)",
+  fontSize: "var(--text-sm)",
+  fontFamily: "inherit",
+  outline: "none"
+};
+function primaryStyle(enabled) {
+  return {
+    width: "100%",
+    padding: "10px 16px",
+    borderRadius: "var(--radius-md)",
+    border: "none",
+    fontSize: "var(--text-sm)",
+    fontWeight: 600,
+    cursor: enabled ? "pointer" : "default",
+    opacity: enabled ? 1 : 0.5
+  };
+}
+const secondaryStyle = {
+  padding: "8px 14px",
+  borderRadius: "var(--radius-md)",
+  border: "1px solid var(--line)",
+  background: "transparent",
+  color: "var(--text-muted)",
+  fontSize: "var(--text-sm)",
+  fontFamily: "inherit",
+  cursor: "pointer"
+};
+const linkStyle = {
+  display: "block",
+  width: "100%",
+  marginTop: 12,
+  padding: 0,
+  background: "none",
+  border: "none",
+  color: "var(--text-muted)",
+  fontSize: "var(--text-xs)",
+  fontFamily: "inherit",
+  cursor: "pointer",
+  textAlign: "center"
+};
 function Shell() {
   const tab = useUiStore((s2) => s2.tab);
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "app-bg", style: { display: "flex", height: "100vh", overflow: "hidden" }, children: [
@@ -26947,7 +27343,8 @@ function Shell() {
         tab === "analytics" ? /* @__PURE__ */ jsxRuntimeExports.jsx(AnalyticsView, {}) : null,
         tab === "park" ? /* @__PURE__ */ jsxRuntimeExports.jsx(ParkView, {}) : null
       ] })
-    ] })
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx(AccountPanel, {})
   ] });
 }
 let initialized = false;
@@ -26966,7 +27363,8 @@ function App() {
       initThreadStore(),
       initDayStore(),
       initCarryStore(),
-      initSessionStore()
+      initSessionStore(),
+      initAuthStore()
     ]).then(() => setReady(true));
     window.thread.on("storage:banner", setBanner);
   }, []);
