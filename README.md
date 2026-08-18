@@ -6,7 +6,7 @@ Local-first, file-backed, no server, no account.
 This project began as FocusBar, a simple Pomodoro timer (kept for reference in `legacy/`), and
 was rebuilt into ADHD Superpower following the full product spec: a threads board instead of a task list,
 a floating always-on-top HUD, a momentum system that replaces streaks, and a celebration overlay
-— all backed by a hand-rolled sharded JSON storage engine instead of a database.
+— all backed by a hand-rolled JSON storage engine instead of a database.
 
 ## Design principles
 
@@ -51,6 +51,16 @@ all-time totals.
 When a stage ends the timer parks on the next one, glows and chimes, and waits for Resume.
 **Park** logs a distraction, writes it to today's Park list, and adds two minutes back.
 
+## The other two repos
+
+This app is the source of the domain model; the other two mirror it property for property, so
+the same record round-trips through all three without a translation layer.
+
+| | |
+| --- | --- |
+| [`adhd-webapp`](../adhd-webapp) | the sync backend — accounts, and one copy of the data every device agrees on |
+| [`adhd-mobileapp`](../adhd-mobileapp) | the iOS client |
+
 ## Run it
 
 ```bash
@@ -66,9 +76,9 @@ npm run dev
 npm test
 ```
 
-62 unit tests covering the storage engine (kill-mid-write, backdated inserts into sealed shards,
-corrupt-shard quarantine, manifest rebuild from disk, journal replay), the momentum/insight
-math, celebration pack selection, the 25/5 stage cycle, and Notion link classification.
+67 unit tests covering the storage engine (kill-mid-write, corrupt-file quarantine, migration
+from the old sharded layout), the momentum/insight math, celebration pack selection, the 25/5
+stage cycle, sparse step ordering, and Notion link classification.
 
 ## Build
 
@@ -88,7 +98,7 @@ compile error, not a runtime surprise.
 src/
   shared/            domain model, IPC contract, constants, formatting, link handling
   main/
-    storage/         ShardedStore: manifest, journal, atomic writes, repair/quarantine, repositories
+    storage/         JsonStore: atomic writes, repair/quarantine, migration, repositories
     services/        SessionService (monotonic clock), StageController (the 25/5 cycle),
                       AnalyticsService (momentum/rollups), CelebrationOrchestrator,
                       momentum math, insight cards, link opening, login item
@@ -113,20 +123,29 @@ celebration can't strand the cycle.
 
 ### Storage
 
-Size-based sharding with a manifest index and lazy loading, hardened with a write-ahead journal:
+This used to be a size-sharded engine with a manifest index, lazy loading and a write-ahead
+journal. It was replaced by `JsonStore`, which is plain files written atomically.
 
-- shard files are always written before the manifest; the manifest is a rebuildable cache
-- every mutation is journaled (fsynced) before it's considered accepted — a crash between the
-  journal write and the shard flush is recovered by replaying the journal on boot
-- a shard that fails to parse or validate is quarantined (renamed aside), never deleted
-- `threads/active.json` is the one unsharded collection — bounded by the active-thread cap
-- steps, todos and board order use sparse integer ordering (1000, 2000, 3000) so a drag-reorder
-  writes one record's `order` field, not the whole list
+The sharding existed to keep years of records addressable without holding them all in one
+process. In practice a personal dataset is a few megabytes — the machinery was paying rent
+without earning it, and a manifest that can disagree with the files it indexes is a class of bug
+that a single file simply does not have.
 
-Every schema addition is optional, so files written by earlier versions keep parsing and no
-migration is needed.
+What survived, because it was doing real work:
 
-See `src/main/storage/ShardedStore.ts` and its test suite for the full failure-mode matrix.
+- **atomic writes** — write to a temp file and rename, so a kill mid-write leaves the previous
+  file intact rather than a truncated one
+- **quarantine, never delete** — a file that fails to parse or validate is renamed aside. The
+  data is the user's, and a copy on disk is what makes a bug reportable
+- **pretty-printed, sorted keys** — the export stays diffable and git-friendly
+- **sparse ordering** (1000, 2000, 3000) for steps, todos and the board, so a drag-reorder writes
+  one record's `order` field rather than the whole list
+
+Every schema addition is optional, so files written by earlier versions keep parsing.
+`migrate.ts` folds an existing sharded layout into the new one on first run, skipping any shard
+it cannot parse rather than failing the whole migration.
+
+See `src/main/storage/JsonStore.ts` and `migrate.ts` with their test suites.
 
 ## Status
 
