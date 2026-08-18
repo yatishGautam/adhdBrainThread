@@ -70,15 +70,55 @@ npm run dev
 
 `electron-vite dev` starts all three renderers (main window, HUD, celebration overlay) with HMR.
 
+## Accounts
+
+There is an account, and it is optional. Everything works signed out; signing in is what will
+let the same threads and days appear in [`adhd-mobileapp`](../adhd-mobileapp). It is reached
+from the bottom of the side rail, never from a launch screen — an app that opens onto a sign-in
+form is an app that failed on the day you had no signal.
+
+- `AuthService` is the only holder of the session token, and it writes it **encrypted with the
+  OS keychain** (Electron `safeStorage`) into `account.json`, never in plain text. No keychain
+  available, no persistence: the token stays in memory for that run and you sign in again next
+  launch, which is better than a plain-text token on disk.
+- `ApiClient` turns every status code into a sentence meant for a person before it leaves the
+  main process, so the renderer never interprets an HTTP code.
+- **Only a `401` signs you out.** A server that cannot be reached leaves you signed in and
+  marked offline, because the token is fine and the network is not.
+- Boot never waits on the network: `revalidate()` checks the token against `/auth/me` in the
+  background, after the window is already up.
+
+Point it at a local backend with `ADHD_API_URL`, or from the Server field in the account
+dialog:
+
+```bash
+cd ../adhd-webapp && npm run dev:up && npm run dev     # postgres on 55432, API on 8099
+ADHD_API_URL=http://localhost:8099 npm run dev
+```
+
+Syncing the records themselves is the next piece of work — the account exists and the token is
+held; nothing calls `/sync` from this app yet.
+
 ## Test
 
 ```bash
 npm test
 ```
 
-67 unit tests covering the storage engine (kill-mid-write, corrupt-file quarantine, migration
+69 unit tests covering the storage engine (kill-mid-write, corrupt-file quarantine, migration
 from the old sharded layout), the momentum/insight math, celebration pack selection, the 25/5
 stage cycle, sparse step ordering, and Notion link classification.
+
+Five more talk to a real backend and **skip themselves when none is reachable**, so the suite
+still passes on a laptop with nothing running — they are the only proof that this client and
+that server agree, rather than that this client agrees with a fixture it wrote itself:
+
+```bash
+ADHD_TEST_API=http://localhost:8099 npm test
+```
+
+Registration is rate limited to five per hour and those tests spend two, so a tight loop of
+reruns starts seeing 429s. Restart the API; the limiter counts in memory.
 
 ## Build
 
@@ -153,6 +193,10 @@ Implemented and verified end-to-end by driving the running app (storage → IPC 
 HUD → celebration overlay, zero console exceptions): the storage engine, threads board, the
 25/5 HUD, the daily page, global carry-forward to-dos and blockers, the Park view, Notion link
 handling, celebrations on every display, and the dashboard.
+
+Accounts are verified the same way, against a real backend rather than a mock — create, the
+under-length password refusal, the duplicate email, sign out, wrong password, sign back in, and
+the token surviving a full restart out of the OS keychain.
 
 Deferred to a later pass: the settings screen, data export/repair UI, keyboard shortcuts, and a
 full sound design pass. The underlying IPC handlers for repair/export already exist

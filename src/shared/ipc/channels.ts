@@ -4,6 +4,7 @@
  * other is a type error, not a runtime surprise.
  */
 import type { MomentumScope, ScopeSummary } from "../analytics.js";
+import type { AuthState, Credentials } from "../auth.js";
 import type {
 	Blocker,
 	Day,
@@ -209,6 +210,19 @@ export interface Requests {
 	"settings:get": [void, Settings];
 	"settings:update": [{ patch: Partial<Settings> }, Settings];
 
+	/**
+	 * The account. Every one of these returns the whole `AuthState` rather than a fragment, so
+	 * the renderer never has to merge two sources of truth — and every one of them can be
+	 * ignored entirely: the app works signed out.
+	 */
+	"auth:state": [void, AuthState];
+	"auth:register": [Credentials, AuthState];
+	"auth:login": [Credentials, AuthState];
+	"auth:logout": [void, AuthState];
+	"auth:deleteAccount": [void, AuthState];
+	/** Points the client at a different backend. Signs out, because a token is server-scoped. */
+	"auth:setServer": [{ url: string }, AuthState];
+
 	/** Always external, never inside the app window (§6). */
 	"link:open": [{ url: string }, void];
 	"startup:get": [void, boolean];
@@ -245,6 +259,8 @@ export interface Events {
 	"hud:attention": { stage: "focus" | "break" };
 	/** A todo or blocker changed on some other day — the carried-forward lists need a refetch. */
 	"carry:changed": void;
+	/** Signed in, signed out, or the boot-time token check came back. */
+	"auth:changed": AuthState;
 }
 
 export type RequestChannel = keyof Requests;
@@ -305,6 +321,12 @@ export const REQUEST_CHANNELS = [
 	"analytics:rebuild",
 	"settings:get",
 	"settings:update",
+	"auth:state",
+	"auth:register",
+	"auth:login",
+	"auth:logout",
+	"auth:deleteAccount",
+	"auth:setServer",
 	"link:open",
 	"startup:get",
 	"startup:set",
@@ -335,6 +357,7 @@ export const EVENT_CHANNELS = [
 	"stage:tick",
 	"hud:attention",
 	"carry:changed",
+	"auth:changed",
 ] as const satisfies readonly EventChannel[];
 
 type MissingRequestChannels = Exclude<

@@ -14,6 +14,7 @@ import type {
 } from "@shared/ipc/channels.js";
 import { Database } from "./storage/Database.js";
 import { AnalyticsService } from "./services/AnalyticsService.js";
+import { AuthService } from "./services/AuthService.js";
 import { SessionService } from "./services/SessionService.js";
 import { StageController } from "./services/StageController.js";
 import { CelebrationOrchestrator } from "./services/CelebrationOrchestrator.js";
@@ -35,6 +36,7 @@ export class AppContext {
 	stages!: StageController;
 	analytics!: AnalyticsService;
 	celebrations!: CelebrationOrchestrator;
+	auth!: AuthService;
 	main: BrowserWindow | null = null;
 	hud: BrowserWindow | null = null;
 	private overlay!: CelebrationOverlay;
@@ -58,6 +60,11 @@ export class AppContext {
 			ctx.broadcast("analytics:changed", undefined),
 		);
 		await ctx.analytics.load();
+
+		// Reads the account file only. The token is checked with the server later, from
+		// `revalidate()`, once there is a window to tell about the result.
+		ctx.auth = new AuthService(root, (state) => ctx.broadcast("auth:changed", state));
+		await ctx.auth.load();
 
 		ctx.sessions = new SessionService(ctx.db, {
 			onTick: (tick) => ctx.broadcast("session:tick", tick),
