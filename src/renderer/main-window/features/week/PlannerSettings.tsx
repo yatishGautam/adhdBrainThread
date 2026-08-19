@@ -117,7 +117,7 @@ export function PlannerSettings(): React.JSX.Element {
         </div>
       </Field>
 
-      <ApiKeyField />
+      <PlannerAvailability />
     </Panel>
   );
 }
@@ -140,114 +140,27 @@ function Spend(): React.JSX.Element | null {
 }
 
 /**
- * The key. Written to, never read from — there is no channel that returns one, so the field is
- * always empty and shows only a hint of what is already stored.
+ * Where the key is, which is: not here.
+ *
+ * There used to be a password field on this panel, and a keychain entry behind it. Both are
+ * gone. The key lives on the server, because the phone cannot hold one safely and three clients
+ * each holding their own means three keys to rotate and a bill nobody can total. What is left is
+ * a line saying so — an absent field with no explanation reads as a feature that broke.
  */
-function ApiKeyField(): React.JSX.Element {
-  const state = usePlanStore((s) => s.state);
-  const [value, setValue] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+function PlannerAvailability(): React.JSX.Element {
+	const availability = usePlanStore((s) => s.state?.availability ?? null);
 
-  const key = state?.key;
-
-  const save = async (): Promise<void> => {
-    setBusy(true);
-    setError(null);
-    try {
-      await window.thread.invoke['planner:setKey']({ key: value });
-      setValue('');
-      await refreshPlannerState();
-    } catch (err: unknown) {
-      setError(messageOf(err));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <Field label="API key">
-      {key?.configured ? (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span
-            style={{
-              fontSize: 12,
-              fontFamily: 'var(--font-mono)',
-              color: 'var(--text-muted)',
-            }}
-          >
-            {key.hint}
-          </span>
-          <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>{sourceLabel(key.source)}</span>
-          <div style={{ flex: 1 }} />
-          {key.source === 'stored' ? (
-            <button
-              onClick={() => {
-                void window.thread.invoke['planner:clearKey'](undefined).then(refreshPlannerState);
-              }}
-              style={{
-                background: 'none',
-                border: 'none',
-                color: 'var(--text-faint)',
-                fontSize: 11,
-                cursor: 'pointer',
-              }}
-            >
-              Forget it
-            </button>
-          ) : null}
-        </div>
-      ) : (
-        <div style={{ display: 'flex', gap: 8 }}>
-          <input
-            type="password"
-            value={value}
-            placeholder="sk-ant-…"
-            onChange={(e) => setValue(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && value.trim() && void save()}
-            style={{
-              flex: 1,
-              fontSize: 12.5,
-              fontFamily: 'var(--font-mono)',
-              background: 'var(--ink)',
-              border: '1px solid var(--line)',
-              borderRadius: 8,
-              padding: '7px 10px',
-            }}
-          />
-          <button
-            onClick={() => void save()}
-            disabled={!value.trim() || busy}
-            style={{
-              padding: '7px 14px',
-              borderRadius: 8,
-              border: '1px solid var(--line)',
-              background: value.trim() ? 'var(--surface-raised)' : 'transparent',
-              color: value.trim() ? 'var(--text)' : 'var(--text-faint)',
-              fontSize: 12,
-              fontFamily: 'inherit',
-              cursor: value.trim() && !busy ? 'pointer' : 'default',
-            }}
-          >
-            {busy ? 'Saving…' : 'Save'}
-          </button>
-        </div>
-      )}
-
-      {error ? (
-        <p style={{ fontSize: 11, color: 'var(--clay)', margin: '6px 0 0' }}>{error}</p>
-      ) : null}
-
-      <p style={{ fontSize: 10.5, color: 'var(--text-faint)', margin: '6px 0 0', lineHeight: 1.5 }}>
-        {key?.configured
-          ? 'Encrypted in your keychain and never leaves this machine. Billed to your Anthropic API credits, which are separate from a Claude Pro subscription.'
-          : 'From console.anthropic.com. Stored encrypted in your keychain — the app never sends it anywhere but Anthropic.'}
-        {key?.configured && !key.canPersist
-          ? ' No keyring available on this machine, so it is held for this session only.'
-          : ''}
-      </p>
-    </Field>
-  );
+	return (
+		<Field label="Where planning happens">
+			<p style={{ fontSize: 11.5, color: 'var(--text-muted)', margin: 0, lineHeight: 1.55 }}>
+				{availability?.signedIn
+					? availability.serverReady
+						? 'On your server, with its own API key. This app never sees the key, and the plan it generates syncs to every device you are signed in on — including your phone.'
+						: 'Your account is signed in, but that server has no planning key configured, so the button will not work yet.'
+					: 'On your server, with its own API key. Sign in from Settings to use it — and the plan then syncs to every device, including your phone.'}
+			</p>
+		</Field>
+	);
 }
 
 function Field({
@@ -312,16 +225,4 @@ function TimeField({
       />
     </label>
   );
-}
-
-function sourceLabel(source: string | null): string {
-  if (source === 'stored') return 'from your keychain';
-  if (source === 'env') return 'from ANTHROPIC_API_KEY';
-  if (source === 'dotenv') return 'from .env';
-  return '';
-}
-
-function messageOf(error: unknown): string {
-  const raw = error instanceof Error ? error.message : String(error);
-  return raw.replace(/^Error invoking remote method '[^']+':\s*/, '').replace(/^Error:\s*/, '');
 }

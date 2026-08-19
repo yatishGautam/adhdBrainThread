@@ -178,32 +178,16 @@ export function registerHandlers(ctx: AppContext): void {
 	// ------------------------------------------------------------------ planner
 
 	on("planner:state", async () => ctx.plannerState(), ctx);
-	on(
-		"planner:setKey",
-		async (_c, { key }) => {
-			await ctx.planner.setKey(key);
-			return ctx.plannerState();
-		},
-		ctx,
-	);
-	on(
-		"planner:clearKey",
-		async () => {
-			await ctx.planner.clearKey();
-			return ctx.plannerState();
-		},
-		ctx,
-	);
 	on("planner:get", async (_c, { localDate }) => db.plans.get(localDate), ctx);
 	on(
-		"planner:generate",
-		async (_c, request) => {
-			const plan = await ctx.planner.generate(request);
-			ctx.broadcast("planner:changed", { localDate: plan.localDate, plan });
-			return plan;
-		},
+		"planner:week",
+		async (_c, { weekKey }) => ({
+			week: await db.plans.getWeek(weekKey),
+			days: await db.plans.listWeekDays(weekKey),
+		}),
 		ctx,
 	);
+	on("planner:generate", async (_c, request) => ctx.planner.generate(request), ctx);
 	on(
 		"planner:promoteBlock",
 		async (_c, { localDate, blockId }) => {

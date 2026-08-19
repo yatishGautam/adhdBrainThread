@@ -30,14 +30,16 @@ export const COLLECTION = {
   /** Sits. Written only by the sync engine — they are recorded on the phone. */
   mindful: 'mindful',
   /**
-   * Weekly goals and generated day plans. Local to this desktop for now: the backend has no
-   * columns for either, and `SyncState.TRACKED` deliberately omits them, so a write here marks
-   * nothing dirty and nothing is ever pushed. Both are shaped like every other record —
-   * `updatedAt`, tombstones — so teaching the server about them later is a wire change, not a
-   * storage one.
+   * Weekly goals, and the plans generated from them.
+   *
+   * All three sync like everything else now that the backend has columns for them. Goals are
+   * written here and pushed; plans and week plans are written by the *server* and only ever
+   * pulled — the one exception being a tombstone, because "I threw this week's plan away" has
+   * to reach the other device.
    */
   goals: 'goals',
   plans: 'plans',
+  weekPlans: 'weekPlans',
 } as const;
 
 export type CollectionName = (typeof COLLECTION)[keyof typeof COLLECTION];

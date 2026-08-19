@@ -6,13 +6,14 @@ import { Panel } from '../today/Panel.js';
 import { useGoalStore } from '../../stores/goalStore.js';
 import { GoalRow } from './GoalRow.js';
 import { PlannerSettings } from './PlannerSettings.js';
+import { WeekPlanPanel } from './WeekPlanPanel.js';
 
 /**
- * The week: a handful of goals, and the settings the planner reads.
+ * The week: a handful of goals, the plan built from them, and the settings behind it.
  *
- * Goals only — the generated day lives on the daily page, where the day is. Putting both here
- * would make this the page you check every morning, and the whole point of a weekly page is
- * that you visit it on Monday and then leave it alone.
+ * Summaries only — the block list you actually run a timer against lives on the daily page,
+ * where the day is. Putting the full plan here would make this the page you check every morning,
+ * and the whole point of a weekly page is that you visit it on Monday and then leave it alone.
  */
 export function WeekView(): React.JSX.Element {
   const weekKey = useGoalStore((s) => s.weekKey);
@@ -113,6 +114,8 @@ export function WeekView(): React.JSX.Element {
             />
           </div>
         </Panel>
+
+        <WeekPlanPanel weekKey={weekKey} isCurrentWeek={weekKey === currentWeek} />
 
         <PlannerSettings />
       </div>

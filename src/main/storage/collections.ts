@@ -4,10 +4,18 @@
  * Threads live in one file: the active cap plus a done pile bounds it by construction. Days and
  * sessions split by month so no file grows without limit and a month is easy to open by hand.
  */
-import type { Day, DayPlan, Goal, MindfulSession, Session, Thread } from '@shared/domain.js';
+import type {
+  Day,
+  DayPlan,
+  Goal,
+  MindfulSession,
+  Session,
+  Thread,
+  WeekPlan,
+} from '@shared/domain.js';
 import { daySchema } from './schemas/day.js';
 import { goalSchema } from './schemas/goal.js';
-import { dayPlanSchema } from './schemas/plan.js';
+import { dayPlanSchema, weekPlanSchema } from './schemas/plan.js';
 import { mindfulSessionSchema } from './schemas/mindful.js';
 import { sessionSchema } from './schemas/session.js';
 import { threadSchema } from './schemas/thread.js';
@@ -59,6 +67,14 @@ export const collections: AnySpec[] = [
     schema: dayPlanSchema,
     key: (plan) => plan.localDate,
     partition: (plan) => monthOf(plan.localDate),
+  }),
+  // One record per press of the button. Fifty-two a year at most, so a file per ISO
+  // week-numbering year — the same partition the goals use, and for the same reason.
+  defineCollection<WeekPlan>({
+    name: COLLECTION.weekPlans,
+    schema: weekPlanSchema,
+    key: (plan) => plan.weekKey,
+    partition: (plan) => plan.weekKey.slice(0, 4),
   }),
 ];
 

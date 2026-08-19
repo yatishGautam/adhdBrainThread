@@ -265,11 +265,14 @@ describe('plans through the database', () => {
 
 describe('the sync queue', () => {
   /**
-   * Goals and plans are desktop-local until the backend has columns for them. If they leaked
-   * into the push queue they would be sent to a server that would reject the batch — taking
-   * every legitimate thread and day change down with them.
+   * The inverse of the guard this replaced.
+   *
+   * Goals used to be desktop-local, and a test here asserted they never entered the push queue —
+   * a deliberate tripwire, to be removed on the day the backend grew columns for them rather
+   * than left to start failing mysteriously. That day has come: a goal written on the laptop has
+   * to reach the phone, so it must queue.
    */
-  it('never queues a goal or a plan for push, but still queues a thread', async () => {
+  it('queues a goal for push, alongside a thread', async () => {
     const syncState = new SyncState(root);
     await syncState.load();
 
@@ -279,28 +282,63 @@ describe('the sync queue', () => {
       onWrite: (collection, key) => syncState.mark(collection, key),
     });
 
-    await db.goals.add('A goal', '2026-W34');
-    await db.plans.save({
-      localDate: '2026-08-19',
-      generatedAt: '2026-08-19T08:00:00.000Z',
-      wakeTime: '07:30',
-      startTime: '09:00',
-      endTime: '18:00',
-      blocks: [],
-      headline: 'x',
-      deferred: [],
-      model: 'claude-opus-5',
-      usage: { inputTokens: 1, outputTokens: 1, costUsd: 0 },
-    });
+    const goal = await db.goals.add('A goal', '2026-W34');
+    expect(syncState.keys('goals' as never)).toEqual([goal.id]);
 
-    expect(syncState.keys('goals' as never)).toEqual([]);
-    expect(syncState.keys('plans' as never)).toEqual([]);
-    expect(syncState.pendingCount()).toBe(0);
-
-    // The guard is specific to the two new collections, not a sync engine that stopped working.
     const thread = await db.threads.create('A thread');
     expect(syncState.keys('threads' as never)).toEqual([thread.id]);
-    expect(syncState.pendingCount()).toBe(1);
+    expect(syncState.pendingCount()).toBe(2);
+
+    await db.close();
+  });
+
+  /**
+   * The one asymmetry worth a test: the server authors plans, this app does not.
+   *
+   * A plan arriving from a generation is written through the untracked path, so it does not
+   * queue — pushing it back would burn a round trip settling a conflict with ourselves. Throwing
+   * one away *is* a local decision, and that has to travel.
+   */
+  it('does not queue a plan the server produced, but does queue throwing one away', async () => {
+    const syncState = new SyncState(root);
+    await syncState.load();
+    const db = await Database.open(root, {
+      onWrite: (collection, key) => syncState.mark(collection, key),
+    });
+
+    await db.plans.saveWeek(
+      {
+        weekKey: '2026-W34',
+        generatedAt: '2026-08-19T08:00:00.000Z',
+        fromDate: '2026-08-19',
+        toDate: '2026-08-23',
+        headline: 'A week',
+        deferred: [],
+        model: 'claude-opus-5',
+        usage: { inputTokens: 1, outputTokens: 1, costUsd: 0 },
+      },
+      [
+        {
+          localDate: '2026-08-19',
+          weekKey: '2026-W34',
+          generatedAt: '2026-08-19T08:00:00.000Z',
+          wakeTime: '07:30',
+          startTime: '09:00',
+          endTime: '18:00',
+          blocks: [],
+          headline: 'x',
+        },
+      ],
+    );
+
+    expect(syncState.keys('plans' as never)).toEqual([]);
+    expect(syncState.keys('weekPlans' as never)).toEqual([]);
+    expect(syncState.pendingCount()).toBe(0);
+
+    await db.plans.remove('2026-08-19');
+    expect(syncState.keys('plans' as never)).toEqual(['2026-08-19']);
+    // The tombstone stays readable on disk, but reads as no plan.
+    expect(await db.plans.get('2026-08-19')).toBeNull();
 
     await db.close();
   });

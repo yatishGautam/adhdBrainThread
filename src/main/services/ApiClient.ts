@@ -7,6 +7,7 @@
  * to interpret status codes; by the time an error reaches it, it is a sentence.
  */
 import type { Account } from "@shared/auth.js";
+import type { PlanRunState, WeekPlanAccepted, WeekPlanRequest } from "@shared/planner.js";
 import type { PullResponse, PushResponse, WireOut } from "../sync/wire.js";
 
 /** A response the server actually sent. `status` is the HTTP code. */
@@ -41,6 +42,11 @@ export interface AuthResult {
 const TIMEOUT_MS = 15_000;
 /** A first sync moves years of records, not a login form. */
 const SYNC_TIMEOUT_MS = 60_000;
+/**
+ * Planning is two short requests now, not one long one: start the run, then poll. The old
+ * 4-minute timeout is gone with the connection it was holding open.
+ */
+const PLAN_TIMEOUT_MS = 20_000;
 
 export class ApiClient {
 	constructor(private baseUrl: string) {}
@@ -92,6 +98,24 @@ export class ApiClient {
 		return this.request<PushResponse>("POST", "/sync", { token, body });
 	}
 
+	// ---------------------------------------------------------------- planner
+
+	/**
+	 * Ask the server to start planning the rest of the week.
+	 *
+	 * The key lives there, not here — one key, one bill, one prompt, and a phone that cannot hold
+	 * a key at all. This returns as soon as the run starts; the plan itself arrives through sync,
+	 * on every signed-in device rather than only this one. Poll `planStatus` to know when to stop
+	 * saying "planning…".
+	 */
+	planWeek(token: string, body: WeekPlanRequest): Promise<WeekPlanAccepted> {
+		return this.request<WeekPlanAccepted>("POST", "/plan/week", { token, body });
+	}
+
+	planStatus(token: string): Promise<PlanRunState> {
+		return this.request<PlanRunState>("GET", "/plan/status", { token });
+	}
+
 	private async request<T>(
 		method: string,
 		path: string,
@@ -107,7 +131,7 @@ export class ApiClient {
 				method,
 				headers,
 				body: options.body === undefined ? undefined : JSON.stringify(options.body),
-				signal: AbortSignal.timeout(path.startsWith("/sync") ? SYNC_TIMEOUT_MS : TIMEOUT_MS),
+				signal: AbortSignal.timeout(timeoutFor(path)),
 			});
 		} catch (error: unknown) {
 			throw new NetworkError(unreachable(this.baseUrl, error));
@@ -126,6 +150,12 @@ export class ApiClient {
 			throw new ApiError(response.status, "The server sent a reply this app could not read.");
 		}
 	}
+}
+
+function timeoutFor(path: string): number {
+	if (path.startsWith("/plan")) return PLAN_TIMEOUT_MS;
+	if (path.startsWith("/sync")) return SYNC_TIMEOUT_MS;
+	return TIMEOUT_MS;
 }
 
 /**

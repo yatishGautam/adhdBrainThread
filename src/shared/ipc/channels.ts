@@ -5,6 +5,7 @@
  */
 import type { MomentumScope, ScopeSummary } from "../analytics.js";
 import type { AuthState, Credentials } from "../auth.js";
+import type { WeekPlanAccepted } from "../planner.js";
 import type { SyncStatus } from "../sync.js";
 import type {
 	Blocker,
@@ -18,6 +19,7 @@ import type {
 	Settings,
 	Thought,
 	Thread,
+	WeekPlan,
 	ThreadStatus,
 	Todo,
 } from "../domain.js";
@@ -114,17 +116,17 @@ export interface CarryForward {
 }
 
 /**
- * What the renderer is allowed to know about the API key: whether there is one, where it came
- * from, and enough of it to tell two apart. Never the key itself — there is deliberately no
- * channel that returns one, so the main process stays its only holder.
+ * Why the button may or may not work right now.
+ *
+ * There is no key state here any more, and no channel that carries a key in either direction —
+ * the key lives on the server and this app has never seen it. What is left is the two reasons a
+ * press would fail, both of which the button can say up front instead of after a round trip.
  */
-export interface PlannerKeyState {
-	configured: boolean;
-	source: "stored" | "env" | "dotenv" | null;
-	/** `sk-ant-…4f2a`. */
-	hint: string | null;
-	/** False where the OS has no keyring: a pasted key works now but is forgotten on quit. */
-	canPersist: boolean;
+export interface PlannerAvailability {
+	/** Planning needs an account, because it happens on the server. */
+	signedIn: boolean;
+	/** Whether that server has a key configured. Unknown until the first `/auth/me`. */
+	serverReady: boolean;
 }
 
 /** What the planner has cost, so the bill is a number on screen rather than a surprise. */
@@ -138,9 +140,14 @@ export interface PlannerSpend {
 
 /** Everything the planner panel renders in one round trip. */
 export interface PlannerState {
-	key: PlannerKeyState;
+	availability: PlannerAvailability;
 	spend: PlannerSpend;
 	model: string;
+	/** The week the button would plan, and which of its days are left. */
+	weekKey: string;
+	daysLeft: number;
+	/** The current week's plan, if one has been generated. */
+	week: WeekPlan | null;
 }
 
 export interface GeneratePlanRequest {
@@ -149,7 +156,7 @@ export interface GeneratePlanRequest {
 	wakeTime?: string;
 	startTime?: string;
 	endTime?: string;
-	/** About today only, never stored — a one-off, not a preference. */
+	/** About this week only, never stored — a one-off, not a preference. */
 	note?: string;
 }
 
@@ -266,15 +273,24 @@ export interface Requests {
 	"goals:carryOver": [{ id: string; toWeek: string }, Goal[]];
 
 	/**
-	 * The day planner. `planner:generate` is the only channel in this app that costs money, so
+	 * The week planner. `planner:generate` is the only channel in this app that costs money, so
 	 * it is only ever reachable from a button — nothing calls it on boot, on a timer, or when
-	 * the board changes.
+	 * the board changes. Generation happens on the server; these channels only ask for it and
+	 * read what came back.
 	 */
 	"planner:state": [void, PlannerState];
-	"planner:setKey": [{ key: string }, PlannerState];
-	"planner:clearKey": [void, PlannerState];
 	"planner:get": [{ localDate: string }, DayPlan | null];
-	"planner:generate": [GeneratePlanRequest, DayPlan];
+	/** Every day of a week that still has a plan, in date order. */
+	"planner:week": [{ weekKey: string }, { week: WeekPlan | null; days: DayPlan[] }];
+	/**
+	 * The one channel in this app that costs money. It plans every day left in the week in a
+	 * single server call.
+	 *
+	 * It returns as soon as the run *starts*, not when it finishes — the plan takes the better
+	 * part of a minute and arrives through sync, announced by `planner:weekChanged`. Never called
+	 * except by a button.
+	 */
+	"planner:generate": [GeneratePlanRequest, WeekPlanAccepted];
 	"planner:clear": [{ localDate: string }, void];
 	/**
 	 * Turn a plan block into a real thread and link the block to it. The block stops being a
@@ -350,6 +366,13 @@ export interface Events {
 	"goals:changed": { weekKey: string; goals: Goal[] };
 	/** A plan was generated or thrown away. Null means the day no longer has one. */
 	"planner:changed": { localDate: string; plan: DayPlan | null };
+	/** A whole week was planned. Carries every day of it, so no view has to refetch. */
+	"planner:weekChanged": { weekKey: string; week: WeekPlan | null; days: DayPlan[] };
+	/**
+	 * A run ended. `error` is null when it worked — the plan itself arrives on
+	 * `planner:weekChanged`, because it comes in through sync like any other record.
+	 */
+	"planner:runFinished": { weekKey: string; error: string | null };
 	/** Signed in, signed out, or the boot-time token check came back. */
 	"auth:changed": AuthState;
 	/** Sync started, finished, went offline or failed. */
@@ -419,9 +442,8 @@ export const REQUEST_CHANNELS = [
 	"goals:reorder",
 	"goals:carryOver",
 	"planner:state",
-	"planner:setKey",
-	"planner:clearKey",
 	"planner:get",
+	"planner:week",
 	"planner:generate",
 	"planner:clear",
 	"planner:promoteBlock",
@@ -469,6 +491,8 @@ export const EVENT_CHANNELS = [
 	"carry:changed",
 	"goals:changed",
 	"planner:changed",
+	"planner:weekChanged",
+	"planner:runFinished",
 	"auth:changed",
 	"sync:changed",
 ] as const satisfies readonly EventChannel[];

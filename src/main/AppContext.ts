@@ -7,6 +7,7 @@ import { BrowserWindow, Notification, app, nativeTheme } from "electron";
 import type { Thread, Day, Goal } from "@shared/domain.js";
 import type { Settings } from "@shared/domain.js";
 import { formatDuration } from "@shared/format.js";
+import { remainingWeekDates, weekKeyOf } from "@shared/week.js";
 import type {
 	Events,
 	RecoveryOffer,
@@ -15,7 +16,6 @@ import type {
 import type { PlannerState } from "@shared/ipc/channels.js";
 import { Database } from "./storage/Database.js";
 import { AnalyticsService } from "./services/AnalyticsService.js";
-import { ApiKeyStore } from "./services/ApiKeyStore.js";
 import { PlannerService } from "./services/PlannerService.js";
 import { AuthService } from "./services/AuthService.js";
 import { SyncEngine, type SyncStatus } from "./sync/SyncEngine.js";
@@ -44,7 +44,6 @@ export class AppContext {
 	celebrations!: CelebrationOrchestrator;
 	auth!: AuthService;
 	planner!: PlannerService;
-	apiKeys!: ApiKeyStore;
 	sync!: SyncEngine;
 	syncState!: SyncState;
 	main: BrowserWindow | null = null;
@@ -54,11 +53,7 @@ export class AppContext {
 	private mainReady = false;
 	private pendingRecovery: RecoveryOffer | null = null;
 
-	/**
-	 * `projectRoot` is only ever set in development, and only so a `.env` next to the source
-	 * tree is picked up — a packaged app has no source tree and passes nothing.
-	 */
-	static async create(root: string, projectRoot?: string): Promise<AppContext> {
+	static async create(root: string): Promise<AppContext> {
 		const ctx = new AppContext();
 
 		// Loaded before the store opens, because the store's very first write has to be able to
@@ -147,10 +142,17 @@ export class AppContext {
 		);
 
 		// The planner holds no state of its own and starts nothing: it is a service the user
-		// invokes, so loading it is only finding out whether a key exists yet.
-		ctx.apiKeys = new ApiKeyStore(root);
-		await ctx.apiKeys.load(projectRoot);
-		ctx.planner = new PlannerService(ctx.db, ctx.apiKeys);
+		// invokes. It needs the account rather than a key — generation happens on the server,
+		// and this app has not held an API key since.
+		ctx.planner = new PlannerService(ctx.db, ctx.auth);
+		// The engine is built before this point but the planner needs it to pull a finished run
+		// in, and a run finishing has to reach the windows — the plan arrives through sync, so
+		// nothing would announce it otherwise.
+		ctx.planner.attachSync(ctx.sync);
+		ctx.planner.onFinished = (error, weekKey) => {
+			ctx.broadcast("planner:runFinished", { weekKey, error });
+			void ctx.announceWeekPlan(weekKey);
+		};
 
 		ctx.overlay = new CelebrationOverlay();
 		ctx.celebrations = new CelebrationOrchestrator(
@@ -407,12 +409,35 @@ export class AppContext {
 		return goals;
 	}
 
+	/** Read a week's plan back off disk and tell every window about it. */
+	async announceWeekPlan(weekKey: string): Promise<void> {
+		const [week, days] = await Promise.all([
+			this.db.plans.getWeek(weekKey),
+			this.db.plans.listWeekDays(weekKey),
+		]);
+		this.broadcast("planner:weekChanged", { weekKey, week, days });
+		for (const plan of days) {
+			this.broadcast("planner:changed", { localDate: plan.localDate, plan });
+		}
+	}
+
 	async plannerState(): Promise<PlannerState> {
-		const month = this.db.clock.today().slice(0, 7);
+		const today = this.db.clock.today();
+		const weekKey = weekKeyOf(today);
+		const auth = this.auth.state();
 		return {
-			key: this.planner.keyState(),
-			spend: await this.db.plans.spend(month),
+			availability: {
+				signedIn: Boolean(auth.account),
+				// Unknown until the first `/auth/me`, and an older backend does not send it at
+				// all. Assumed ready in that case: a button that works is a better wrong guess
+				// than one greyed out against a server that would have answered.
+				serverReady: auth.account?.plannerAvailable !== false,
+			},
+			spend: await this.db.plans.spend(today.slice(0, 7)),
 			model: this.db.settings.get().plannerModel,
+			weekKey,
+			daysLeft: remainingWeekDates(today).length,
+			week: await this.db.plans.getWeek(weekKey),
 		};
 	}
 
