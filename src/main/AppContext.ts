@@ -4,7 +4,7 @@
  * IPC handler closes over.
  */
 import { BrowserWindow, Notification, app, nativeTheme } from "electron";
-import type { Thread, Day } from "@shared/domain.js";
+import type { Thread, Day, Goal } from "@shared/domain.js";
 import type { Settings } from "@shared/domain.js";
 import { formatDuration } from "@shared/format.js";
 import type {
@@ -12,8 +12,11 @@ import type {
 	RecoveryOffer,
 	StorageBanner,
 } from "@shared/ipc/channels.js";
+import type { PlannerState } from "@shared/ipc/channels.js";
 import { Database } from "./storage/Database.js";
 import { AnalyticsService } from "./services/AnalyticsService.js";
+import { ApiKeyStore } from "./services/ApiKeyStore.js";
+import { PlannerService } from "./services/PlannerService.js";
 import { AuthService } from "./services/AuthService.js";
 import { SyncEngine, type SyncStatus } from "./sync/SyncEngine.js";
 import { SyncState } from "./sync/SyncState.js";
@@ -40,6 +43,8 @@ export class AppContext {
 	analytics!: AnalyticsService;
 	celebrations!: CelebrationOrchestrator;
 	auth!: AuthService;
+	planner!: PlannerService;
+	apiKeys!: ApiKeyStore;
 	sync!: SyncEngine;
 	syncState!: SyncState;
 	main: BrowserWindow | null = null;
@@ -49,7 +54,11 @@ export class AppContext {
 	private mainReady = false;
 	private pendingRecovery: RecoveryOffer | null = null;
 
-	static async create(root: string): Promise<AppContext> {
+	/**
+	 * `projectRoot` is only ever set in development, and only so a `.env` next to the source
+	 * tree is picked up — a packaged app has no source tree and passes nothing.
+	 */
+	static async create(root: string, projectRoot?: string): Promise<AppContext> {
 		const ctx = new AppContext();
 
 		// Loaded before the store opens, because the store's very first write has to be able to
@@ -136,6 +145,12 @@ export class AppContext {
 			},
 			() => ctx.db.settings.get().defaultSessionMs,
 		);
+
+		// The planner holds no state of its own and starts nothing: it is a service the user
+		// invokes, so loading it is only finding out whether a key exists yet.
+		ctx.apiKeys = new ApiKeyStore(root);
+		await ctx.apiKeys.load(projectRoot);
+		ctx.planner = new PlannerService(ctx.db, ctx.apiKeys);
 
 		ctx.overlay = new CelebrationOverlay();
 		ctx.celebrations = new CelebrationOrchestrator(
@@ -380,6 +395,25 @@ export class AppContext {
 
 	broadcastSettings(settings: Settings): void {
 		this.broadcast("settings:changed", settings);
+	}
+
+	/**
+	 * Every goal write funnels through here, so the handler that made the change and every
+	 * window that did not both end up looking at the same list.
+	 */
+	async broadcastGoals(weekKey: string): Promise<Goal[]> {
+		const goals = await this.db.goals.list(weekKey);
+		this.broadcast("goals:changed", { weekKey, goals });
+		return goals;
+	}
+
+	async plannerState(): Promise<PlannerState> {
+		const month = this.db.clock.today().slice(0, 7);
+		return {
+			key: this.planner.keyState(),
+			spend: await this.db.plans.spend(month),
+			model: this.db.settings.get().plannerModel,
+		};
 	}
 
 	syncStatus(): SyncStatus {

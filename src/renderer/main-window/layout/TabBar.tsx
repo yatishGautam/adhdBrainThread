@@ -6,6 +6,8 @@ import { useUiStore, type MainTab } from '../stores/uiStore.js';
 const TABS: { id: MainTab; label: string }[] = [
   { id: 'threads', label: 'Threads' },
   { id: 'today', label: 'Daily' },
+  // Between the day and the dashboard, which is where the week sits in scope as well as in time.
+  { id: 'week', label: 'Week' },
   { id: 'analytics', label: 'Dashboard' },
 ];
 

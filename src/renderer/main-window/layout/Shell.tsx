@@ -3,6 +3,7 @@ import { TabBar } from './TabBar.js';
 import { useUiStore } from '../stores/uiStore.js';
 import { TodayView } from '../features/today/TodayView.js';
 import { ThreadsView } from '../features/threads/ThreadsView.js';
+import { WeekView } from '../features/week/WeekView.js';
 import { AnalyticsView } from '../features/analytics/AnalyticsView.js';
 import { ParkView } from '../features/park/ParkView.js';
 import { AccountView } from '../features/account/AccountView.js';
@@ -18,6 +19,7 @@ export function Shell(): React.JSX.Element {
         <div style={{ flex: 1, overflow: 'auto' }}>
           {tab === 'today' ? <TodayView /> : null}
           {tab === 'threads' ? <ThreadsView /> : null}
+          {tab === 'week' ? <WeekView /> : null}
           {tab === 'analytics' ? <AnalyticsView /> : null}
           {tab === 'park' ? <ParkView /> : null}
           {tab === 'account' ? <AccountView /> : null}

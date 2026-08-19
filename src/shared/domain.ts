@@ -216,4 +216,116 @@ export interface Settings {
   timezone: string;
   /** Suppresses the recovery prompt for a session the user already answered. */
   lastOpenSessionId?: string;
+
+  /**
+   * The shape of a normal day, as `HH:MM` local wall clock. These are the planner's defaults,
+   * overridable per generation — the morning you wake at 11 should not require editing a
+   * setting, and should not silently plan a day that started two hours ago either.
+   */
+  wakeTime: string;
+  dayStartTime: string;
+  dayEndTime: string;
+  /** Anything the planner should always know: fixed meetings, medication, energy patterns. */
+  plannerContext: string;
+  /** Model id. Configurable because the bill is the user's, not a decision baked into a build. */
+  plannerModel: string;
+  /** Thinking depth. `medium` plans a day well for a fraction of `high`'s output tokens. */
+  plannerEffort: 'low' | 'medium' | 'high';
+}
+
+/**
+ * A weekly goal: one line you tick, plus as much or as little context as you feel like giving.
+ *
+ * The split is the whole point. `title` is the checkbox — it has to survive being read in a
+ * glance, so it stays one line. `context` is unbounded freeform text nobody is required to
+ * write, and it exists for the planner: a goal that says only "sort out billing" gives the
+ * model nothing to schedule, whereas the same goal with three lines about which invoices and
+ * who is waiting produces a day worth following. Context is never shown in the collapsed row —
+ * writing more must never make the list harder to scan.
+ */
+export interface Goal {
+  id: string;
+  /** The checkbox line. Kept short by the UI, not by validation. */
+  title: string;
+  done: boolean;
+  /** Markdown, freeform, usually empty. Steps, links, constraints — whatever helps. */
+  context: string;
+  /** ISO week key (`2026-W34`). See `@shared/week.ts` for why it is not just the year. */
+  weekKey: string;
+  /** Sparse manual ordering, same scheme as steps and todos. */
+  order: number;
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string;
+  completedLocalDate?: string;
+  /** Set when the goal was rolled into a later week, so the trail back is not lost. */
+  carriedFromWeek?: string;
+  /** See `Thread.deletedAt`. Goals are local-only today, but the rule is the rule. */
+  deletedAt?: string | null;
+}
+
+/** What a block of the suggested day is for. Drives its colour and whether it can start a timer. */
+export type PlanBlockKind =
+  | 'focus'
+  | 'break'
+  | 'admin'
+  | 'meal'
+  | 'buffer'
+  | 'wind_down';
+
+/**
+ * One block of the suggested day.
+ *
+ * The id fields are what stop this being decoration: a block carrying a `threadId` gets a Start
+ * button wired to the real session engine, so following the plan and using the timer are the
+ * same action rather than two. The model is told to fill them in only when it is placing an
+ * item that already exists — an invented id would render a button that starts nothing, so every
+ * one of them is checked against the real records before the plan is stored.
+ */
+export interface PlanBlock {
+  id: string;
+  /** Local wall-clock `HH:MM`, 24-hour. Not a timestamp: a plan is a shape, not a schedule. */
+  start: string;
+  end: string;
+  kind: PlanBlockKind;
+  title: string;
+  /** One short line on why this, now. The part that makes a plan arguable instead of obeyed. */
+  why?: string;
+  threadId?: string;
+  todoId?: string;
+  goalId?: string;
+}
+
+/** Token spend for one generation, kept so the running bill is visible rather than a surprise. */
+export interface PlanUsage {
+  inputTokens: number;
+  outputTokens: number;
+  /** Computed at write time from the price of the model that actually ran. */
+  costUsd: number;
+}
+
+/**
+ * A suggested day, generated on request and never automatically.
+ *
+ * Stored in its own collection keyed by local date rather than on the `Day` record, because
+ * `dayIn()` in the sync wire drops fields it does not know about — a plan living on a Day would
+ * be silently erased the next time the phone pushed that day back.
+ */
+export interface DayPlan {
+  localDate: string;
+  generatedAt: string;
+  /** What the day was planned around. Echoed back so a stale plan can say why it looks wrong. */
+  wakeTime: string;
+  startTime: string;
+  endTime: string;
+  blocks: PlanBlock[];
+  /** Two or three sentences: the shape of the day and the one thing that actually matters. */
+  headline: string;
+  /**
+   * What was deliberately left out. A planner that silently drops six todos teaches you not to
+   * trust it; one that says "not today: X, Y" is making an argument you can disagree with.
+   */
+  deferred: string[];
+  model: string;
+  usage: PlanUsage;
 }

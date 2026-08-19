@@ -21,7 +21,10 @@ async function bootstrap(): Promise<void> {
   const root = appDataRoot();
   await writeLockFile(root);
 
-  ctx = await AppContext.create(root);
+  // In development the project root is the cwd, which is where a `.env` holding an Anthropic key
+  // would sit. A packaged app has no source tree, so it passes nothing and reads only the
+  // keychain-stored key and the real environment.
+  ctx = await AppContext.create(root, app.isPackaged ? undefined : process.cwd());
   registerHandlers(ctx);
 
   ctx.setupTray(() => app.quit());

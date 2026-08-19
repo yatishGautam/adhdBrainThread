@@ -56,3 +56,36 @@ export const MILESTONE_STEP_COUNT = 10;
 export const DONE_RECENT_DAYS = 30;
 /** Threads completed longer ago than this are moved out of active.json on boot. */
 export const AUTO_ARCHIVE_AFTER_DAYS = 30;
+
+/**
+ * The day planner.
+ *
+ * Every number here exists to keep the bill small and visible. The context sent to the model is
+ * capped rather than trimmed by eye: a goal with an essay pasted into it, or a board that has
+ * grown to forty todos, must not quietly turn a one-cent request into a fifty-cent one.
+ */
+export const PLANNER_DEFAULT_MODEL = 'claude-opus-5';
+export const PLANNER_MAX_TOKENS = 4000;
+/** Per-item caps on the context bundle. Generous for real use, fatal only to runaway input. */
+export const PLANNER_GOAL_CONTEXT_CHARS = 1200;
+export const PLANNER_MAX_GOALS = 12;
+export const PLANNER_MAX_TODOS = 25;
+export const PLANNER_MAX_THREADS = 10;
+export const PLANNER_MAX_BLOCKERS = 10;
+/** How many days of finished work go in for continuity. Two is enough to say "you left off at". */
+export const PLANNER_LOOKBACK_DAYS = 2;
+export const PLANNER_MAX_RECENT_LOG = 15;
+
+/** USD per million tokens, by model. Used for the running total the planner panel shows. */
+export const MODEL_PRICES: Record<string, { input: number; output: number }> = {
+  'claude-opus-5': { input: 5, output: 25 },
+  'claude-sonnet-5': { input: 3, output: 15 },
+  'claude-haiku-4-5': { input: 1, output: 5 },
+};
+
+/** What the model picker offers. Cost is stated because it is the reason to choose. */
+export const PLANNER_MODELS = [
+  { id: 'claude-opus-5', label: 'Opus 5', note: 'Best judgement · ~$0.05 a plan' },
+  { id: 'claude-sonnet-5', label: 'Sonnet 5', note: 'Balanced · ~$0.03 a plan' },
+  { id: 'claude-haiku-4-5', label: 'Haiku 4.5', note: 'Cheapest · ~$0.01 a plan' },
+] as const;

@@ -6,6 +6,8 @@ import { initDayStore } from './stores/dayStore.js';
 import { initCarryStore } from './stores/carryStore.js';
 import { initSessionStore, useSessionStore } from './stores/sessionStore.js';
 import { initAuthStore } from './stores/authStore.js';
+import { initGoalStore } from './stores/goalStore.js';
+import { initPlanStore } from './stores/planStore.js';
 import { Shell } from './layout/Shell.js';
 
 let initialized = false;
@@ -28,6 +30,8 @@ export function App(): React.JSX.Element {
       initCarryStore(),
       initSessionStore(),
       initAuthStore(),
+      initGoalStore(),
+      initPlanStore(),
     ]).then(() => setReady(true));
     window.thread.on('storage:banner', setBanner);
   }, []);
