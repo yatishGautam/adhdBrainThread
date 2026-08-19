@@ -6,8 +6,11 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 
 export const preloadPath = path.join(here, '../preload/index.mjs');
 
-/** In dev the three renderers are pages on one Vite server; in production they are built files. */
-export function loadRenderer(window: BrowserWindow, page: 'index' | 'hud' | 'celebration'): void {
+/** In dev the four renderers are pages on one Vite server; in production they are built files. */
+export function loadRenderer(
+  window: BrowserWindow,
+  page: 'index' | 'hud' | 'celebration' | 'calendar',
+): void {
   const devServer = process.env['ELECTRON_RENDERER_URL'];
   if (devServer) {
     void window.loadURL(`${devServer}/${page === 'index' ? '' : `${page}.html`}`);

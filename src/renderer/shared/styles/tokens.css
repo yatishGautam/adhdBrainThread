@@ -217,3 +217,27 @@ button:focus-visible {
 .display {
   font-family: var(--font-display);
 }
+
+/*
+ * The one thing on the calendar allowed to move: the session running right now. Everything else
+ * on that grid is a record of something settled, and a calendar where several things breathe is
+ * a calendar you cannot glance at.
+ */
+@keyframes calendarPulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.62;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  @keyframes calendarPulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+  }
+}

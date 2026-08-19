@@ -8,6 +8,7 @@ import { initSessionStore, useSessionStore } from './stores/sessionStore.js';
 import { initAuthStore } from './stores/authStore.js';
 import { initGoalStore } from './stores/goalStore.js';
 import { initPlanStore } from './stores/planStore.js';
+import { initCalendarStore } from './stores/calendarStore.js';
 import { Shell } from './layout/Shell.js';
 
 let initialized = false;
@@ -32,6 +33,7 @@ export function App(): React.JSX.Element {
       initAuthStore(),
       initGoalStore(),
       initPlanStore(),
+      initCalendarStore(),
     ]).then(() => setReady(true));
     window.thread.on('storage:banner', setBanner);
   }, []);

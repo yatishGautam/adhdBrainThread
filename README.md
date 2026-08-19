@@ -29,8 +29,8 @@ a floating always-on-top HUD, a momentum system that replaces streaks, and a cel
 
 ## The app
 
-Four tabs — **Threads · Daily · Week · Dashboard** — plus a collapsible sidebar that groups past
-days year → month → day and stars weekends.
+Five tabs — **Threads · Daily · Week · Calendar · Dashboard** — plus a collapsible sidebar that
+groups past days year → month → day and stars weekends.
 
 **Threads** is the board. Up to five active threads (done and dormant don't count), each with a
 name, an optional Notion or web link chip, a next step, a status, and a collapsible checklist
@@ -67,6 +67,9 @@ cannot argue with is one you stop reading.
 
 Generation happens on the server, not here, so the plan arrives on your phone without anyone
 pressing anything there. See [Week planner](#week-planner).
+
+**Calendar** is where you find out whether the week you generated survived the week you had. See
+[Calendar](#calendar).
 
 **Dashboard** keeps the momentum system — a rolling score that dents rather than resets — and
 adds plain counts: steps completed, average and longest block, when you actually start work, and
@@ -159,6 +162,67 @@ Without that flag, planning again on Friday would leave Wednesday's thread alive
 with nothing pointing at it, and the next run with no idea that hour was already spoken for.
 
 See `src/main/services/PlannerService.ts` here, and `src/planner/` in the backend repo.
+
+## Calendar
+
+Three scopes, and they answer three different questions rather than being three zoom levels of
+one. **Month** is *pattern* — where the good weeks were. **Week** is *shape* — did the plan
+survive contact. **Day** is *sequence* — what now, and did the last thing happen.
+
+### Two lanes
+
+The week grid splits every day: the plan on the left, what actually happened on the right.
+
+A single merged column can only tell you what is on Tuesday. Two lanes answer the question you
+actually have after generating a week — a day where the right lane mirrors the left went to plan,
+a day with a full left lane and an empty right one did not, and a day with an empty left lane and
+a busy right one is work nobody planned, which is usually the most informative square on screen.
+
+A plan is drawn as an **outline** — a shape you were going to fill. A session is **solid**,
+because it happened. So a good week is a screen of filled shapes and a scattered one is a screen
+of empty ones, legible before you read a single word.
+
+Nothing here draws an unmet block as a failure: no red, no strike-through. A plan is a suggestion
+that was true when it was made, and a calendar that scolds you on a bad week is one you stop
+opening on bad weeks — which are the weeks it would have been most useful.
+
+### It is honest about what happened
+
+A block is **done because a real session touched its thread**, never because the clock has gone
+past its end. A plan that marks itself complete as the afternoon arrives is a plan that lies, and
+putting the plan and the day on one timeline is only worth doing if it doesn't.
+
+Sessions are matched to blocks by thread first and clock second. Thread first, so a block you
+finally got to after dinner counts rather than reading as ignored. Clock second, because a thread
+commonly appears twice in a day — crediting both blocks with every minute spent on it would
+report two hours of work for one.
+
+### The floating calendar
+
+**Float** (or the tray) pops the calendar into a small always-on-top window, the same three views
+at a smaller size. It exists because the alternative to *glancing* at a calendar is *opening* one,
+and alt-tabbing to another window to check what was next is the exact moment the thread gets
+dropped.
+
+It is deliberately not interactive beyond changing what it shows — nothing to start, tick or edit.
+A widget you can work in stops being a glance and becomes a second app.
+
+Unlike the HUD it floats above normal windows but not above full-screen ones: a timer you cannot
+lose is worth interrupting a presentation for, and a calendar is not.
+
+### Where the data comes from
+
+From the backend's `GET /calendar`, which composes the projection once so the laptop and the phone
+cannot disagree about the same Tuesday — **and** from local files, which is what actually paints.
+
+The order matters and is not interchangeable. `calendar:get` builds the week from disk and always
+answers; `calendar:refresh` asks the server and swaps its answer in only if one arrives. Fetching
+first and falling back on failure would make every calendar paint wait on a timeout the moment the
+wifi is captive-portalled, which is precisely the case the local-first design exists for. Signed
+out, the local build is the whole answer — the app works signed out, and so does the calendar.
+
+The projection itself lives in `src/shared/calendar.ts`, ported rule for rule from the backend's
+`src/calendar.ts` with its tests, the same way `week.ts` was.
 
 ## The other two repos
 
