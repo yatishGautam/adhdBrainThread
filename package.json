@@ -15,7 +15,8 @@
 		"test:watch": "vitest",
 		"seed": "node --experimental-strip-types scripts/seed.ts",
 		"dist:mac": "npm run build && electron-builder --mac dmg zip",
-		"pack:mac": "npm run build && electron-builder --mac dir"
+		"pack:mac": "npm run build && electron-builder --mac dir",
+		"install:mac": "npm run pack:mac && bash scripts/install-mac.sh"
 	},
 	"dependencies": {
 		"date-fns": "^4.1.0",
