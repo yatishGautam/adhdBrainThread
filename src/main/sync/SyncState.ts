@@ -26,6 +26,16 @@ interface Persisted {
 	lastSyncedAt: string | null;
 	profileDirty: boolean;
 	dirty: Record<string, string[]>;
+	/**
+	 * Whether this device has ever offered its pre-existing records to the server.
+	 *
+	 * Absent in files written before the backfill existed, which is deliberate: those are
+	 * exactly the installs that need it. A device that had records before it signed in never
+	 * marked them dirty — nothing had written them *since* sync existed — so the queue was
+	 * empty and the engine had nothing to push. The laptop was correct that it had nothing
+	 * pending, and the account stayed empty regardless.
+	 */
+	backfilled?: boolean;
 }
 
 export interface SyncSnapshot {
@@ -39,6 +49,7 @@ export class SyncState {
 	private cursor = 0;
 	private lastSyncedAt: string | null = null;
 	private profileDirty = false;
+	private backfilled = false;
 	private readonly dirty = new Map<CollectionName, Set<string>>(
 		TRACKED.map((name) => [name, new Set<string>()]),
 	);
@@ -59,6 +70,9 @@ export class SyncState {
 			this.cursor = Number.isFinite(parsed.cursor) ? parsed.cursor : 0;
 			this.lastSyncedAt = parsed.lastSyncedAt ?? null;
 			this.profileDirty = parsed.profileDirty ?? false;
+			// Absent means "written before the backfill existed", which is exactly the install
+			// that needs one — so the default is false, not true.
+			this.backfilled = parsed.backfilled ?? false;
 			for (const name of TRACKED) {
 				this.dirty.set(name, new Set(parsed.dirty?.[name] ?? []));
 			}
@@ -94,6 +108,30 @@ export class SyncState {
 
 	get isProfileDirty(): boolean {
 		return this.profileDirty;
+	}
+
+	get hasBackfilled(): boolean {
+		return this.backfilled;
+	}
+
+	/** Queues many keys at once. Used by the one-time backfill. */
+	markMany(name: CollectionName, keys: readonly string[]): void {
+		const set = this.dirty.get(name);
+		if (!set) return;
+		let changed = false;
+		for (const key of keys) {
+			if (!set.has(key)) {
+				set.add(key);
+				changed = true;
+			}
+		}
+		if (changed) this.schedulePersist();
+	}
+
+	markBackfilled(): void {
+		if (this.backfilled) return;
+		this.backfilled = true;
+		this.schedulePersist();
 	}
 
 	/** Called for every local write, from the store's own write path. */
@@ -150,6 +188,8 @@ export class SyncState {
 		this.cursor = 0;
 		this.lastSyncedAt = null;
 		this.profileDirty = false;
+		// A different account has never seen this device's records either.
+		this.backfilled = false;
 		for (const set of this.dirty.values()) set.clear();
 		this.schedulePersist();
 	}
@@ -196,6 +236,7 @@ export class SyncState {
 			cursor: this.cursor,
 			lastSyncedAt: this.lastSyncedAt,
 			profileDirty: this.profileDirty,
+			backfilled: this.backfilled,
 			dirty: Object.fromEntries(TRACKED.map((name) => [name, this.keys(name)])),
 		};
 		await atomicWriteFile(this.file, `${JSON.stringify(out, null, 2)}\n`);
