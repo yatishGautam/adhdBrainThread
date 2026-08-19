@@ -151,6 +151,24 @@ export interface PlannerState {
 	week: WeekPlan | null;
 }
 
+/**
+ * Whether the backend is answering, right now.
+ *
+ * Deliberately unauthenticated and deliberately not derived from `SyncStatus`: sync only runs
+ * when someone is signed in, so a signed-out user staring at a broken app had no way to find
+ * out whether the server or their wifi was the problem. `latencyMs` is there so a green light
+ * that took four seconds to arrive does not read the same as one that came back instantly.
+ */
+export interface ServerHealth {
+	online: boolean;
+	/** The host that was asked, so the answer names what it is about. */
+	host: string;
+	/** Round trip in milliseconds. Null when nothing came back to time. */
+	latencyMs: number | null;
+	/** Why it is not online, already written as a sentence. Null when it is. */
+	message: string | null;
+}
+
 /** What a view asks for. The scope picks the detail level, not just the layout. */
 export interface CalendarRequest {
 	from: string;
@@ -337,6 +355,15 @@ export interface Requests {
 	"calendar:get": [CalendarRequest, CalendarPayload];
 	"calendar:refresh": [CalendarRequest, CalendarPayload | null];
 
+	/**
+	 * Ping the backend and say whether it answered. A button press, never a poll — nothing calls
+	 * this on boot or on a timer, because a light nobody asked for is a light nobody trusts.
+	 *
+	 * Unauthenticated, so it answers signed out too: being signed out is not the same as being
+	 * offline, and the person most likely to ask this is the one who cannot sign in.
+	 */
+	"server:health": [void, ServerHealth];
+
 	"analytics:scope": [{ scope: MomentumScope; anchor: string }, ScopeSummary];
 	"analytics:rebuild": [void, void];
 
@@ -490,6 +517,7 @@ export const REQUEST_CHANNELS = [
 	"planner:promoteBlock",
 	"calendar:get",
 	"calendar:refresh",
+	"server:health",
 	"analytics:scope",
 	"analytics:rebuild",
 	"settings:get",

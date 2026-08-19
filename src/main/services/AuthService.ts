@@ -17,10 +17,11 @@
 import { safeStorage } from "electron";
 import path from "node:path";
 import type { Account, AuthState } from "@shared/auth.js";
+import type { ServerHealth } from "@shared/ipc/channels.js";
 import { DEFAULT_SERVER_URL } from "@shared/auth.js";
 import { systemTimezone } from "@shared/time.js";
 import { atomicWriteFile, readFileIfExists } from "../storage/atomicWrite.js";
-import { ApiClient, ApiError, normaliseUrl } from "./ApiClient.js";
+import { ApiClient, ApiError, hostOf, normaliseUrl } from "./ApiClient.js";
 
 interface StoredAccount {
 	version: 1;
@@ -181,6 +182,39 @@ export class AuthService {
 			return this.state();
 		} finally {
 			this.setBusy(false);
+		}
+	}
+
+	/**
+	 * Ask the server whether it is there, and time how long it took to say so.
+	 *
+	 * Deliberately leaves `offline` alone. That flag is what the token check and sync found, and
+	 * a probe of an unauthenticated endpoint proves nothing either way about a session — a green
+	 * light here with an expired token is a true statement about the server, and quietly
+	 * rewriting the account's state from a diagnostic button would make the two disagree.
+	 */
+	async checkHealth(): Promise<ServerHealth> {
+		const host = hostOf(this.api.url);
+		const started = Date.now();
+		try {
+			const body = await this.api.health();
+			// A 200 from something that is not this backend is still a reachable host, but it is
+			// not the server this app needs, so `ok: false` is taken at its word.
+			const online = body?.ok !== false;
+			return {
+				online,
+				host,
+				latencyMs: Date.now() - started,
+				message: online ? null : `${host} answered, but says it is not healthy.`,
+			};
+		} catch (error: unknown) {
+			// Every message ApiClient throws is already a sentence written for a person.
+			return {
+				online: false,
+				host,
+				latencyMs: null,
+				message: error instanceof Error ? error.message : `Could not reach ${host}.`,
+			};
 		}
 	}
 

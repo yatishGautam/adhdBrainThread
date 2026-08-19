@@ -50,6 +50,11 @@ const SYNC_TIMEOUT_MS = 60_000;
 const PLAN_TIMEOUT_MS = 20_000;
 /** Bigger than a form post, smaller than a first sync. Nothing on screen waits for it. */
 const CALENDAR_TIMEOUT_MS = 30_000;
+/**
+ * Someone is watching this one. A health check that takes fifteen seconds to give up has
+ * already answered the question it was asked, so it gives up sooner than anything else here.
+ */
+const HEALTH_TIMEOUT_MS = 5_000;
 
 export class ApiClient {
 	constructor(private baseUrl: string) {}
@@ -119,6 +124,14 @@ export class ApiClient {
 		return this.request<PlanRunState>("GET", "/plan/status", { token });
 	}
 
+	/**
+	 * Is the server up? The one call here that carries no token and needs no account — being
+	 * signed out is not the same as being offline, and the answer is the same either way.
+	 */
+	health(): Promise<{ ok: boolean; at?: string }> {
+		return this.request<{ ok: boolean; at?: string }>("GET", "/health");
+	}
+
 	// --------------------------------------------------------------- calendar
 
 	/**
@@ -184,6 +197,7 @@ function timeoutFor(path: string): number {
 	// A month of calendar is a bigger read than a login and a smaller one than a first sync.
 	// It gets its own budget rather than the 15s default because nothing waits on it anyway —
 	// a slow answer that eventually lands still beats a timeout the user never learns about.
+	if (path.startsWith("/health")) return HEALTH_TIMEOUT_MS;
 	if (path.startsWith("/calendar")) return CALENDAR_TIMEOUT_MS;
 	return TIMEOUT_MS;
 }
@@ -204,7 +218,7 @@ function unreachable(baseUrl: string, error: unknown): string {
 		: `Could not reach ${host}. Check your connection — your work is saved locally either way.`;
 }
 
-function hostOf(baseUrl: string): string {
+export function hostOf(baseUrl: string): string {
 	try {
 		return new URL(baseUrl).host;
 	} catch {

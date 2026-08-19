@@ -260,6 +260,23 @@ let the same threads and days appear in [`adhd-mobileapp`](../adhd-mobileapp). I
 from the bottom of the side rail, never from a launch screen — an app that opens onto a sign-in
 form is an app that failed on the day you had no signal.
 
+### Is the server up?
+
+A **Check** button at the bottom of the account page, with a light and a sentence. It answers
+signed out too — being signed out is not the same as being offline, and the person most likely to
+be asking is the one who cannot sign in.
+
+It checks when pressed and at no other time. A light that polled would be a background request
+every few seconds for a question nobody asked, and it would go red on a train to tell someone
+whose work is already safely on this Mac that something is broken.
+
+**A green light means the host answered — not that a sync would succeed.** `/health` is a liveness
+probe and touches no database, so the wording stays inside what it can show: it says the host
+answered and how fast, never that anything is "working". That is the useful question anyway, since
+this exists to separate "my wifi is down" from "the server is down". The failure text ends with
+*Nothing here depends on it*, which is the truth worth repeating: every write landed on this Mac
+before the server heard of it.
+
 - `AuthService` is the only holder of the session token, and it writes it **encrypted with the
   OS keychain** (Electron `safeStorage`) into `account.json`, never in plain text. No keychain
   available, no persistence: the token stays in memory for that run and you sign in again next

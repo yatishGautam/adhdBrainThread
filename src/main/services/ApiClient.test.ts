@@ -37,6 +37,13 @@ describe('a server that is not there', () => {
   });
 });
 
+describe('health', () => {
+  it('fails as a NetworkError when nothing is listening, so the light can go red without signing anyone out', async () => {
+    const client = new ApiClient('http://127.0.0.1:1');
+    await expect(client.health()).rejects.toBeInstanceOf(NetworkError);
+  });
+});
+
 describe.skipIf(!API)('against a real backend', () => {
   const client = new ApiClient(API as string);
 
@@ -78,6 +85,11 @@ describe.skipIf(!API)('against a real backend', () => {
       status: 401,
       message: 'Email or password is wrong.',
     });
+  });
+
+  it('answers /health without a token — being signed out is not the same as being offline', async () => {
+    const health = await client.health();
+    expect(health.ok).toBe(true);
   });
 
   it('treats a token the server does not know as expired, and only that as signed out', async () => {

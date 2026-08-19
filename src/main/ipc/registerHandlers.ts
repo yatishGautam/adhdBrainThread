@@ -591,6 +591,11 @@ export function registerHandlers(ctx: AppContext): void {
 	// The view already has a complete calendar, so there is nothing here to report as an error.
 	on("calendar:refresh", async (c, request) => c.calendar.remote(request), ctx);
 
+	// ------------------------------------------------------------------ server
+
+	// A button press, never a poll. Unauthenticated, so it answers signed out too.
+	on("server:health", async () => ctx.auth.checkHealth(), ctx);
+
 	// --------------------------------------------------------------- analytics
 
 	on(

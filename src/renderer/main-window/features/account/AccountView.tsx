@@ -3,6 +3,7 @@ import { MIN_PASSWORD_LENGTH } from '@shared/auth.js';
 import { runAuth, useAuthStore } from '../../stores/authStore.js';
 import { useUiStore } from '../../stores/uiStore.js';
 import { SyncPanel } from './SyncPanel.js';
+import { ServerStatus } from './ServerStatus.js';
 
 type Mode = 'signin' | 'create';
 
@@ -37,6 +38,13 @@ export function AccountView(): React.JSX.Element {
       </button>
 
       {account ? <SignedIn /> : <SignedOut />}
+
+      {/*
+        Last on the page, and outside the signed-in branch on purpose: whether the backend is up
+        is a question about the server, not about you, and the person most likely to be asking it
+        is the one who cannot sign in.
+      */}
+      <ServerStatus />
     </div>
   );
 }
