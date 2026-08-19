@@ -114,6 +114,141 @@ export function registerHandlers(ctx: AppContext): void {
 		ctx,
 	);
 
+	// -------------------------------------------------------------------- goals
+
+	on("goals:list", async (_c, { weekKey }) => db.goals.list(weekKey), ctx);
+	on("goals:weeks", async () => db.goals.weeks(), ctx);
+	on(
+		"goals:add",
+		async (_c, { title, weekKey }) => {
+			const trimmed = title.trim();
+			if (!trimmed) throw new Error("A goal needs a name.");
+			const goal = await db.goals.add(trimmed, weekKey);
+			return ctx.broadcastGoals(goal.weekKey);
+		},
+		ctx,
+	);
+	on(
+		"goals:update",
+		async (_c, { id, patch }) => {
+			const goal = await db.goals.update(id, patch);
+			return ctx.broadcastGoals(goal.weekKey);
+		},
+		ctx,
+	);
+	on(
+		"goals:toggle",
+		async (_c, { id }) => {
+			const goal = await db.goals.toggle(id);
+			return ctx.broadcastGoals(goal.weekKey);
+		},
+		ctx,
+	);
+	on(
+		"goals:remove",
+		async (_c, { id }) => {
+			const goal = await db.goals.get(id);
+			await db.goals.remove(id);
+			return ctx.broadcastGoals(goal?.weekKey ?? db.goals.currentWeek());
+		},
+		ctx,
+	);
+	on(
+		"goals:reorder",
+		async (_c, { id, toIndex }) => {
+			const goal = await db.goals.get(id);
+			await db.goals.reorder(id, toIndex);
+			return ctx.broadcastGoals(goal?.weekKey ?? db.goals.currentWeek());
+		},
+		ctx,
+	);
+	on(
+		"goals:carryOver",
+		async (_c, { id, toWeek }) => {
+			const before = await db.goals.get(id);
+			const goal = await db.goals.carryOver(id, toWeek);
+			// Both weeks changed: the goal left one list and joined another, and a renderer
+			// looking at the week it left has to hear about it too.
+			if (before && before.weekKey !== goal.weekKey) await ctx.broadcastGoals(before.weekKey);
+			return ctx.broadcastGoals(goal.weekKey);
+		},
+		ctx,
+	);
+
+	// ------------------------------------------------------------------ planner
+
+	on("planner:state", async () => ctx.plannerState(), ctx);
+	on(
+		"planner:setKey",
+		async (_c, { key }) => {
+			await ctx.planner.setKey(key);
+			return ctx.plannerState();
+		},
+		ctx,
+	);
+	on(
+		"planner:clearKey",
+		async () => {
+			await ctx.planner.clearKey();
+			return ctx.plannerState();
+		},
+		ctx,
+	);
+	on("planner:get", async (_c, { localDate }) => db.plans.get(localDate), ctx);
+	on(
+		"planner:generate",
+		async (_c, request) => {
+			const plan = await ctx.planner.generate(request);
+			ctx.broadcast("planner:changed", { localDate: plan.localDate, plan });
+			return plan;
+		},
+		ctx,
+	);
+	on(
+		"planner:promoteBlock",
+		async (_c, { localDate, blockId }) => {
+			const plan = await db.plans.get(localDate);
+			if (!plan) throw new Error("There is no plan for that day.");
+			const block = plan.blocks.find((candidate) => candidate.id === blockId);
+			if (!block) throw new Error("That block is no longer in the plan.");
+
+			// Already linked: hand back what exists rather than creating a duplicate thread for
+			// a block the user double-clicked.
+			if (block.threadId) {
+				const existing = await db.threads.get(block.threadId);
+				if (existing) return { plan, thread: existing };
+			}
+
+			// The cap is enforced here rather than in the repository, so the message the user
+			// sees is the same one the board gives them.
+			const board = await db.threads.activeList();
+			if (board.length >= ACTIVE_THREAD_CAP) {
+				throw new Error(
+					`At most ${ACTIVE_THREAD_CAP} active threads. Finish one, or move one to the dormant zone.`,
+				);
+			}
+
+			// The block's reason becomes the thread's notes — it is the one sentence explaining
+			// why this is worth doing, and losing it at exactly the moment the work becomes real
+			// would be the wrong trade.
+			const thread = await db.threads.create(block.title, block.why ?? "");
+			const linked = await db.plans.linkBlock(localDate, blockId, thread.id);
+
+			ctx.broadcast("planner:changed", { localDate, plan: linked });
+			ctx.broadcastThreads();
+			return { plan: linked, thread };
+		},
+		ctx,
+	);
+	on(
+		"planner:clear",
+		async (_c, { localDate }) => {
+			await db.plans.remove(localDate);
+			ctx.broadcast("planner:changed", { localDate, plan: null });
+		},
+		ctx,
+	);
+
 	// -------------------------------------------------------------------- steps
 
 	on(

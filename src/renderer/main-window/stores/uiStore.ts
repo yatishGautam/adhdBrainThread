@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 
 /** 'park' is a full page but not a tab — reached from the dashboard stat or the Park panel. */
-export type MainTab = 'today' | 'threads' | 'analytics' | 'park' | 'account';
+export type MainTab = 'today' | 'threads' | 'week' | 'analytics' | 'park' | 'account';
 
 interface UiStore {
   tab: MainTab;

@@ -2,6 +2,7 @@ import { formatLongDate } from '@shared/format.js';
 import { useDayStore } from '../../stores/dayStore.js';
 import { PageHeader } from '../../../shared/components/PageHeader.js';
 import { NowSection } from './NowSection.js';
+import { PlanSection } from './PlanSection.js';
 import { TodayThreads } from './TodayThreads.js';
 import { TodoList } from './TodoList.js';
 import { BlockerList } from './BlockerList.js';
@@ -40,6 +41,7 @@ export function TodayView(): React.JSX.Element {
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
         <NowSection day={day} localDate={localDate} />
+        <PlanSection localDate={localDate} />
         <TodayThreads readOnly={false} />
         <TodoList localDate={localDate} />
         <BlockerList localDate={localDate} />

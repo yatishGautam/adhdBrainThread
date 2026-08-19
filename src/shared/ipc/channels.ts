@@ -9,8 +9,10 @@ import type { SyncStatus } from "../sync.js";
 import type {
 	Blocker,
 	Day,
+	DayPlan,
 	Distraction,
 	DistractionKind,
+	Goal,
 	Session,
 	SessionOutcome,
 	Settings,
@@ -111,6 +113,46 @@ export interface CarryForward {
 	blockers: Blocker[];
 }
 
+/**
+ * What the renderer is allowed to know about the API key: whether there is one, where it came
+ * from, and enough of it to tell two apart. Never the key itself — there is deliberately no
+ * channel that returns one, so the main process stays its only holder.
+ */
+export interface PlannerKeyState {
+	configured: boolean;
+	source: "stored" | "env" | "dotenv" | null;
+	/** `sk-ant-…4f2a`. */
+	hint: string | null;
+	/** False where the OS has no keyring: a pasted key works now but is forgotten on quit. */
+	canPersist: boolean;
+}
+
+/** What the planner has cost, so the bill is a number on screen rather than a surprise. */
+export interface PlannerSpend {
+	month: string;
+	plans: number;
+	costUsd: number;
+	totalPlans: number;
+	totalCostUsd: number;
+}
+
+/** Everything the planner panel renders in one round trip. */
+export interface PlannerState {
+	key: PlannerKeyState;
+	spend: PlannerSpend;
+	model: string;
+}
+
+export interface GeneratePlanRequest {
+	/** Defaults to today. */
+	localDate?: string;
+	wakeTime?: string;
+	startTime?: string;
+	endTime?: string;
+	/** About today only, never stored — a one-off, not a preference. */
+	note?: string;
+}
+
 /** [request, response] for every `invoke` channel. */
 export interface Requests {
 	"threads:list": [void, Thread[]];
@@ -205,6 +247,45 @@ export interface Requests {
 	"stage:skip": [void, StageState | null];
 	"stage:stop": [void, null];
 
+	/**
+	 * Weekly goals. Every write answers with the whole week's list rather than one goal, for the
+	 * same reason the auth channels answer with the whole `AuthState`: the renderer never has to
+	 * merge a fragment into a list it also holds.
+	 */
+	"goals:list": [{ weekKey?: string }, Goal[]];
+	"goals:weeks": [void, string[]];
+	"goals:add": [{ title: string; weekKey?: string }, Goal[]];
+	"goals:update": [
+		{ id: string; patch: Partial<Pick<Goal, "title" | "context">> },
+		Goal[],
+	];
+	"goals:toggle": [{ id: string }, Goal[]];
+	"goals:remove": [{ id: string }, Goal[]];
+	"goals:reorder": [{ id: string; toIndex: number }, Goal[]];
+	/** Move an unfinished goal into another week. Always a deliberate press, never automatic. */
+	"goals:carryOver": [{ id: string; toWeek: string }, Goal[]];
+
+	/**
+	 * The day planner. `planner:generate` is the only channel in this app that costs money, so
+	 * it is only ever reachable from a button — nothing calls it on boot, on a timer, or when
+	 * the board changes.
+	 */
+	"planner:state": [void, PlannerState];
+	"planner:setKey": [{ key: string }, PlannerState];
+	"planner:clearKey": [void, PlannerState];
+	"planner:get": [{ localDate: string }, DayPlan | null];
+	"planner:generate": [GeneratePlanRequest, DayPlan];
+	"planner:clear": [{ localDate: string }, void];
+	/**
+	 * Turn a plan block into a real thread and link the block to it. The block stops being a
+	 * suggestion and starts being work you can run a timer on — the same move `todo:promote`
+	 * makes, and it returns both halves for the same reason.
+	 */
+	"planner:promoteBlock": [
+		{ localDate: string; blockId: string },
+		{ plan: DayPlan; thread: Thread },
+	];
+
 	"analytics:scope": [{ scope: MomentumScope; anchor: string }, ScopeSummary];
 	"analytics:rebuild": [void, void];
 
@@ -265,6 +346,10 @@ export interface Events {
 	"hud:attention": { stage: "focus" | "break" };
 	/** A todo or blocker changed on some other day — the carried-forward lists need a refetch. */
 	"carry:changed": void;
+	/** A goal was added, edited, ticked or moved. Carries the affected week's whole list. */
+	"goals:changed": { weekKey: string; goals: Goal[] };
+	/** A plan was generated or thrown away. Null means the day no longer has one. */
+	"planner:changed": { localDate: string; plan: DayPlan | null };
 	/** Signed in, signed out, or the boot-time token check came back. */
 	"auth:changed": AuthState;
 	/** Sync started, finished, went offline or failed. */
@@ -325,6 +410,21 @@ export const REQUEST_CHANNELS = [
 	"stage:resume",
 	"stage:skip",
 	"stage:stop",
+	"goals:list",
+	"goals:weeks",
+	"goals:add",
+	"goals:update",
+	"goals:toggle",
+	"goals:remove",
+	"goals:reorder",
+	"goals:carryOver",
+	"planner:state",
+	"planner:setKey",
+	"planner:clearKey",
+	"planner:get",
+	"planner:generate",
+	"planner:clear",
+	"planner:promoteBlock",
 	"analytics:scope",
 	"analytics:rebuild",
 	"settings:get",
@@ -367,6 +467,8 @@ export const EVENT_CHANNELS = [
 	"stage:tick",
 	"hud:attention",
 	"carry:changed",
+	"goals:changed",
+	"planner:changed",
 	"auth:changed",
 	"sync:changed",
 ] as const satisfies readonly EventChannel[];

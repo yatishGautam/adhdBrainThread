@@ -4,6 +4,8 @@ import { promises } from "node:fs";
 import path from "node:path";
 import "node:crypto";
 import { toZonedTime, format } from "date-fns-tz";
+import Anthropic from "@anthropic-ai/sdk";
+import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
 import __cjs_mod__ from "node:module";
@@ -15,6 +17,9 @@ function formatClock(ms) {
   const minutes = Math.floor(total / 60);
   const seconds = total % 60;
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+function formatTrayCountdown(ms) {
+  return `${Math.ceil(Math.max(0, ms) / 6e4)}m`;
 }
 function formatDuration(ms) {
   const minutes = Math.round(ms / 6e4);
@@ -34,7 +39,7 @@ const WEEKDAYS = [
   "Friday",
   "Saturday"
 ];
-const MONTHS = [
+const MONTHS$1 = [
   "January",
   "February",
   "March",
@@ -59,11 +64,11 @@ function parts(localDate2) {
 }
 function formatLocalDate(localDate2) {
   const { month, day, weekday } = parts(localDate2);
-  return `${WEEKDAYS[weekday]?.slice(0, 3)} ${day} ${MONTHS[month - 1]?.slice(0, 3)}`;
+  return `${WEEKDAYS[weekday]?.slice(0, 3)} ${day} ${MONTHS$1[month - 1]?.slice(0, 3)}`;
 }
 function formatMonth(localDate2) {
   const { year, month } = parts(localDate2);
-  return `${MONTHS[month - 1]} ${year}`;
+  return `${MONTHS$1[month - 1]} ${year}`;
 }
 const isoTimestamp = z.string().refine((value) => !Number.isNaN(Date.parse(value)), "expected an ISO-8601 timestamp");
 const localDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "expected YYYY-MM-DD");
@@ -115,6 +120,83 @@ const daySchema = z.object({
   log: z.array(logEntrySchema).optional(),
   updatedAt: isoTimestamp.optional(),
   deletedAt: isoTimestamp.nullish()
+});
+const weekKey = z.string().regex(/^\d{4}-W\d{2}$/, "expected an ISO week key like 2026-W34");
+const goalSchema = z.object({
+  id: ulidLike,
+  title: z.string(),
+  done: z.boolean(),
+  // Never optional, unlike most late-added fields: goals did not exist before this schema, so
+  // there is no file on disk without it and defaulting would only hide a real bug.
+  context: z.string(),
+  weekKey,
+  order: z.number(),
+  createdAt: isoTimestamp,
+  updatedAt: isoTimestamp,
+  completedAt: isoTimestamp.optional(),
+  completedLocalDate: localDate.optional(),
+  carriedFromWeek: weekKey.optional(),
+  deletedAt: isoTimestamp.nullish()
+});
+const clockTime$1 = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "expected a 24-hour HH:MM time");
+const planBlockKind = z.enum([
+  "focus",
+  "break",
+  "admin",
+  "meal",
+  "buffer",
+  "wind_down"
+]);
+const planBlockSchema = z.object({
+  id: ulidLike,
+  start: clockTime$1,
+  end: clockTime$1,
+  kind: planBlockKind,
+  title: z.string(),
+  why: z.string().optional(),
+  threadId: ulidLike.optional(),
+  todoId: ulidLike.optional(),
+  goalId: ulidLike.optional()
+});
+const planUsageSchema = z.object({
+  inputTokens: z.number().nonnegative(),
+  outputTokens: z.number().nonnegative(),
+  costUsd: z.number().nonnegative()
+});
+const dayPlanSchema = z.object({
+  localDate,
+  generatedAt: isoTimestamp,
+  wakeTime: clockTime$1,
+  startTime: clockTime$1,
+  endTime: clockTime$1,
+  blocks: z.array(planBlockSchema),
+  headline: z.string(),
+  deferred: z.array(z.string()),
+  model: z.string(),
+  usage: planUsageSchema
+});
+const plannedBlockReplySchema = z.object({
+  start: clockTime$1.describe("24-hour HH:MM local time."),
+  end: clockTime$1.describe("24-hour HH:MM local time, later than start."),
+  kind: planBlockKind.describe(
+    "focus for deep work, admin for batched shallow tasks, break/meal/buffer for recovery and transitions, wind_down to close the day."
+  ),
+  title: z.string().min(1).describe("What to actually do, concretely, in plain words."),
+  why: z.string().optional().describe("One short line on why this belongs here, now. Omit if it is obvious."),
+  threadId: z.string().optional().describe(
+    "The id of an existing thread this block works on, copied exactly from the context. Omit it if this block is not one of those threads. Never invent an id."
+  ),
+  todoId: z.string().optional().describe("The id of an existing to-do this block clears, copied exactly. Otherwise omit."),
+  goalId: z.string().optional().describe("The id of the weekly goal this block advances, copied exactly. Otherwise omit.")
+});
+const planReplySchema = z.object({
+  headline: z.string().describe(
+    "Two or three sentences addressed to the user: the shape of the day, and the one thing that actually matters today."
+  ),
+  blocks: z.array(plannedBlockReplySchema).describe("The whole day in order, earliest first. Blocks must not overlap."),
+  deferred: z.array(z.string()).describe(
+    "What you consciously left out of today, each a short line the user can read and push back on. Empty array if you dropped nothing."
+  )
 });
 const mindfulSessionSchema = z.object({
   id: ulidLike,
@@ -205,6 +287,18 @@ const CELEBRATION_HARD_TIMEOUT_MS = 6e3;
 const RARE_ROLL_CHANCE = 0.05;
 const CELEBRATION_ANTI_REPEAT = 2;
 const MILESTONE_STEP_COUNT = 10;
+const PLANNER_DEFAULT_MODEL = "claude-opus-5";
+const PLANNER_MAX_TOKENS = 4e3;
+const PLANNER_GOAL_CONTEXT_CHARS = 1200;
+const PLANNER_MAX_GOALS = 12;
+const PLANNER_MAX_TODOS = 25;
+const PLANNER_MAX_THREADS = 10;
+const PLANNER_MAX_BLOCKERS = 10;
+const MODEL_PRICES = {
+  "claude-opus-5": { input: 5, output: 25 },
+  "claude-sonnet-5": { input: 3, output: 15 },
+  "claude-haiku-4-5": { input: 1, output: 5 }
+};
 let tmpCounter = 0;
 async function atomicWriteFile(file, contents) {
   const dir = path.dirname(file);
@@ -269,7 +363,16 @@ const COLLECTION = {
   days: "days",
   sessions: "sessions",
   /** Sits. Written only by the sync engine — they are recorded on the phone. */
-  mindful: "mindful"
+  mindful: "mindful",
+  /**
+   * Weekly goals and generated day plans. Local to this desktop for now: the backend has no
+   * columns for either, and `SyncState.TRACKED` deliberately omits them, so a write here marks
+   * nothing dirty and nothing is ever pushed. Both are shaped like every other record —
+   * `updatedAt`, tombstones — so teaching the server about them later is a wire change, not a
+   * storage one.
+   */
+  goals: "goals",
+  plans: "plans"
 };
 function defineCollection(spec) {
   return spec;
@@ -475,6 +578,21 @@ const collections = [
     schema: mindfulSessionSchema,
     key: (sit) => sit.id,
     partition: (sit) => monthOf(sit.localDate)
+  }),
+  // A year of goals is a few hundred records at most, so one file per ISO week-numbering year
+  // keeps `goals/2026.json` small enough to open and read by hand.
+  defineCollection({
+    name: COLLECTION.goals,
+    schema: goalSchema,
+    key: (goal) => goal.id,
+    partition: (goal) => goal.weekKey.slice(0, 4)
+  }),
+  // Keyed by the day it plans, so regenerating replaces rather than accumulates.
+  defineCollection({
+    name: COLLECTION.plans,
+    schema: dayPlanSchema,
+    key: (plan) => plan.localDate,
+    partition: (plan) => monthOf(plan.localDate)
   })
 ];
 function systemTimezone() {
@@ -740,6 +858,15 @@ class DayRepo {
   async live() {
     return (await this.days.all()).filter((day) => !day.deletedAt);
   }
+  /**
+   * Days that exist between two local dates, inclusive, in order. Missing days stay missing
+   * rather than being materialised as blanks — the planner reading "nothing on Sunday" and the
+   * navigator showing no Sunday have to agree.
+   */
+  async range(from, to) {
+    const all = await this.live();
+    return all.filter((day) => day.localDate >= from && day.localDate <= to).sort((a, b) => a.localDate.localeCompare(b.localDate));
+  }
   async get(localDate2) {
     const day = await this.days.get(localDate2);
     return day && !day.deletedAt ? day : null;
@@ -1002,6 +1129,219 @@ class DayRepo {
     return day ? sortByOrder(day.todos) : [];
   }
 }
+const WEEK_KEY_PATTERN = /^(\d{4})-W(\d{2})$/;
+function weekKeyOf(localDate2) {
+  const monday = startOfLocalWeek(localDate2);
+  const thursday = addLocalDays(monday, 3);
+  const [y, m, d] = thursday.split("-").map(Number);
+  const thursdayUtc = new Date(Date.UTC(y, m - 1, d));
+  const year = thursdayUtc.getUTCFullYear();
+  const jan1 = Date.UTC(year, 0, 1);
+  const week = Math.floor((thursdayUtc.getTime() - jan1) / (7 * 864e5)) + 1;
+  return `${year}-W${String(week).padStart(2, "0")}`;
+}
+function weekStart(key) {
+  const match = WEEK_KEY_PATTERN.exec(key);
+  if (!match) throw new Error(`not a week key: ${key}`);
+  const year = Number(match[1]);
+  const week = Number(match[2]);
+  const jan4 = `${year}-01-04`;
+  return addLocalDays(startOfLocalWeek(jan4), (week - 1) * 7);
+}
+function weekEnd(key) {
+  return addLocalDays(weekStart(key), 6);
+}
+function formatWeekRange(key) {
+  const start = weekStart(key);
+  const end = weekEnd(key);
+  const month = (date2) => MONTHS[Number(date2.slice(5, 7)) - 1] ?? "";
+  const day = (date2) => Number(date2.slice(8, 10));
+  if (start.slice(0, 7) === end.slice(0, 7)) {
+    return `${month(start)} ${day(start)} – ${day(end)}`;
+  }
+  return `${month(start)} ${day(start)} – ${month(end)} ${day(end)}`;
+}
+const MONTHS = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec"
+];
+class GoalRepo {
+  constructor(store, clock) {
+    this.store = store;
+    this.clock = clock;
+  }
+  get goals() {
+    return this.store.collection(COLLECTION.goals);
+  }
+  /** See `ThreadRepo.live` — a tombstone is a real record, so every read starts by filtering. */
+  async live() {
+    return (await this.goals.all()).filter((goal) => !goal.deletedAt);
+  }
+  /** The week key for today, in the user's timezone. */
+  currentWeek() {
+    return weekKeyOf(this.clock.today());
+  }
+  async list(weekKey2) {
+    const key = weekKey2 ?? this.currentWeek();
+    return sortByOrder((await this.live()).filter((goal) => goal.weekKey === key));
+  }
+  /** Every week that has a goal on it, newest first — for the week picker. */
+  async weeks() {
+    const keys = new Set((await this.live()).map((goal) => goal.weekKey));
+    return [...keys].sort().reverse();
+  }
+  async get(id) {
+    const goal = await this.goals.get(id);
+    return goal && !goal.deletedAt ? goal : null;
+  }
+  async add(title, weekKey2) {
+    const key = weekKey2 ?? this.currentWeek();
+    const now = this.clock.now();
+    const goal = {
+      id: ulid(),
+      title: title.trim(),
+      done: false,
+      context: "",
+      weekKey: key,
+      order: nextOrder(await this.list(key)),
+      createdAt: now,
+      updatedAt: now
+    };
+    await this.write(goal);
+    return goal;
+  }
+  async update(id, patch) {
+    const goal = await this.require(id);
+    const next = {
+      ...goal,
+      ...patch.title === void 0 ? {} : { title: patch.title.trim() },
+      ...patch.context === void 0 ? {} : { context: patch.context },
+      updatedAt: this.clock.now()
+    };
+    await this.write(next);
+    return next;
+  }
+  /**
+   * Ticking a goal stamps the local date as well as the timestamp, for the same reason every
+   * other record does: a completion bucketed by re-deriving a local day from UTC lands on the
+   * wrong side of a DST boundary about twice a year.
+   */
+  async toggle(id) {
+    const goal = await this.require(id);
+    const done = !goal.done;
+    const now = this.clock.now();
+    const { completedAt: _was, completedLocalDate: _onDay, ...rest } = goal;
+    const next = done ? {
+      ...rest,
+      done,
+      updatedAt: now,
+      completedAt: now,
+      completedLocalDate: this.clock.today()
+    } : { ...rest, done, updatedAt: now };
+    await this.write(next);
+    return next;
+  }
+  async remove(id) {
+    const goal = await this.get(id);
+    if (!goal) return;
+    await this.write({ ...goal, deletedAt: this.clock.now(), updatedAt: this.clock.now() });
+  }
+  async reorder(id, toIndex) {
+    const goal = await this.require(id);
+    const { items } = reorder(await this.list(goal.weekKey), id, toIndex);
+    for (const item of items) {
+      const current = await this.get(item.id);
+      if (current && current.order !== item.order) {
+        await this.write({ ...current, order: item.order, updatedAt: this.clock.now() });
+      }
+    }
+    return this.list(goal.weekKey);
+  }
+  /**
+   * Move an unfinished goal into another week. A copy would leave the original sitting in a
+   * past week looking abandoned, so the goal itself moves and remembers where it came from.
+   */
+  async carryOver(id, toWeek) {
+    const goal = await this.require(id);
+    if (goal.weekKey === toWeek) return goal;
+    const next = {
+      ...goal,
+      weekKey: toWeek,
+      carriedFromWeek: goal.carriedFromWeek ?? goal.weekKey,
+      order: nextOrder(await this.list(toWeek)),
+      updatedAt: this.clock.now()
+    };
+    await this.write(next);
+    return next;
+  }
+  async require(id) {
+    const goal = await this.get(id);
+    if (!goal) throw new Error("goal not found");
+    return goal;
+  }
+  async write(goal) {
+    await this.goals.put(goal);
+  }
+}
+class PlanRepo {
+  constructor(store) {
+    this.store = store;
+  }
+  get plans() {
+    return this.store.collection(COLLECTION.plans);
+  }
+  async get(localDate2) {
+    return this.plans.get(localDate2);
+  }
+  async save(plan) {
+    await this.plans.put(plan);
+    return plan;
+  }
+  /**
+   * Point a block at a thread. Kept here rather than done by the caller so the plan is only ever
+   * rewritten whole through one path — a block edited in place elsewhere would not be persisted.
+   */
+  async linkBlock(localDate2, blockId, threadId) {
+    const plan = await this.get(localDate2);
+    if (!plan) throw new Error("no plan for that day");
+    const next = {
+      ...plan,
+      blocks: plan.blocks.map(
+        (block) => block.id === blockId ? { ...block, threadId } : block
+      )
+    };
+    return this.save(next);
+  }
+  async remove(localDate2) {
+    await this.plans.delete(localDate2);
+  }
+  /**
+   * Spend, summed from the plans themselves rather than from a separate ledger file. One less
+   * thing to keep in step with reality, and deleting a plan correctly forgets what it cost.
+   */
+  async spend(month) {
+    const all = await this.plans.all();
+    const thisMonth = all.filter((plan) => plan.localDate.startsWith(month));
+    const sum = (plans) => plans.reduce((total, plan) => total + (plan.usage?.costUsd ?? 0), 0);
+    return {
+      month,
+      plans: thisMonth.length,
+      costUsd: sum(thisMonth),
+      totalPlans: all.length,
+      totalCostUsd: sum(all)
+    };
+  }
+}
 class SessionRepo {
   constructor(store) {
     this.store = store;
@@ -1056,8 +1396,17 @@ const settingsSchema = z.object({
   railCollapsed: z.boolean(),
   hudBounds: z.object({ x: z.number(), y: z.number() }).optional(),
   timezone: z.string(),
-  lastOpenSessionId: z.string().optional()
+  lastOpenSessionId: z.string().optional(),
+  wakeTime: clockTime().default("07:30"),
+  dayStartTime: clockTime().default("09:00"),
+  dayEndTime: clockTime().default("18:00"),
+  plannerContext: z.string().default(""),
+  plannerModel: z.string().default(PLANNER_DEFAULT_MODEL),
+  plannerEffort: z.enum(["low", "medium", "high"]).default("medium")
 });
+function clockTime() {
+  return z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "expected a 24-hour HH:MM time");
+}
 function defaultSettings() {
   return {
     version: 1,
@@ -1067,7 +1416,14 @@ function defaultSettings() {
     celebrationsEnabled: true,
     recentCelebrationIds: [],
     railCollapsed: false,
-    timezone: systemTimezone()
+    timezone: systemTimezone(),
+    wakeTime: "07:30",
+    dayStartTime: "09:00",
+    dayEndTime: "18:00",
+    plannerContext: "",
+    plannerModel: PLANNER_DEFAULT_MODEL,
+    // `medium` plans a day as well as `high` does and spends a fraction of the thinking tokens.
+    plannerEffort: "medium"
   };
 }
 class SettingsRepo {
@@ -1304,12 +1660,14 @@ function withOrders(threads) {
   }));
 }
 class Database {
-  constructor(root, store, clock, threads, days, sessions, settings, migration) {
+  constructor(root, store, clock, threads, days, goals, plans, sessions, settings, migration) {
     this.root = root;
     this.store = store;
     this.clock = clock;
     this.threads = threads;
     this.days = days;
+    this.goals = goals;
+    this.plans = plans;
     this.sessions = sessions;
     this.settings = settings;
     this.migration = migration;
@@ -1325,8 +1683,21 @@ class Database {
     });
     const days = new DayRepo(store, clock);
     const threads = new ThreadRepo(store, clock);
+    const goals = new GoalRepo(store, clock);
+    const plans = new PlanRepo(store);
     const sessions = new SessionRepo(store);
-    return new Database(root, store, clock, threads, days, sessions, settings, migration);
+    return new Database(
+      root,
+      store,
+      clock,
+      threads,
+      days,
+      goals,
+      plans,
+      sessions,
+      settings,
+      migration
+    );
   }
   async close() {
     await this.store.close();
@@ -1579,8 +1950,8 @@ function momentumThrough(rollups, upTo) {
   const series = dayMomentumSeries(scores);
   return series[series.length - 1] ?? 0;
 }
-function weekMomentum(rollups, weekStart) {
-  const days = localDateRange(weekStart, addLocalDays(weekStart, 6));
+function weekMomentum(rollups, weekStart2) {
+  const days = localDateRange(weekStart2, addLocalDays(weekStart2, 6));
   return weekScore(days.map((date2) => rollups[date2]?.dms ?? 0));
 }
 function monthMomentum(rollups, monthStart) {
@@ -1804,6 +2175,446 @@ class AnalyticsService {
     for (const thread of archived.threads) byId.set(thread.id, thread);
     return [...byId.values()];
   }
+}
+class ApiKeyStore {
+  constructor(root) {
+    this.root = root;
+  }
+  stored = null;
+  fromEnv = null;
+  envSource = "env";
+  /** Set when the keyring is unavailable: usable now, gone on quit. */
+  memoryOnly = false;
+  get file() {
+    return path.join(this.root, "apikey.json");
+  }
+  async load(projectRoot) {
+    await this.loadStored();
+    await this.loadEnv(projectRoot);
+  }
+  async loadStored() {
+    const raw = await readFileIfExists(this.file);
+    if (raw === null) return;
+    try {
+      const parsed = JSON.parse(raw);
+      if (!parsed.key) return;
+      if (!safeStorage.isEncryptionAvailable()) return;
+      this.stored = safeStorage.decryptString(Buffer.from(parsed.key, "base64")).trim() || null;
+    } catch {
+      this.stored = null;
+    }
+  }
+  /**
+   * `process.env` first, then a `.env` beside the source tree.
+   *
+   * Electron does not read `.env` on its own and this app has no dotenv dependency, so the file
+   * is parsed here — twelve lines, only in development, and only for keys this app knows about.
+   * A packaged build has no project root to look in and skips it entirely.
+   */
+  async loadEnv(projectRoot) {
+    const fromProcess = process.env.ANTHROPIC_API_KEY?.trim();
+    if (fromProcess) {
+      this.fromEnv = fromProcess;
+      this.envSource = "env";
+      return;
+    }
+    if (!projectRoot) return;
+    try {
+      const text = await promises.readFile(path.join(projectRoot, ".env"), "utf8");
+      const value = parseDotenv(text).ANTHROPIC_API_KEY;
+      if (value) {
+        this.fromEnv = value;
+        this.envSource = "dotenv";
+      }
+    } catch {
+    }
+  }
+  /** The key to call with, or null. Main process only — this is never sent over IPC. */
+  current() {
+    return this.stored ?? this.fromEnv;
+  }
+  state() {
+    const key = this.current();
+    return {
+      configured: key !== null,
+      source: key === null ? null : this.stored ? "stored" : this.envSource,
+      hint: key === null ? null : hintOf(key),
+      canPersist: safeStorage.isEncryptionAvailable()
+    };
+  }
+  /**
+   * Store a pasted key. Validated for shape only — whether it actually works is something only
+   * the API can answer, and it answers on the first generation with a clear message.
+   */
+  async set(key) {
+    const trimmed = key.trim();
+    if (!trimmed) throw new Error("That key is empty.");
+    if (!trimmed.startsWith("sk-ant-")) {
+      throw new Error('An Anthropic API key starts with "sk-ant-". Check you copied all of it.');
+    }
+    this.stored = trimmed;
+    if (!safeStorage.isEncryptionAvailable()) {
+      this.memoryOnly = true;
+      return this.state();
+    }
+    this.memoryOnly = false;
+    const encrypted = safeStorage.encryptString(trimmed).toString("base64");
+    await atomicWriteFile(this.file, JSON.stringify({ version: 1, key: encrypted }, null, 2));
+    return this.state();
+  }
+  /** Forget the pasted key. An env-provided one survives — this app did not put it there. */
+  async clear() {
+    this.stored = null;
+    this.memoryOnly = false;
+    await promises.rm(this.file, { force: true });
+    return this.state();
+  }
+  get isMemoryOnly() {
+    return this.memoryOnly;
+  }
+}
+function hintOf(key) {
+  return key.length <= 12 ? "sk-ant-…" : `sk-ant-…${key.slice(-4)}`;
+}
+function parseDotenv(text) {
+  const out = {};
+  for (const line of text.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const match = /^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/.exec(trimmed);
+    if (!match) continue;
+    const key = match[1];
+    let value = (match[2] ?? "").trim();
+    if (value.startsWith('"') && value.endsWith('"') && value.length > 1 || value.startsWith("'") && value.endsWith("'") && value.length > 1) {
+      value = value.slice(1, -1);
+    }
+    out[key] = value;
+  }
+  return out;
+}
+const FOCUS_MINUTES = Math.round(DEFAULT_SESSION_MS / 6e4);
+const BREAK_MINUTES = Math.round(BREAK_MS / 6e4);
+const PLANNER_SYSTEM_PROMPT = `You plan one day at a time for someone with ADHD, using their own weekly goals and current work as the raw material.
+
+You are given: their goals for this week (each with optional context they wrote themselves), their open threads (bigger pieces of work, each with its next unfinished step), their loose to-dos, anything currently blocking them, and what they finished over the last couple of days. Every item carries an id.
+
+How to plan:
+
+- Pick ONE thing that matters most today and make it unmistakable in the headline. A day with five priorities has none.
+- Put the hardest, most goal-advancing focus work in the first working blocks. Executive function is a budget that is spent, not a constant.
+- Use ${FOCUS_MINUTES}-minute focus blocks with ${BREAK_MINUTES}-minute breaks — that is the rhythm this app's timer runs. Two or three focus blocks back to back, then something longer.
+- Titles must name a concrete first action. "Draft the opening section of the proposal" is usable; "work on proposal" is not, and a vague title is the single most common reason a block gets skipped.
+- Batch shallow work — email, admin, small errands — into one or two admin blocks. Sprinkling them between focus blocks destroys the focus blocks.
+- Leave real slack. Plan roughly 60-70% of the available hours; transitions, overruns and life take the rest. A plan with no gaps is a plan that fails at the first overrun.
+- Include meals and a wind_down. Someone who forgets to eat will forget to eat.
+- Never schedule work that is blocked. If a blocker is cheap to clear, schedule clearing it instead.
+- Respect the wake time: no work block before the day's start time, nothing after the end time.
+- Do not try to fit everything in. Whatever does not fit goes in "deferred", said plainly. Dropping things silently is the one thing that makes a plan untrustworthy.
+
+Ids:
+- When a block works on a thread, to-do, or goal you were given, copy that id exactly into threadId / todoId / goalId. This is what lets the app start a real timer on that block.
+- Never invent an id, and never reuse one for something it does not refer to. If a block is not one of the listed items — a meal, a break, a general admin block — simply leave the id fields out.
+
+Tone: direct and warm, addressed to them as "you". No motivational filler, no praise for existing, no exclamation marks. You are a colleague who has read their notes and has an opinion about today.`;
+function buildPlannerContext(input) {
+  const sections = [];
+  sections.push(
+    [
+      `DATE: ${input.dayName} (${input.localDate})`,
+      `WEEK: ${input.weekKey}, ${input.weekRange}`,
+      `WOKE: ${input.wakeTime} · WORK FROM: ${input.startTime} · DONE BY: ${input.endTime}`
+    ].join("\n")
+  );
+  if (input.standingContext.trim()) {
+    sections.push(`ALWAYS TRUE:
+${truncate(input.standingContext.trim(), 800)}`);
+  }
+  if (input.todayNote.trim()) {
+    sections.push(`TODAY SPECIFICALLY:
+${truncate(input.todayNote.trim(), 600)}`);
+  }
+  if (input.now?.trim()) {
+    sections.push(`MID-FLIGHT RIGHT NOW: ${truncate(input.now.trim(), 200)}`);
+  }
+  sections.push(goalsSection(input.goals));
+  sections.push(threadsSection(input.threads));
+  sections.push(todosSection(input.todos));
+  if (input.blockers.length) {
+    const lines = input.blockers.slice(0, PLANNER_MAX_BLOCKERS).map((blocker) => `- ${oneLine(blocker.text)} (since ${blocker.localDate})`);
+    sections.push(`BLOCKED ON:
+${lines.join("\n")}`);
+  }
+  if (input.recentLog.length) {
+    const lines = input.recentLog.slice(-15).map((entry) => `- ${entry.localDate}: ${oneLine(entry.text)}`);
+    sections.push(`FINISHED RECENTLY:
+${lines.join("\n")}`);
+  }
+  sections.push("Plan today.");
+  return sections.join("\n\n");
+}
+function goalsSection(goals) {
+  const open = goals.filter((goal) => !goal.done).slice(0, PLANNER_MAX_GOALS);
+  if (!open.length) {
+    return "GOALS THIS WEEK:\n(none set — plan from the threads and to-dos below, and say so in the headline)";
+  }
+  const lines = open.map((goal) => {
+    const head = `- ${oneLine(goal.title)} [${goal.id}]`;
+    const context = goal.context.trim();
+    if (!context) return head;
+    const body = truncate(context, PLANNER_GOAL_CONTEXT_CHARS).split("\n").map((line) => `    ${line}`).join("\n");
+    return `${head}
+${body}`;
+  });
+  const done = goals.filter((goal) => goal.done).length;
+  const tail = done ? `
+(${done} more already done this week)` : "";
+  return `GOALS THIS WEEK:
+${lines.join("\n")}${tail}`;
+}
+function threadsSection(threads) {
+  if (!threads.length) return "OPEN THREADS:\n(none)";
+  const lines = threads.slice(0, PLANNER_MAX_THREADS).map((thread) => {
+    const step = nextAction(thread.steps);
+    const parts2 = [`- ${oneLine(thread.title)} [${thread.id}]`, `status ${thread.status}`];
+    if (thread.status === "waiting" && thread.waitingOn) {
+      parts2.push(`waiting on ${oneLine(thread.waitingOn)}`);
+    }
+    if (step) parts2.push(`next step: ${oneLine(step.text)}`);
+    return parts2.join(" · ");
+  });
+  return `OPEN THREADS:
+${lines.join("\n")}`;
+}
+function todosSection(todos) {
+  const open = todos.filter((todo) => !todo.done);
+  if (!open.length) return "TO-DOS:\n(none outstanding)";
+  const shown = open.slice(0, PLANNER_MAX_TODOS);
+  const lines = shown.map(
+    (todo) => `- ${oneLine(todo.text)} [${todo.id}] (since ${todo.localDate})`
+  );
+  const hidden = open.length - shown.length;
+  const tail = hidden > 0 ? `
+(and ${hidden} more not shown)` : "";
+  return `TO-DOS:
+${lines.join("\n")}${tail}`;
+}
+function oneLine(text) {
+  return truncate(text.replace(/\s+/g, " ").trim(), 200);
+}
+function truncate(text, max) {
+  return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
+}
+class PlannerError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "PlannerError";
+  }
+}
+class PlannerService {
+  constructor(db, keys) {
+    this.db = db;
+    this.keys = keys;
+  }
+  keyState() {
+    return this.keys.state();
+  }
+  /** Both of these only ever move the key around; neither one calls the API. */
+  async setKey(key) {
+    return this.keys.set(key);
+  }
+  async clearKey() {
+    return this.keys.clear();
+  }
+  async generate(input) {
+    const key = this.keys.current();
+    if (!key) {
+      throw new PlannerError(
+        "No API key yet. Add one in the planner panel, or set ANTHROPIC_API_KEY, and this works immediately."
+      );
+    }
+    const settings = this.db.settings.get();
+    const localDate2 = input.localDate ?? this.db.clock.today();
+    const wakeTime = input.wakeTime ?? settings.wakeTime;
+    const startTime = input.startTime ?? settings.dayStartTime;
+    const endTime = input.endTime ?? settings.dayEndTime;
+    if (toMinutes(endTime) <= toMinutes(startTime)) {
+      throw new PlannerError("The day ends before it starts — check the start and end times.");
+    }
+    const context = await this.gather(localDate2, {
+      wakeTime,
+      startTime,
+      endTime,
+      note: input.note ?? "",
+      settings
+    });
+    const reply = await this.ask(key, context, settings);
+    const plan = await this.assemble(reply, {
+      localDate: localDate2,
+      wakeTime,
+      startTime,
+      endTime,
+      model: reply.model,
+      usage: reply.usage
+    });
+    return this.db.plans.save(plan);
+  }
+  // ------------------------------------------------------------------ gather
+  async gather(localDate2, options) {
+    const weekKey2 = weekKeyOf(localDate2);
+    const [goals, threads, carry, day] = await Promise.all([
+      this.db.goals.list(weekKey2),
+      this.db.threads.activeList(),
+      this.db.days.carryForward(),
+      this.db.days.get(localDate2)
+    ]);
+    const from = addLocalDays(localDate2, -2);
+    const recent = await this.db.days.range(from, addLocalDays(localDate2, -1));
+    const recentLog = recent.flatMap((entry) => entry.log ?? []).filter((entry) => entry.source !== "manual" || entry.text.trim().length > 0).sort((a, b) => a.at.localeCompare(b.at));
+    return buildPlannerContext({
+      localDate: localDate2,
+      dayName: dayName(localDate2),
+      weekKey: weekKey2,
+      weekRange: formatWeekRange(weekKey2),
+      wakeTime: options.wakeTime,
+      startTime: options.startTime,
+      endTime: options.endTime,
+      standingContext: options.settings.plannerContext,
+      todayNote: options.note,
+      goals,
+      threads,
+      todos: carry.todos,
+      blockers: carry.blockers.filter((blocker) => !blocker.resolved),
+      recentLog,
+      now: day?.now
+    });
+  }
+  // --------------------------------------------------------------------- ask
+  async ask(key, context, settings) {
+    const model = settings.plannerModel || PLANNER_DEFAULT_MODEL;
+    const client = new Anthropic({ apiKey: key });
+    let response;
+    try {
+      response = await client.messages.parse({
+        model,
+        max_tokens: PLANNER_MAX_TOKENS,
+        system: PLANNER_SYSTEM_PROMPT,
+        // No prompt caching on purpose. The prefix here is well under the ~1024-token minimum
+        // and a plan is generated once a day, so every read would miss the 5-minute window —
+        // caching would add the 1.25x write premium and never once earn it back.
+        thinking: { type: "adaptive" },
+        output_config: {
+          effort: settings.plannerEffort,
+          format: zodOutputFormat(planReplySchema)
+        },
+        messages: [{ role: "user", content: context }]
+      });
+    } catch (error) {
+      throw new PlannerError(describeApiError(error));
+    }
+    if (response.stop_reason === "refusal") {
+      throw new PlannerError(
+        "Claude declined to answer that one. If a goal or note has unusual wording in it, try rephrasing and generating again."
+      );
+    }
+    const parsed = response.parsed_output;
+    if (!parsed) {
+      throw new PlannerError(
+        response.stop_reason === "max_tokens" ? "The plan came back too long to finish. Try again, or trim the context on a goal or two." : "Claude replied with something this app could not read as a plan. Try generating again."
+      );
+    }
+    return {
+      ...parsed,
+      model: response.model ?? model,
+      usage: priceOf(response.model ?? model, response.usage)
+    };
+  }
+  // ---------------------------------------------------------------- assemble
+  /**
+   * Turn a reply into a stored plan: stamp the local facts, drop ids that do not exist, sort,
+   * and clamp anything outside the day. Everything here is a correction the user should never
+   * have to make by hand.
+   */
+  async assemble(reply, meta) {
+    const weekKey2 = weekKeyOf(meta.localDate);
+    const [threads, goals, carry] = await Promise.all([
+      this.db.threads.list(),
+      this.db.goals.list(weekKey2),
+      this.db.days.carryForward()
+    ]);
+    const threadIds = new Set(threads.map((thread) => thread.id));
+    const goalIds = new Set(goals.map((goal) => goal.id));
+    const todoIds = new Set(carry.todos.map((todo) => todo.id));
+    const blocks = reply.blocks.filter((block) => toMinutes(block.end) > toMinutes(block.start)).sort((a, b) => toMinutes(a.start) - toMinutes(b.start)).map((block) => ({
+      id: ulid(),
+      start: block.start,
+      end: block.end,
+      kind: block.kind,
+      title: block.title.trim(),
+      ...block.why?.trim() ? { why: block.why.trim() } : {},
+      // An id that does not resolve becomes an absent one: a Start button that starts nothing
+      // is worse than no button, because it teaches the user the plan is fictional.
+      ...block.threadId && threadIds.has(block.threadId) ? { threadId: block.threadId } : {},
+      ...block.todoId && todoIds.has(block.todoId) ? { todoId: block.todoId } : {},
+      ...block.goalId && goalIds.has(block.goalId) ? { goalId: block.goalId } : {}
+    }));
+    return {
+      localDate: meta.localDate,
+      generatedAt: this.db.clock.now(),
+      wakeTime: meta.wakeTime,
+      startTime: meta.startTime,
+      endTime: meta.endTime,
+      blocks,
+      headline: reply.headline.trim(),
+      deferred: reply.deferred.map((line) => line.trim()).filter(Boolean),
+      model: meta.model,
+      usage: meta.usage
+    };
+  }
+}
+function toMinutes(time) {
+  const [h, m] = time.split(":").map(Number);
+  return (h ?? 0) * 60 + (m ?? 0);
+}
+function priceOf(model, usage) {
+  const inputTokens = usage?.input_tokens ?? 0;
+  const outputTokens = usage?.output_tokens ?? 0;
+  const price = MODEL_PRICES[model] ?? MODEL_PRICES[stripDate(model)];
+  const costUsd = price ? (inputTokens * price.input + outputTokens * price.output) / 1e6 : 0;
+  return { inputTokens, outputTokens, costUsd };
+}
+function stripDate(model) {
+  return model.replace(/-\d{8}$/, "");
+}
+function dayName(localDate2) {
+  const [y, m, d] = localDate2.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString("en-GB", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC"
+  });
+}
+function describeApiError(error) {
+  if (error instanceof Anthropic.AuthenticationError) {
+    return 'That API key was rejected. Check it in the planner panel — keys start with "sk-ant-".';
+  }
+  if (error instanceof Anthropic.PermissionDeniedError) {
+    return "That key is not allowed to use this model. Check the key's permissions in the Anthropic console.";
+  }
+  if (error instanceof Anthropic.RateLimitError) {
+    return "Rate limited. Wait a minute and generate again.";
+  }
+  if (error instanceof Anthropic.BadRequestError) {
+    return `Claude refused the request: ${error.message}`;
+  }
+  if (error instanceof Anthropic.APIConnectionError) {
+    return "Could not reach Claude. Check your connection — nothing else in the app needs it.";
+  }
+  if (error instanceof Anthropic.APIError) {
+    return `Claude returned an error (${error.status ?? "unknown"}). Nothing was saved; try again shortly.`;
+  }
+  return error instanceof Error ? error.message : "The plan could not be generated.";
 }
 const MIN_PASSWORD_LENGTH = 10;
 const DEFAULT_SERVER_URL = "https://api.adhd.yatishgautam.com";
@@ -2409,6 +3220,7 @@ class SyncEngine {
     this.setPhase("syncing", null);
     try {
       const pulled = await this.pullAndMerge(token);
+      await this.backfillOnce();
       const { pushed, conflicts } = this.pushSuspended ? { pushed: 0, conflicts: 0 } : await this.pushDirty(token);
       this.state.markSynced((/* @__PURE__ */ new Date()).toISOString());
       await this.state.flush();
@@ -2555,6 +3367,33 @@ class SyncEngine {
         return;
     }
   }
+  /**
+   * Offers every local record to the server once.
+   *
+   * The dirty queue is only ever filled by local writes, so records that existed *before* this
+   * device signed in were never queued — nothing had written them since sync existed. The
+   * engine then correctly reported nothing pending while the account stayed empty, which looks
+   * from the outside exactly like sync being broken.
+   *
+   * Marking rather than pushing directly means the normal path still applies: chunking,
+   * last-write-wins, and conflicts resolving in the server's favour. A record the server
+   * already has newer comes straight back as a conflict and is dropped from the queue.
+   */
+  async backfillOnce() {
+    if (this.state.hasBackfilled) return;
+    for (const name of [
+      COLLECTION.threads,
+      COLLECTION.days,
+      COLLECTION.sessions,
+      COLLECTION.mindful
+    ]) {
+      const records = await this.remote(name).all();
+      const keys = records.map((record) => record.id ?? record.localDate).filter((key) => typeof key === "string" && key.length > 0);
+      if (keys.length) this.state.markMany(name, keys);
+    }
+    this.state.markBackfilled();
+    await this.state.flush();
+  }
   // -------------------------------------------------------------- internals
   /** Writes that must not be marked dirty: they came from the server. */
   remote(name) {
@@ -2620,6 +3459,7 @@ class SyncState {
   cursor = 0;
   lastSyncedAt = null;
   profileDirty = false;
+  backfilled = false;
   dirty = new Map(
     TRACKED.map((name) => [name, /* @__PURE__ */ new Set()])
   );
@@ -2636,6 +3476,7 @@ class SyncState {
       this.cursor = Number.isFinite(parsed.cursor) ? parsed.cursor : 0;
       this.lastSyncedAt = parsed.lastSyncedAt ?? null;
       this.profileDirty = parsed.profileDirty ?? false;
+      this.backfilled = parsed.backfilled ?? false;
       for (const name of TRACKED) {
         this.dirty.set(name, new Set(parsed.dirty?.[name] ?? []));
       }
@@ -2664,6 +3505,27 @@ class SyncState {
   }
   get isProfileDirty() {
     return this.profileDirty;
+  }
+  get hasBackfilled() {
+    return this.backfilled;
+  }
+  /** Queues many keys at once. Used by the one-time backfill. */
+  markMany(name, keys) {
+    const set = this.dirty.get(name);
+    if (!set) return;
+    let changed = false;
+    for (const key of keys) {
+      if (!set.has(key)) {
+        set.add(key);
+        changed = true;
+      }
+    }
+    if (changed) this.schedulePersist();
+  }
+  markBackfilled() {
+    if (this.backfilled) return;
+    this.backfilled = true;
+    this.schedulePersist();
   }
   /** Called for every local write, from the store's own write path. */
   mark(name, key) {
@@ -2713,6 +3575,7 @@ class SyncState {
     this.cursor = 0;
     this.lastSyncedAt = null;
     this.profileDirty = false;
+    this.backfilled = false;
     for (const set of this.dirty.values()) set.clear();
     this.schedulePersist();
   }
@@ -2753,6 +3616,7 @@ class SyncState {
       cursor: this.cursor,
       lastSyncedAt: this.lastSyncedAt,
       profileDirty: this.profileDirty,
+      backfilled: this.backfilled,
       dirty: Object.fromEntries(TRACKED.map((name) => [name, this.keys(name)]))
     };
     await atomicWriteFile(this.file, `${JSON.stringify(out, null, 2)}
@@ -3361,11 +4225,25 @@ function createTray(hooks) {
   tray.on("click", hooks.onShow);
   return tray;
 }
+let lastTitle = null;
+function titleFor(state) {
+  if (!state.running) return "";
+  return state.paused ? `❙❙ ${formatTrayCountdown(state.remainingMs)}` : formatTrayCountdown(state.remainingMs);
+}
+function updateTrayCountdown(tray, state) {
+  if (process.platform !== "darwin") return;
+  const title = titleFor(state);
+  if (title === lastTitle) return;
+  lastTitle = title;
+  tray.setTitle(title);
+}
 function updateTray(tray, state, hooks) {
-  const title = state.running ? `${state.paused ? "❙❙" : "●"} ${formatClock(state.remainingMs)}` : "";
-  if (process.platform === "darwin") tray.setTitle(title);
+  updateTrayCountdown(tray, state);
   tray.setToolTip(
-    state.threadTitle ? `ADHD Superpower — ${state.threadTitle}` : "ADHD Superpower"
+    [
+      state.threadTitle ? `ADHD Superpower — ${state.threadTitle}` : "ADHD Superpower",
+      state.running ? `${formatClock(state.remainingMs)} left` : null
+    ].filter(Boolean).join("\n")
   );
   tray.setContextMenu(
     Menu.buildFromTemplate([
@@ -3397,6 +4275,8 @@ class AppContext {
   analytics;
   celebrations;
   auth;
+  planner;
+  apiKeys;
   sync;
   syncState;
   main = null;
@@ -3405,7 +4285,11 @@ class AppContext {
   tray = null;
   mainReady = false;
   pendingRecovery = null;
-  static async create(root) {
+  /**
+   * `projectRoot` is only ever set in development, and only so a `.env` next to the source
+   * tree is picked up — a packaged app has no source tree and passes nothing.
+   */
+  static async create(root, projectRoot) {
     const ctx2 = new AppContext();
     ctx2.syncState = new SyncState(root);
     await ctx2.syncState.load();
@@ -3440,7 +4324,10 @@ class AppContext {
       (status) => ctx2.broadcast("sync:changed", status)
     );
     ctx2.sessions = new SessionService(ctx2.db, {
-      onTick: (tick) => ctx2.broadcast("session:tick", tick),
+      onTick: (tick) => {
+        ctx2.broadcast("session:tick", tick);
+        ctx2.tickTray(tick.remainingMs, tick.paused);
+      },
       onChanged: (state) => {
         ctx2.broadcast("session:changed", state);
         ctx2.refreshTray();
@@ -3474,6 +4361,9 @@ class AppContext {
       },
       () => ctx2.db.settings.get().defaultSessionMs
     );
+    ctx2.apiKeys = new ApiKeyStore(root);
+    await ctx2.apiKeys.load(projectRoot);
+    ctx2.planner = new PlannerService(ctx2.db, ctx2.apiKeys);
     ctx2.overlay = new CelebrationOverlay();
     ctx2.celebrations = new CelebrationOrchestrator(
       ctx2.db,
@@ -3533,6 +4423,15 @@ class AppContext {
       onShow: () => this.openMainWindow()
     });
     this.refreshTray();
+  }
+  /** The once-a-second path. Title only, and only when the minute has actually turned over. */
+  tickTray(remainingMs, paused) {
+    if (!this.tray || this.tray.isDestroyed()) return;
+    updateTrayCountdown(this.tray, {
+      running: true,
+      paused,
+      remainingMs
+    });
   }
   async refreshTray() {
     if (!this.tray || this.tray.isDestroyed()) return;
@@ -3655,6 +4554,23 @@ class AppContext {
   }
   broadcastSettings(settings) {
     this.broadcast("settings:changed", settings);
+  }
+  /**
+   * Every goal write funnels through here, so the handler that made the change and every
+   * window that did not both end up looking at the same list.
+   */
+  async broadcastGoals(weekKey2) {
+    const goals = await this.db.goals.list(weekKey2);
+    this.broadcast("goals:changed", { weekKey: weekKey2, goals });
+    return goals;
+  }
+  async plannerState() {
+    const month = this.db.clock.today().slice(0, 7);
+    return {
+      key: this.planner.keyState(),
+      spend: await this.db.plans.spend(month),
+      model: this.db.settings.get().plannerModel
+    };
   }
   syncStatus() {
     return this.sync.status();
@@ -3814,6 +4730,122 @@ function registerHandlers(ctx2) {
       const written = await db.threads.reorderOnBoard(id, toIndex, status);
       ctx2.broadcastThreads();
       return written;
+    },
+    ctx2
+  );
+  on("goals:list", async (_c, { weekKey: weekKey2 }) => db.goals.list(weekKey2), ctx2);
+  on("goals:weeks", async () => db.goals.weeks(), ctx2);
+  on(
+    "goals:add",
+    async (_c, { title, weekKey: weekKey2 }) => {
+      const trimmed = title.trim();
+      if (!trimmed) throw new Error("A goal needs a name.");
+      const goal = await db.goals.add(trimmed, weekKey2);
+      return ctx2.broadcastGoals(goal.weekKey);
+    },
+    ctx2
+  );
+  on(
+    "goals:update",
+    async (_c, { id, patch }) => {
+      const goal = await db.goals.update(id, patch);
+      return ctx2.broadcastGoals(goal.weekKey);
+    },
+    ctx2
+  );
+  on(
+    "goals:toggle",
+    async (_c, { id }) => {
+      const goal = await db.goals.toggle(id);
+      return ctx2.broadcastGoals(goal.weekKey);
+    },
+    ctx2
+  );
+  on(
+    "goals:remove",
+    async (_c, { id }) => {
+      const goal = await db.goals.get(id);
+      await db.goals.remove(id);
+      return ctx2.broadcastGoals(goal?.weekKey ?? db.goals.currentWeek());
+    },
+    ctx2
+  );
+  on(
+    "goals:reorder",
+    async (_c, { id, toIndex }) => {
+      const goal = await db.goals.get(id);
+      await db.goals.reorder(id, toIndex);
+      return ctx2.broadcastGoals(goal?.weekKey ?? db.goals.currentWeek());
+    },
+    ctx2
+  );
+  on(
+    "goals:carryOver",
+    async (_c, { id, toWeek }) => {
+      const before = await db.goals.get(id);
+      const goal = await db.goals.carryOver(id, toWeek);
+      if (before && before.weekKey !== goal.weekKey) await ctx2.broadcastGoals(before.weekKey);
+      return ctx2.broadcastGoals(goal.weekKey);
+    },
+    ctx2
+  );
+  on("planner:state", async () => ctx2.plannerState(), ctx2);
+  on(
+    "planner:setKey",
+    async (_c, { key }) => {
+      await ctx2.planner.setKey(key);
+      return ctx2.plannerState();
+    },
+    ctx2
+  );
+  on(
+    "planner:clearKey",
+    async () => {
+      await ctx2.planner.clearKey();
+      return ctx2.plannerState();
+    },
+    ctx2
+  );
+  on("planner:get", async (_c, { localDate: localDate2 }) => db.plans.get(localDate2), ctx2);
+  on(
+    "planner:generate",
+    async (_c, request) => {
+      const plan = await ctx2.planner.generate(request);
+      ctx2.broadcast("planner:changed", { localDate: plan.localDate, plan });
+      return plan;
+    },
+    ctx2
+  );
+  on(
+    "planner:promoteBlock",
+    async (_c, { localDate: localDate2, blockId }) => {
+      const plan = await db.plans.get(localDate2);
+      if (!plan) throw new Error("There is no plan for that day.");
+      const block = plan.blocks.find((candidate) => candidate.id === blockId);
+      if (!block) throw new Error("That block is no longer in the plan.");
+      if (block.threadId) {
+        const existing = await db.threads.get(block.threadId);
+        if (existing) return { plan, thread: existing };
+      }
+      const board = await db.threads.activeList();
+      if (board.length >= ACTIVE_THREAD_CAP) {
+        throw new Error(
+          `At most ${ACTIVE_THREAD_CAP} active threads. Finish one, or move one to the dormant zone.`
+        );
+      }
+      const thread = await db.threads.create(block.title, block.why ?? "");
+      const linked = await db.plans.linkBlock(localDate2, blockId, thread.id);
+      ctx2.broadcast("planner:changed", { localDate: localDate2, plan: linked });
+      ctx2.broadcastThreads();
+      return { plan: linked, thread };
+    },
+    ctx2
+  );
+  on(
+    "planner:clear",
+    async (_c, { localDate: localDate2 }) => {
+      await db.plans.remove(localDate2);
+      ctx2.broadcast("planner:changed", { localDate: localDate2, plan: null });
     },
     ctx2
   );
@@ -4288,7 +5320,7 @@ async function bootstrap() {
   applyDockIcon();
   const root = appDataRoot();
   await writeLockFile(root);
-  ctx = await AppContext.create(root);
+  ctx = await AppContext.create(root, app.isPackaged ? void 0 : process.cwd());
   registerHandlers(ctx);
   ctx.setupTray(() => app.quit());
   ctx.openMainWindow();

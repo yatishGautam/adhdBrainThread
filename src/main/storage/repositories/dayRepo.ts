@@ -35,6 +35,18 @@ export class DayRepo {
     return (await this.days.all()).filter((day) => !day.deletedAt);
   }
 
+  /**
+   * Days that exist between two local dates, inclusive, in order. Missing days stay missing
+   * rather than being materialised as blanks — the planner reading "nothing on Sunday" and the
+   * navigator showing no Sunday have to agree.
+   */
+  async range(from: string, to: string): Promise<Day[]> {
+    const all = await this.live();
+    return all
+      .filter((day) => day.localDate >= from && day.localDate <= to)
+      .sort((a, b) => a.localDate.localeCompare(b.localDate));
+  }
+
   async get(localDate: string): Promise<Day | null> {
     const day = await this.days.get(localDate);
     return day && !day.deletedAt ? day : null;

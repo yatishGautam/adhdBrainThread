@@ -9,6 +9,8 @@ import { systemClock, type Clock } from './clock.js';
 import { JsonStore } from './JsonStore.js';
 import { migrate, type MigrationReport } from './migrate.js';
 import { DayRepo } from './repositories/dayRepo.js';
+import { GoalRepo } from './repositories/goalRepo.js';
+import { PlanRepo } from './repositories/planRepo.js';
 import { SessionRepo } from './repositories/sessionRepo.js';
 import { SettingsRepo } from './repositories/settingsRepo.js';
 import { ThreadRepo } from './repositories/threadRepo.js';
@@ -27,6 +29,8 @@ export class Database {
     readonly clock: Clock,
     readonly threads: ThreadRepo,
     readonly days: DayRepo,
+    readonly goals: GoalRepo,
+    readonly plans: PlanRepo,
     readonly sessions: SessionRepo,
     readonly settings: SettingsRepo,
     readonly migration: MigrationReport,
@@ -47,9 +51,22 @@ export class Database {
 
     const days = new DayRepo(store, clock);
     const threads = new ThreadRepo(store, clock);
+    const goals = new GoalRepo(store, clock);
+    const plans = new PlanRepo(store);
     const sessions = new SessionRepo(store);
 
-    return new Database(root, store, clock, threads, days, sessions, settings, migration);
+    return new Database(
+      root,
+      store,
+      clock,
+      threads,
+      days,
+      goals,
+      plans,
+      sessions,
+      settings,
+      migration,
+    );
   }
 
   async close(): Promise<void> {

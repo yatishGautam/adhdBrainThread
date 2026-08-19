@@ -2103,6 +2103,18 @@ function localDateOf(instant, timezone) {
 function todayLocalDate(timezone) {
   return localDateOf(/* @__PURE__ */ new Date(), timezone);
 }
+function addLocalDays(localDate2, days) {
+  const [y2, m2, d2] = localDate2.split("-").map(Number);
+  const utc = new Date(Date.UTC(y2, m2 - 1, d2));
+  utc.setUTCDate(utc.getUTCDate() + days);
+  return utc.toISOString().slice(0, 10);
+}
+function startOfLocalWeek(localDate2) {
+  const [y2, m2, d2] = localDate2.split("-").map(Number);
+  const utc = new Date(Date.UTC(y2, m2 - 1, d2));
+  const shift = (utc.getUTCDay() + 6) % 7;
+  return addLocalDays(localDate2, -shift);
+}
 const useDayStore = create((set, get2) => ({
   today: null,
   todayDate: todayLocalDate(Intl.DateTimeFormat().resolvedOptions().timeZone),
@@ -2197,6 +2209,140 @@ function readableError(error) {
   const parts = raw.split("Error: ");
   const message2 = (parts[parts.length - 1] ?? raw).trim();
   return message2 || "Something went wrong. Try again.";
+}
+const WEEK_KEY_PATTERN = /^(\d{4})-W(\d{2})$/;
+function weekKeyOf(localDate2) {
+  const monday = startOfLocalWeek(localDate2);
+  const thursday = addLocalDays(monday, 3);
+  const [y2, m2, d2] = thursday.split("-").map(Number);
+  const thursdayUtc = new Date(Date.UTC(y2, m2 - 1, d2));
+  const year = thursdayUtc.getUTCFullYear();
+  const jan1 = Date.UTC(year, 0, 1);
+  const week = Math.floor((thursdayUtc.getTime() - jan1) / (7 * 864e5)) + 1;
+  return `${year}-W${String(week).padStart(2, "0")}`;
+}
+function weekStart(key) {
+  const match2 = WEEK_KEY_PATTERN.exec(key);
+  if (!match2) throw new Error(`not a week key: ${key}`);
+  const year = Number(match2[1]);
+  const week = Number(match2[2]);
+  const jan4 = `${year}-01-04`;
+  return addLocalDays(startOfLocalWeek(jan4), (week - 1) * 7);
+}
+function weekEnd(key) {
+  return addLocalDays(weekStart(key), 6);
+}
+function shiftWeek(key, offset) {
+  return weekKeyOf(addLocalDays(weekStart(key), offset * 7));
+}
+function formatWeekRange(key) {
+  const start = weekStart(key);
+  const end = weekEnd(key);
+  const month = (date2) => MONTHS[Number(date2.slice(5, 7)) - 1] ?? "";
+  const day = (date2) => Number(date2.slice(8, 10));
+  if (start.slice(0, 7) === end.slice(0, 7)) {
+    return `${month(start)} ${day(start)} – ${day(end)}`;
+  }
+  return `${month(start)} ${day(start)} – ${month(end)} ${day(end)}`;
+}
+function formatWeekRelative(key, todayDate) {
+  const current = weekKeyOf(todayDate);
+  if (key === current) return "This week";
+  if (key === shiftWeek(current, -1)) return "Last week";
+  if (key === shiftWeek(current, 1)) return "Next week";
+  const weeks = Math.round(
+    (Date.parse(`${weekStart(key)}T00:00:00Z`) - Date.parse(`${weekStart(current)}T00:00:00Z`)) / (7 * 864e5)
+  );
+  return weeks < 0 ? `${-weeks} weeks ago` : `In ${weeks} weeks`;
+}
+const MONTHS = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec"
+];
+const useGoalStore = create((set) => ({
+  weekKey: "",
+  currentWeek: "",
+  goals: [],
+  weeks: [],
+  loading: true,
+  setWeek: (weekKey) => {
+    set({ weekKey, loading: true });
+    void loadWeek(weekKey);
+  }
+}));
+async function loadWeek(weekKey) {
+  const goals = await window.thread.invoke["goals:list"]({ weekKey });
+  if (useGoalStore.getState().weekKey !== weekKey) return;
+  useGoalStore.setState({ goals, loading: false });
+}
+async function refreshWeeks() {
+  const weeks = await window.thread.invoke["goals:weeks"](void 0);
+  useGoalStore.setState({ weeks });
+}
+async function initGoalStore() {
+  const today = await window.thread.invoke["day:today"](void 0);
+  const todayDate = today?.localDate ?? (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  const current = weekKeyOf(todayDate);
+  useGoalStore.setState({ weekKey: current, currentWeek: current });
+  await Promise.all([loadWeek(current), refreshWeeks()]);
+  window.thread.on("goals:changed", ({ weekKey, goals }) => {
+    if (useGoalStore.getState().weekKey === weekKey) {
+      useGoalStore.setState({ goals, loading: false });
+    }
+    void refreshWeeks();
+  });
+}
+const usePlanStore = create((set) => ({
+  plans: {},
+  state: null,
+  generating: false,
+  error: null,
+  setError: (error) => set({ error })
+}));
+async function loadPlan(localDate2) {
+  const plan = await window.thread.invoke["planner:get"]({ localDate: localDate2 });
+  usePlanStore.setState((state) => ({ plans: { ...state.plans, [localDate2]: plan } }));
+}
+async function refreshPlannerState() {
+  const state = await window.thread.invoke["planner:state"](void 0);
+  usePlanStore.setState({ state });
+}
+async function generatePlan(request) {
+  if (usePlanStore.getState().generating) return false;
+  usePlanStore.setState({ generating: true, error: null });
+  try {
+    await window.thread.invoke["planner:generate"](request);
+    await refreshPlannerState();
+    return true;
+  } catch (error) {
+    usePlanStore.setState({ error: messageOf$2(error) });
+    return false;
+  } finally {
+    usePlanStore.setState({ generating: false });
+  }
+}
+async function clearPlan(localDate2) {
+  await window.thread.invoke["planner:clear"]({ localDate: localDate2 });
+}
+async function initPlanStore() {
+  await refreshPlannerState();
+  window.thread.on("planner:changed", ({ localDate: localDate2, plan }) => {
+    usePlanStore.setState((state) => ({ plans: { ...state.plans, [localDate2]: plan } }));
+  });
+}
+function messageOf$2(error) {
+  const raw = error instanceof Error ? error.message : String(error);
+  return raw.replace(/^Error invoking remote method '[^']+':\s*/, "").replace(/^Error:\s*/, "");
 }
 const useUiStore = create((set) => ({
   // Threads is the first tab and the board is the inventory you open the app to look at.
@@ -2666,7 +2812,7 @@ function SignedOut() {
     /* @__PURE__ */ jsxRuntimeExports.jsx("h1", { style: { margin: "0 0 6px", fontSize: "var(--text-xxl)", fontWeight: 600, letterSpacing: "-0.01em" }, children: mode === "create" ? "Create your account" : "Welcome back" }),
     /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: { margin: "0 0 28px", fontSize: "var(--text-sm)", color: "var(--text-muted)", lineHeight: 1.55 }, children: mode === "create" ? "One account keeps this Mac and your phone looking at the same threads, days and sits." : "Sign in and this Mac picks up whatever your phone has been writing." }),
     /* @__PURE__ */ jsxRuntimeExports.jsx(Segmented, { mode, onChange: switchTo }),
-    mode === "create" ? /* @__PURE__ */ jsxRuntimeExports.jsx(Field, { label: "Your name", hint: "What the app calls you. You can leave it blank.", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+    mode === "create" ? /* @__PURE__ */ jsxRuntimeExports.jsx(Field$1, { label: "Your name", hint: "What the app calls you. You can leave it blank.", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
       "input",
       {
         ref: mode === "create" ? first : void 0,
@@ -2677,7 +2823,7 @@ function SignedOut() {
         style: inputStyle
       }
     ) }) : null,
-    /* @__PURE__ */ jsxRuntimeExports.jsx(Field, { label: "Email", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+    /* @__PURE__ */ jsxRuntimeExports.jsx(Field$1, { label: "Email", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
       "input",
       {
         ref: mode === "signin" ? first : void 0,
@@ -2691,7 +2837,7 @@ function SignedOut() {
       }
     ) }),
     /* @__PURE__ */ jsxRuntimeExports.jsx(
-      Field,
+      Field$1,
       {
         label: "Password",
         hint: mode === "create" ? `At least ${MIN_PASSWORD_LENGTH} characters. A short phrase you can actually recall beats a clever word you can't.` : void 0,
@@ -2853,7 +2999,7 @@ function ServerField() {
     ] });
   }
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { marginTop: 18, paddingTop: 14, borderTop: "1px solid var(--line)" }, children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx(Field, { label: "Server", children: /* @__PURE__ */ jsxRuntimeExports.jsx("input", { value: draft, onChange: (event) => setDraft(event.target.value), spellCheck: false, style: inputStyle }) }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx(Field$1, { label: "Server", children: /* @__PURE__ */ jsxRuntimeExports.jsx("input", { value: draft, onChange: (event) => setDraft(event.target.value), spellCheck: false, style: inputStyle }) }),
     /* @__PURE__ */ jsxRuntimeExports.jsx(
       "button",
       {
@@ -2868,7 +3014,7 @@ function ServerField() {
     )
   ] });
 }
-function Field({
+function Field$1({
   label,
   hint,
   hintTone = "muted",
@@ -2976,6 +3122,8 @@ const linkStyle = {
 const TABS = [
   { id: "threads", label: "Threads" },
   { id: "today", label: "Daily" },
+  // Between the day and the dashboard, which is where the week sits in scope as well as in time.
+  { id: "week", label: "Week" },
   { id: "analytics", label: "Dashboard" }
 ];
 function TabBar() {
@@ -3150,6 +3298,11 @@ function Button({
 }
 const ACTIVE_THREAD_CAP = 5;
 const DONE_RECENT_DAYS = 30;
+const PLANNER_MODELS = [
+  { id: "claude-opus-5", label: "Opus 5", note: "Best judgement · ~$0.05 a plan" },
+  { id: "claude-sonnet-5", label: "Sonnet 5", note: "Balanced · ~$0.03 a plan" },
+  { id: "claude-haiku-4-5", label: "Haiku 4.5", note: "Cheapest · ~$0.01 a plan" }
+];
 const chip = "_chip_fn8vf_1";
 const amber = "_amber_fn8vf_14";
 const slate = "_slate_fn8vf_17";
@@ -4537,7 +4690,7 @@ function ThreadsView() {
       setError(null);
       setExpandedId(thread.id);
     } catch (cause) {
-      setError(messageOf(cause));
+      setError(messageOf$1(cause));
     }
   };
   const move = async (id, toIndex, status) => {
@@ -4547,7 +4700,7 @@ function ThreadsView() {
       await window.thread.invoke["threads:reorder"]({ id, toIndex, status });
       setError(null);
     } catch (cause) {
-      setError(messageOf(cause));
+      setError(messageOf$1(cause));
     }
   };
   const dragProps = (list, thread, index) => ({
@@ -4743,7 +4896,7 @@ function boardOrder(threads) {
     return STATUS_ORDER[a2.status] - STATUS_ORDER[b2.status] || b2.updatedAt.localeCompare(a2.updatedAt);
   });
 }
-function messageOf(cause) {
+function messageOf$1(cause) {
   const raw = cause instanceof Error ? cause.message : String(cause);
   return raw.replace(/^Error invoking remote method '[^']*':\s*Error:\s*/, "");
 }
@@ -5043,6 +5196,469 @@ function Panel({
     }
   );
 }
+function PlanSection({ localDate: localDate2 }) {
+  const plan = usePlanStore((s2) => s2.plans[localDate2] ?? null);
+  const generating = usePlanStore((s2) => s2.generating);
+  const error = usePlanStore((s2) => s2.error);
+  const setError = usePlanStore((s2) => s2.setError);
+  const keyConfigured = usePlanStore((s2) => s2.state?.key.configured ?? false);
+  const [setupOpen, setSetupOpen] = reactExports.useState(false);
+  reactExports.useEffect(() => {
+    void loadPlan(localDate2);
+  }, [localDate2]);
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(
+    Panel,
+    {
+      title: "Suggested day",
+      accent: "var(--slate)",
+      subtitle: plan ? "Built from your weekly goals and what is open. Start a block, or make one a thread." : "Turn this week’s goals and your open work into an ordered day.",
+      right: /* @__PURE__ */ jsxRuntimeExports.jsx(
+        PlanActions,
+        {
+          plan,
+          generating,
+          onGenerate: () => setSetupOpen((v2) => !v2),
+          onClear: () => void clearPlan(localDate2)
+        }
+      ),
+      children: [
+        error ? /* @__PURE__ */ jsxRuntimeExports.jsxs(
+          "div",
+          {
+            style: {
+              fontSize: 12,
+              color: "var(--clay)",
+              background: "color-mix(in srgb, var(--clay) 10%, transparent)",
+              border: "1px solid color-mix(in srgb, var(--clay) 30%, transparent)",
+              borderRadius: 8,
+              padding: "8px 10px",
+              marginBottom: 12,
+              display: "flex",
+              gap: 10
+            },
+            children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { flex: 1 }, children: error }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx(
+                "button",
+                {
+                  onClick: () => setError(null),
+                  style: {
+                    background: "none",
+                    border: "none",
+                    color: "var(--text-faint)",
+                    cursor: "pointer",
+                    fontSize: 12
+                  },
+                  children: "×"
+                }
+              )
+            ]
+          }
+        ) : null,
+        setupOpen || !plan && !generating ? /* @__PURE__ */ jsxRuntimeExports.jsx(
+          SetupBar,
+          {
+            localDate: localDate2,
+            keyConfigured,
+            generating,
+            onDone: () => setSetupOpen(false)
+          }
+        ) : null,
+        generating ? /* @__PURE__ */ jsxRuntimeExports.jsx(Generating, {}) : null,
+        plan && !generating ? /* @__PURE__ */ jsxRuntimeExports.jsx(PlanBody, { plan }) : null
+      ]
+    }
+  );
+}
+function PlanActions({
+  plan,
+  generating,
+  onGenerate,
+  onClear
+}) {
+  if (generating) return null;
+  if (!plan) return null;
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 10 }, children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs(
+      "span",
+      {
+        title: `${plan.usage.inputTokens} in, ${plan.usage.outputTokens} out, via ${plan.model}`,
+        style: { fontSize: 10.5, color: "var(--text-faint)", fontFamily: "var(--font-mono)" },
+        children: [
+          "$",
+          plan.usage.costUsd.toFixed(3)
+        ]
+      }
+    ),
+    /* @__PURE__ */ jsxRuntimeExports.jsx(
+      "button",
+      {
+        onClick: onGenerate,
+        style: ghostButton,
+        title: "Generate a fresh plan — this replaces the current one and costs another call",
+        children: "Redo"
+      }
+    ),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("button", { onClick: onClear, style: ghostButton, title: "Throw this plan away", children: "Clear" })
+  ] });
+}
+function SetupBar({
+  localDate: localDate2,
+  keyConfigured,
+  generating,
+  onDone
+}) {
+  const [settings, setSettings] = reactExports.useState(null);
+  const [wake, setWake] = reactExports.useState("");
+  const [start, setStart] = reactExports.useState("");
+  const [end, setEnd] = reactExports.useState("");
+  const [note, setNote] = reactExports.useState("");
+  reactExports.useEffect(() => {
+    void window.thread.invoke["settings:get"](void 0).then((next) => {
+      setSettings(next);
+      setWake(next.wakeTime);
+      setStart(next.dayStartTime);
+      setEnd(next.dayEndTime);
+    });
+  }, []);
+  if (!settings) return /* @__PURE__ */ jsxRuntimeExports.jsx("div", {});
+  const run = async () => {
+    const ok = await generatePlan({
+      localDate: localDate2,
+      wakeTime: wake,
+      startTime: start,
+      endTime: end,
+      ...note.trim() ? { note: note.trim() } : {}
+    });
+    if (ok) {
+      setNote("");
+      onDone();
+    }
+  };
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(
+    "div",
+    {
+      style: {
+        border: "1px solid var(--line)",
+        borderRadius: 10,
+        padding: 12,
+        marginBottom: 14,
+        background: "var(--surface-raised)"
+      },
+      children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 10 }, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(Time, { label: "Woke", value: wake, onChange: setWake }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(Time, { label: "Work from", value: start, onChange: setStart }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(Time, { label: "Done by", value: end, onChange: setEnd })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "input",
+          {
+            value: note,
+            placeholder: "Anything about today only? (dentist at 3, low energy, deadline tomorrow…)",
+            onChange: (e3) => setNote(e3.target.value),
+            onKeyDown: (e3) => e3.key === "Enter" && keyConfigured && !generating && void run(),
+            style: {
+              width: "100%",
+              fontSize: 12.5,
+              background: "var(--ink)",
+              border: "1px solid var(--line)",
+              borderRadius: 8,
+              padding: "7px 10px",
+              marginBottom: 10
+            }
+          }
+        ),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 10 }, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "button",
+            {
+              onClick: () => void run(),
+              disabled: !keyConfigured || generating,
+              className: keyConfigured && !generating ? "btn-launch" : void 0,
+              style: {
+                padding: "8px 16px",
+                borderRadius: 10,
+                border: keyConfigured ? "none" : "1px solid var(--line)",
+                background: keyConfigured ? void 0 : "transparent",
+                color: keyConfigured ? void 0 : "var(--text-faint)",
+                fontSize: 13,
+                fontWeight: 600,
+                fontFamily: "inherit",
+                cursor: keyConfigured && !generating ? "pointer" : "default"
+              },
+              children: generating ? "Thinking…" : "Plan my day"
+            }
+          ),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { fontSize: 10.5, color: "var(--text-faint)" }, children: keyConfigured ? "One call to Claude — roughly a nickel, and it takes about half a minute." : "Add an API key on the Week page first." })
+        ] })
+      ]
+    }
+  );
+}
+function Generating() {
+  const [elapsed, setElapsed] = reactExports.useState(0);
+  reactExports.useEffect(() => {
+    const timer = setInterval(() => setElapsed((n2) => n2 + 1), 1e3);
+    return () => clearInterval(timer);
+  }, []);
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { padding: "18px 4px", display: "flex", alignItems: "center", gap: 12 }, children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx(
+      "div",
+      {
+        style: {
+          width: 14,
+          height: 14,
+          borderRadius: "50%",
+          border: "2px solid var(--line-strong)",
+          borderTopColor: "var(--amber)",
+          animation: "spin 900ms linear infinite"
+        }
+      }
+    ),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { fontSize: 13, color: "var(--text)" }, children: "Reading your goals and shaping the day…" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { fontSize: 11, color: "var(--text-faint)", marginTop: 2 }, children: elapsed < 30 ? "Usually about 25 seconds." : "Taking longer than usual — still going." })
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("style", { children: "@keyframes spin { to { transform: rotate(360deg) } }" })
+  ] });
+}
+function Time({
+  label,
+  value,
+  onChange
+}) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { style: { display: "flex", flexDirection: "column", gap: 4 }, children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx(
+      "span",
+      {
+        style: {
+          fontSize: 10.5,
+          textTransform: "uppercase",
+          letterSpacing: "0.06em",
+          color: "var(--text-faint)"
+        },
+        children: label
+      }
+    ),
+    /* @__PURE__ */ jsxRuntimeExports.jsx(
+      "input",
+      {
+        type: "time",
+        value,
+        onChange: (e3) => e3.target.value && onChange(e3.target.value),
+        style: {
+          fontSize: 13,
+          fontFamily: "var(--font-mono)",
+          background: "var(--ink)",
+          border: "1px solid var(--line)",
+          borderRadius: 8,
+          padding: "6px 8px",
+          colorScheme: "dark"
+        }
+      }
+    )
+  ] });
+}
+function PlanBody({ plan }) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx(
+      "p",
+      {
+        style: {
+          fontSize: 13,
+          lineHeight: 1.6,
+          color: "var(--text)",
+          margin: "0 0 16px"
+        },
+        children: plan.headline
+      }
+    ),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { children: plan.blocks.map((block) => /* @__PURE__ */ jsxRuntimeExports.jsx(BlockRow, { block, localDate: plan.localDate }, block.id)) }),
+    plan.deferred.length ? /* @__PURE__ */ jsxRuntimeExports.jsxs(
+      "div",
+      {
+        style: {
+          marginTop: 14,
+          paddingTop: 12,
+          borderTop: "1px solid var(--line)"
+        },
+        children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "div",
+            {
+              style: {
+                fontSize: 10.5,
+                textTransform: "uppercase",
+                letterSpacing: "0.06em",
+                color: "var(--text-faint)",
+                marginBottom: 6
+              },
+              children: "Not today"
+            }
+          ),
+          plan.deferred.map((line) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
+            "div",
+            {
+              style: {
+                fontSize: 12,
+                color: "var(--text-muted)",
+                lineHeight: 1.55,
+                marginBottom: 4
+              },
+              children: [
+                "— ",
+                line
+              ]
+            },
+            line
+          ))
+        ]
+      }
+    ) : null
+  ] });
+}
+const WORK_KINDS = /* @__PURE__ */ new Set(["focus", "admin"]);
+function BlockRow({
+  block,
+  localDate: localDate2
+}) {
+  const [hover, setHover] = reactExports.useState(false);
+  const [promoting, setPromoting] = reactExports.useState(false);
+  const setError = usePlanStore((s2) => s2.setError);
+  const threads = useThreadStore((s2) => s2.threads);
+  const running = useSessionStore((s2) => s2.state);
+  const thread = block.threadId ? threads.find((t2) => t2.id === block.threadId) : void 0;
+  const canStart = Boolean(thread) && thread?.status !== "done";
+  const isRunning = running?.session.threadId === block.threadId;
+  const canPromote = !thread && WORK_KINDS.has(block.kind);
+  const promote = async () => {
+    setPromoting(true);
+    setError(null);
+    try {
+      await window.thread.invoke["planner:promoteBlock"]({ localDate: localDate2, blockId: block.id });
+    } catch (error) {
+      const raw = error instanceof Error ? error.message : String(error);
+      setError(raw.replace(/^Error invoking remote method '[^']+':\s*/, "").replace(/^Error:\s*/, ""));
+    } finally {
+      setPromoting(false);
+    }
+  };
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(
+    "div",
+    {
+      onMouseEnter: () => setHover(true),
+      onMouseLeave: () => setHover(false),
+      style: {
+        display: "flex",
+        alignItems: "baseline",
+        gap: 12,
+        padding: "7px 8px",
+        borderRadius: 8,
+        background: hover ? "var(--surface-raised)" : "transparent",
+        transition: "background var(--motion-fast) var(--ease-out)"
+      },
+      children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs(
+          "span",
+          {
+            className: "mono",
+            style: {
+              fontSize: 11.5,
+              color: "var(--text-faint)",
+              flexShrink: 0,
+              width: 88,
+              fontFamily: "var(--font-mono)"
+            },
+            children: [
+              block.start,
+              "–",
+              block.end
+            ]
+          }
+        ),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "span",
+          {
+            title: KIND_LABEL[block.kind],
+            style: {
+              width: 6,
+              height: 6,
+              borderRadius: "50%",
+              background: KIND_COLOUR[block.kind],
+              flexShrink: 0,
+              alignSelf: "center"
+            }
+          }
+        ),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { flex: 1, minWidth: 0 }, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { fontSize: 13, color: "var(--text)" }, children: block.title }),
+          block.why ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { fontSize: 11, color: "var(--text-faint)", marginTop: 2, lineHeight: 1.5 }, children: block.why }) : null
+        ] }),
+        canStart ? /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "button",
+          {
+            onClick: () => {
+              if (block.threadId) {
+                void window.thread.invoke["session:start"]({ threadId: block.threadId });
+              }
+            },
+            disabled: isRunning,
+            title: isRunning ? "Already running" : `Start a focus session on ${thread?.title}`,
+            style: {
+              ...ghostButton,
+              opacity: isRunning ? 0.5 : hover ? 1 : 0.4,
+              color: isRunning ? "var(--text-faint)" : "var(--amber)",
+              flexShrink: 0
+            },
+            children: isRunning ? "Running" : "Start"
+          }
+        ) : canPromote ? /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "button",
+          {
+            onClick: () => void promote(),
+            disabled: promoting,
+            title: `Make “${block.title}” a thread on the board, so you can run a timer on it`,
+            style: {
+              ...ghostButton,
+              // Quieter than Start: this is the offer, not the main action.
+              opacity: promoting ? 0.5 : hover ? 1 : 0,
+              color: "var(--text-muted)",
+              whiteSpace: "nowrap",
+              flexShrink: 0
+            },
+            children: promoting ? "Adding…" : "+ Thread"
+          }
+        ) : null
+      ]
+    }
+  );
+}
+const KIND_COLOUR = {
+  focus: "var(--amber)",
+  break: "var(--emerald)",
+  admin: "var(--slate)",
+  meal: "var(--lavender)",
+  buffer: "var(--line-strong)",
+  wind_down: "var(--lavender)"
+};
+const KIND_LABEL = {
+  focus: "Focus",
+  break: "Break",
+  admin: "Admin",
+  meal: "Meal",
+  buffer: "Slack",
+  wind_down: "Wind down"
+};
+const ghostButton = {
+  background: "none",
+  border: "none",
+  color: "var(--text-faint)",
+  fontSize: 11.5,
+  fontFamily: "inherit",
+  cursor: "pointer",
+  padding: "2px 4px"
+};
 function TodayThreads({ readOnly }) {
   const threads = useThreadStore((s2) => s2.threads);
   const setTab = useUiStore((s2) => s2.setTab);
@@ -5682,6 +6298,7 @@ function TodayView() {
     ),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", flexDirection: "column", gap: 18 }, children: [
       /* @__PURE__ */ jsxRuntimeExports.jsx(NowSection, { day, localDate: localDate2 }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx(PlanSection, { localDate: localDate2 }),
       /* @__PURE__ */ jsxRuntimeExports.jsx(TodayThreads, { readOnly: false }),
       /* @__PURE__ */ jsxRuntimeExports.jsx(TodoList, { localDate: localDate2 }),
       /* @__PURE__ */ jsxRuntimeExports.jsx(BlockerList, { localDate: localDate2 }),
@@ -5689,6 +6306,682 @@ function TodayView() {
       /* @__PURE__ */ jsxRuntimeExports.jsx(ThoughtCapture, { day, localDate: localDate2 })
     ] })
   ] });
+}
+function GoalRow({ goal }) {
+  const currentWeek = useGoalStore((s2) => s2.currentWeek);
+  const [open, setOpen] = reactExports.useState(false);
+  const [hover, setHover] = reactExports.useState(false);
+  const [title2, setTitle] = reactExports.useState(goal.title);
+  const [editingTitle, setEditingTitle] = reactExports.useState(false);
+  const [context, setContext] = reactExports.useState(goal.context);
+  const contextRef = reactExports.useRef(null);
+  reactExports.useEffect(() => setTitle(goal.title), [goal.title]);
+  reactExports.useEffect(() => setContext(goal.context), [goal.context]);
+  reactExports.useEffect(() => {
+    if (!open || !contextRef.current) return;
+    const el = contextRef.current;
+    el.style.height = "auto";
+    el.style.height = `${Math.max(el.scrollHeight, 72)}px`;
+  }, [open, context]);
+  const commitTitle = async () => {
+    setEditingTitle(false);
+    const trimmed = title2.trim();
+    if (!trimmed || trimmed === goal.title) {
+      setTitle(goal.title);
+      return;
+    }
+    await window.thread.invoke["goals:update"]({ id: goal.id, patch: { title: trimmed } });
+  };
+  const commitContext = async () => {
+    if (context === goal.context) return;
+    await window.thread.invoke["goals:update"]({ id: goal.id, patch: { context } });
+  };
+  const contextLines = goal.context.trim() ? goal.context.trim().split("\n").filter(Boolean).length : 0;
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(
+    "div",
+    {
+      onMouseEnter: () => setHover(true),
+      onMouseLeave: () => setHover(false),
+      style: {
+        borderRadius: 10,
+        border: `1px solid ${open ? "var(--line)" : "transparent"}`,
+        background: open ? "var(--surface-raised)" : "transparent",
+        transition: "background var(--motion-fast) var(--ease-out)",
+        marginBottom: 2
+      },
+      children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 10, padding: "7px 10px" }, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            Checkbox,
+            {
+              checked: goal.done,
+              onChange: () => void window.thread.invoke["goals:toggle"]({ id: goal.id }),
+              title: goal.done ? "Not done after all" : "Done"
+            }
+          ),
+          editingTitle ? /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "input",
+            {
+              autoFocus: true,
+              value: title2,
+              onChange: (e3) => setTitle(e3.target.value),
+              onBlur: () => void commitTitle(),
+              onKeyDown: (e3) => {
+                if (e3.key === "Enter") void commitTitle();
+                if (e3.key === "Escape") {
+                  setTitle(goal.title);
+                  setEditingTitle(false);
+                }
+              },
+              style: { flex: 1, fontSize: 13.5, padding: 0 }
+            }
+          ) : /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "button",
+            {
+              onClick: () => setOpen((v2) => !v2),
+              onDoubleClick: () => setEditingTitle(true),
+              title: contextLines ? "Click to see the context" : "Click to add context",
+              style: {
+                flex: 1,
+                textAlign: "left",
+                background: "none",
+                border: "none",
+                padding: 0,
+                cursor: "pointer",
+                fontSize: 13.5,
+                fontFamily: "inherit",
+                color: goal.done ? "var(--text-faint)" : "var(--text)",
+                textDecoration: goal.done ? "line-through" : "none",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap"
+              },
+              children: goal.title
+            }
+          ),
+          contextLines && !open ? /* @__PURE__ */ jsxRuntimeExports.jsxs(
+            "span",
+            {
+              title: `${contextLines} line${contextLines === 1 ? "" : "s"} of context`,
+              style: { fontSize: 10.5, color: "var(--text-faint)", flexShrink: 0 },
+              children: [
+                "¶ ",
+                contextLines
+              ]
+            }
+          ) : null,
+          goal.carriedFromWeek ? /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "span",
+            {
+              title: `Carried over from ${formatWeekRelative(goal.carriedFromWeek, todayIsh())}`,
+              style: { fontSize: 10.5, color: "var(--text-faint)", flexShrink: 0 },
+              children: "↻"
+            }
+          ) : null,
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "button",
+            {
+              onClick: () => setOpen((v2) => !v2),
+              title: open ? "Collapse" : "Add details, steps, anything the planner should know",
+              style: {
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                color: "var(--text-faint)",
+                fontSize: 13,
+                padding: "0 2px",
+                opacity: hover || open ? 1 : 0.35,
+                transform: open ? "rotate(90deg)" : "none",
+                transition: "transform var(--motion-fast) var(--ease-out)"
+              },
+              children: "›"
+            }
+          ),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs(
+            "div",
+            {
+              style: {
+                display: "flex",
+                gap: 4,
+                opacity: hover ? 1 : 0,
+                transition: "opacity var(--motion-fast) var(--ease-out)"
+              },
+              children: [
+                !goal.done ? /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  RowButton,
+                  {
+                    label: "→",
+                    title: `Move to ${formatWeekRelative(shiftWeek(currentWeek, 1), todayIsh())}`,
+                    onClick: () => void window.thread.invoke["goals:carryOver"]({
+                      id: goal.id,
+                      toWeek: shiftWeek(goal.weekKey, 1)
+                    })
+                  }
+                ) : null,
+                /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  RowButton,
+                  {
+                    label: "×",
+                    title: "Delete this goal",
+                    onClick: () => void window.thread.invoke["goals:remove"]({ id: goal.id })
+                  }
+                )
+              ]
+            }
+          )
+        ] }),
+        open ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { padding: "0 10px 10px 38px" }, children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "textarea",
+          {
+            ref: contextRef,
+            value: context,
+            placeholder: 'Steps, links, constraints, what "done" looks like — anything that helps.\nThe planner reads this; nothing else does.',
+            onChange: (e3) => setContext(e3.target.value),
+            onBlur: () => void commitContext(),
+            style: {
+              width: "100%",
+              minHeight: 72,
+              resize: "none",
+              fontSize: 12.5,
+              lineHeight: 1.55,
+              fontFamily: "inherit",
+              color: "var(--text-muted)",
+              background: "var(--ink)",
+              border: "1px solid var(--line)",
+              borderRadius: 8,
+              padding: "8px 10px"
+            }
+          }
+        ) }) : null
+      ]
+    }
+  );
+}
+function RowButton({
+  label,
+  title: title2,
+  onClick
+}) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsx(
+    "button",
+    {
+      onClick,
+      title: title2,
+      style: {
+        background: "none",
+        border: "none",
+        cursor: "pointer",
+        color: "var(--text-faint)",
+        fontSize: 13,
+        lineHeight: 1,
+        padding: "2px 3px"
+      },
+      children: label
+    }
+  );
+}
+function todayIsh() {
+  return (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+}
+function PlannerSettings() {
+  const state = usePlanStore((s2) => s2.state);
+  const [settings, setSettings] = reactExports.useState(null);
+  reactExports.useEffect(() => {
+    void window.thread.invoke["settings:get"](void 0).then(setSettings);
+    const off = window.thread.on("settings:changed", setSettings);
+    return off;
+  }, []);
+  const patch = async (part) => {
+    const next = await window.thread.invoke["settings:update"]({ patch: part });
+    setSettings(next);
+    await refreshPlannerState();
+  };
+  if (!settings) return /* @__PURE__ */ jsxRuntimeExports.jsx("div", {});
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(
+    Panel,
+    {
+      title: "Planner",
+      accent: "var(--lavender)",
+      subtitle: "What a normal day looks like, and which model shapes it. Both are overridable each morning.",
+      right: state ? /* @__PURE__ */ jsxRuntimeExports.jsx(Spend, {}) : null,
+      children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", gap: 10, marginBottom: 14, flexWrap: "wrap" }, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            TimeField,
+            {
+              label: "Wake",
+              value: settings.wakeTime,
+              onChange: (wakeTime) => void patch({ wakeTime })
+            }
+          ),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            TimeField,
+            {
+              label: "Work from",
+              value: settings.dayStartTime,
+              onChange: (dayStartTime) => void patch({ dayStartTime })
+            }
+          ),
+          /* @__PURE__ */ jsxRuntimeExports.jsx(
+            TimeField,
+            {
+              label: "Done by",
+              value: settings.dayEndTime,
+              onChange: (dayEndTime) => void patch({ dayEndTime })
+            }
+          )
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(Field, { label: "Always true", children: /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "textarea",
+          {
+            defaultValue: settings.plannerContext,
+            placeholder: "Standing meetings, medication timing, when your focus is best or worst, anything that shapes every day.",
+            onBlur: (e3) => {
+              if (e3.target.value !== settings.plannerContext) {
+                void patch({ plannerContext: e3.target.value });
+              }
+            },
+            style: {
+              width: "100%",
+              minHeight: 64,
+              resize: "vertical",
+              fontSize: 12.5,
+              lineHeight: 1.55,
+              fontFamily: "inherit",
+              color: "var(--text-muted)",
+              background: "var(--ink)",
+              border: "1px solid var(--line)",
+              borderRadius: 8,
+              padding: "8px 10px"
+            }
+          }
+        ) }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(Field, { label: "Model", children: /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { display: "flex", gap: 6, flexWrap: "wrap" }, children: PLANNER_MODELS.map((model) => {
+          const active = settings.plannerModel === model.id;
+          return /* @__PURE__ */ jsxRuntimeExports.jsxs(
+            "button",
+            {
+              onClick: () => void patch({ plannerModel: model.id }),
+              title: model.note,
+              style: {
+                padding: "6px 12px",
+                borderRadius: 999,
+                border: `1px solid ${active ? "var(--line-strong)" : "var(--line)"}`,
+                background: active ? "var(--surface-raised)" : "transparent",
+                color: active ? "var(--text)" : "var(--text-muted)",
+                fontSize: 12,
+                fontWeight: active ? 600 : 400,
+                fontFamily: "inherit",
+                cursor: "pointer"
+              },
+              children: [
+                model.label,
+                /* @__PURE__ */ jsxRuntimeExports.jsx(
+                  "span",
+                  {
+                    style: {
+                      marginLeft: 6,
+                      fontSize: 10.5,
+                      color: "var(--text-faint)",
+                      fontWeight: 400
+                    },
+                    children: model.note.split("·")[1]?.trim()
+                  }
+                )
+              ]
+            },
+            model.id
+          );
+        }) }) }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(ApiKeyField, {})
+      ]
+    }
+  );
+}
+function Spend() {
+  const state = usePlanStore((s2) => s2.state);
+  if (!state) return null;
+  const { spend } = state;
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { textAlign: "right" }, children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { fontSize: 12.5, color: "var(--text)", fontFamily: "var(--font-mono)" }, children: [
+      "$",
+      spend.costUsd.toFixed(2)
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { fontSize: 10.5, color: "var(--text-faint)" }, children: [
+      "this month · ",
+      spend.plans,
+      " plan",
+      spend.plans === 1 ? "" : "s"
+    ] })
+  ] });
+}
+function ApiKeyField() {
+  const state = usePlanStore((s2) => s2.state);
+  const [value, setValue] = reactExports.useState("");
+  const [busy, setBusy] = reactExports.useState(false);
+  const [error, setError] = reactExports.useState(null);
+  const key = state?.key;
+  const save = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await window.thread.invoke["planner:setKey"]({ key: value });
+      setValue("");
+      await refreshPlannerState();
+    } catch (err) {
+      setError(messageOf(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(Field, { label: "API key", children: [
+    key?.configured ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 10 }, children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx(
+        "span",
+        {
+          style: {
+            fontSize: 12,
+            fontFamily: "var(--font-mono)",
+            color: "var(--text-muted)"
+          },
+          children: key.hint
+        }
+      ),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { fontSize: 11, color: "var(--text-faint)" }, children: sourceLabel(key.source) }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { flex: 1 } }),
+      key.source === "stored" ? /* @__PURE__ */ jsxRuntimeExports.jsx(
+        "button",
+        {
+          onClick: () => {
+            void window.thread.invoke["planner:clearKey"](void 0).then(refreshPlannerState);
+          },
+          style: {
+            background: "none",
+            border: "none",
+            color: "var(--text-faint)",
+            fontSize: 11,
+            cursor: "pointer"
+          },
+          children: "Forget it"
+        }
+      ) : null
+    ] }) : /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", gap: 8 }, children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsx(
+        "input",
+        {
+          type: "password",
+          value,
+          placeholder: "sk-ant-…",
+          onChange: (e3) => setValue(e3.target.value),
+          onKeyDown: (e3) => e3.key === "Enter" && value.trim() && void save(),
+          style: {
+            flex: 1,
+            fontSize: 12.5,
+            fontFamily: "var(--font-mono)",
+            background: "var(--ink)",
+            border: "1px solid var(--line)",
+            borderRadius: 8,
+            padding: "7px 10px"
+          }
+        }
+      ),
+      /* @__PURE__ */ jsxRuntimeExports.jsx(
+        "button",
+        {
+          onClick: () => void save(),
+          disabled: !value.trim() || busy,
+          style: {
+            padding: "7px 14px",
+            borderRadius: 8,
+            border: "1px solid var(--line)",
+            background: value.trim() ? "var(--surface-raised)" : "transparent",
+            color: value.trim() ? "var(--text)" : "var(--text-faint)",
+            fontSize: 12,
+            fontFamily: "inherit",
+            cursor: value.trim() && !busy ? "pointer" : "default"
+          },
+          children: busy ? "Saving…" : "Save"
+        }
+      )
+    ] }),
+    error ? /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: { fontSize: 11, color: "var(--clay)", margin: "6px 0 0" }, children: error }) : null,
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { style: { fontSize: 10.5, color: "var(--text-faint)", margin: "6px 0 0", lineHeight: 1.5 }, children: [
+      key?.configured ? "Encrypted in your keychain and never leaves this machine. Billed to your Anthropic API credits, which are separate from a Claude Pro subscription." : "From console.anthropic.com. Stored encrypted in your keychain — the app never sends it anywhere but Anthropic.",
+      key?.configured && !key.canPersist ? " No keyring available on this machine, so it is held for this session only." : ""
+    ] })
+  ] });
+}
+function Field({
+  label,
+  children
+}) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { marginBottom: 14 }, children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx(
+      "div",
+      {
+        style: {
+          fontSize: 10.5,
+          textTransform: "uppercase",
+          letterSpacing: "0.06em",
+          color: "var(--text-faint)",
+          marginBottom: 6
+        },
+        children: label
+      }
+    ),
+    children
+  ] });
+}
+function TimeField({
+  label,
+  value,
+  onChange
+}) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { style: { display: "flex", flexDirection: "column", gap: 4 }, children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx(
+      "span",
+      {
+        style: {
+          fontSize: 10.5,
+          textTransform: "uppercase",
+          letterSpacing: "0.06em",
+          color: "var(--text-faint)"
+        },
+        children: label
+      }
+    ),
+    /* @__PURE__ */ jsxRuntimeExports.jsx(
+      "input",
+      {
+        type: "time",
+        value,
+        onChange: (e3) => e3.target.value && onChange(e3.target.value),
+        style: {
+          fontSize: 13,
+          fontFamily: "var(--font-mono)",
+          background: "var(--ink)",
+          border: "1px solid var(--line)",
+          borderRadius: 8,
+          padding: "6px 8px",
+          colorScheme: "dark"
+        }
+      }
+    )
+  ] });
+}
+function sourceLabel(source) {
+  if (source === "stored") return "from your keychain";
+  if (source === "env") return "from ANTHROPIC_API_KEY";
+  if (source === "dotenv") return "from .env";
+  return "";
+}
+function messageOf(error) {
+  const raw = error instanceof Error ? error.message : String(error);
+  return raw.replace(/^Error invoking remote method '[^']+':\s*/, "").replace(/^Error:\s*/, "");
+}
+function WeekView() {
+  const weekKey = useGoalStore((s2) => s2.weekKey);
+  const currentWeek = useGoalStore((s2) => s2.currentWeek);
+  const goals = useGoalStore((s2) => s2.goals);
+  const loading = useGoalStore((s2) => s2.loading);
+  const setWeek = useGoalStore((s2) => s2.setWeek);
+  const [text, setText] = reactExports.useState("");
+  const open = goals.filter((goal) => !goal.done);
+  const done = goals.filter((goal) => goal.done);
+  const add2 = async () => {
+    const trimmed = text.trim();
+    setText("");
+    if (trimmed) await window.thread.invoke["goals:add"]({ title: trimmed, weekKey });
+  };
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { padding: "20px 28px 40px", maxWidth: 820, margin: "0 auto" }, children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx(
+      PageHeader,
+      {
+        title: "Week",
+        description: "A few things that would make this week count. The planner turns them into days.",
+        right: /* @__PURE__ */ jsxRuntimeExports.jsx(
+          WeekNav,
+          {
+            weekKey,
+            currentWeek,
+            onChange: setWeek
+          }
+        )
+      }
+    ),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", flexDirection: "column", gap: 18 }, children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs(
+        Panel,
+        {
+          title: "Goals",
+          accent: "var(--amber)",
+          subtitle: "One line each. Open one to add steps or context — the planner reads it, nothing else does.",
+          right: open.length ? /* @__PURE__ */ jsxRuntimeExports.jsxs("span", { style: { fontSize: 11, color: "var(--text-faint)" }, children: [
+            done.length,
+            "/",
+            goals.length,
+            " done"
+          ] }) : null,
+          children: [
+            loading ? /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: { fontSize: 12, color: "var(--text-faint)", margin: 0 }, children: "Loading…" }) : goals.length === 0 ? /* @__PURE__ */ jsxRuntimeExports.jsx(
+              EmptyState,
+              {
+                title: "No goals for this week yet.",
+                detail: "Three or four is usually the honest number. Add one below."
+              }
+            ) : /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+              open.map((goal) => /* @__PURE__ */ jsxRuntimeExports.jsx(GoalRow, { goal }, goal.id)),
+              done.length ? /* @__PURE__ */ jsxRuntimeExports.jsx(
+                "div",
+                {
+                  style: {
+                    marginTop: open.length ? 12 : 0,
+                    paddingTop: open.length ? 10 : 0,
+                    borderTop: open.length ? "1px solid var(--line)" : "none"
+                  },
+                  children: done.map((goal) => /* @__PURE__ */ jsxRuntimeExports.jsx(GoalRow, { goal }, goal.id))
+                }
+              ) : null
+            ] }),
+            /* @__PURE__ */ jsxRuntimeExports.jsxs(
+              "div",
+              {
+                style: {
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  padding: "6px 10px",
+                  marginTop: 4
+                },
+                children: [
+                  /* @__PURE__ */ jsxRuntimeExports.jsx(
+                    "span",
+                    {
+                      style: {
+                        width: 18,
+                        height: 18,
+                        borderRadius: 5,
+                        border: "1.5px dashed var(--line-strong)",
+                        flexShrink: 0
+                      }
+                    }
+                  ),
+                  /* @__PURE__ */ jsxRuntimeExports.jsx(
+                    "input",
+                    {
+                      value: text,
+                      placeholder: "What would make this week a good one?",
+                      onChange: (e3) => setText(e3.target.value),
+                      onKeyDown: (e3) => e3.key === "Enter" && void add2(),
+                      style: { flex: 1, fontSize: 13.5, padding: "4px 0" }
+                    }
+                  )
+                ]
+              }
+            )
+          ]
+        }
+      ),
+      /* @__PURE__ */ jsxRuntimeExports.jsx(PlannerSettings, {})
+    ] })
+  ] });
+}
+function WeekNav({
+  weekKey,
+  currentWeek,
+  onChange
+}) {
+  if (!weekKey) return /* @__PURE__ */ jsxRuntimeExports.jsx("div", {});
+  const relative2 = formatWeekRelative(weekKey, weekStart(currentWeek));
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 6 }, children: [
+    /* @__PURE__ */ jsxRuntimeExports.jsx(NavButton, { label: "‹", title: "Previous week", onClick: () => onChange(shiftWeek(weekKey, -1)) }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs(
+      "button",
+      {
+        onClick: () => onChange(currentWeek),
+        title: weekKey === currentWeek ? weekKey : "Back to this week",
+        style: {
+          background: "none",
+          border: "none",
+          cursor: weekKey === currentWeek ? "default" : "pointer",
+          textAlign: "center",
+          minWidth: 132,
+          padding: 0,
+          fontFamily: "inherit"
+        },
+        children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { fontSize: 12.5, color: "var(--text)", fontWeight: 600 }, children: relative2 }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { fontSize: 10.5, color: "var(--text-faint)" }, children: formatWeekRange(weekKey) })
+        ]
+      }
+    ),
+    /* @__PURE__ */ jsxRuntimeExports.jsx(NavButton, { label: "›", title: "Next week", onClick: () => onChange(shiftWeek(weekKey, 1)) })
+  ] });
+}
+function NavButton({
+  label,
+  title: title2,
+  onClick
+}) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsx(
+    "button",
+    {
+      onClick,
+      title: title2,
+      style: {
+        width: 26,
+        height: 26,
+        borderRadius: 8,
+        border: "1px solid var(--line)",
+        background: "transparent",
+        color: "var(--text-muted)",
+        cursor: "pointer",
+        fontSize: 14,
+        lineHeight: 1
+      },
+      children: label
+    }
+  );
 }
 const SCOPES = [
   { id: "day", label: "Day" },
@@ -27519,6 +28812,7 @@ function Shell() {
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { flex: 1, overflow: "auto" }, children: [
         tab === "today" ? /* @__PURE__ */ jsxRuntimeExports.jsx(TodayView, {}) : null,
         tab === "threads" ? /* @__PURE__ */ jsxRuntimeExports.jsx(ThreadsView, {}) : null,
+        tab === "week" ? /* @__PURE__ */ jsxRuntimeExports.jsx(WeekView, {}) : null,
         tab === "analytics" ? /* @__PURE__ */ jsxRuntimeExports.jsx(AnalyticsView, {}) : null,
         tab === "park" ? /* @__PURE__ */ jsxRuntimeExports.jsx(ParkView, {}) : null,
         tab === "account" ? /* @__PURE__ */ jsxRuntimeExports.jsx(AccountView, {}) : null
@@ -27543,7 +28837,9 @@ function App() {
       initDayStore(),
       initCarryStore(),
       initSessionStore(),
-      initAuthStore()
+      initAuthStore(),
+      initGoalStore(),
+      initPlanStore()
     ]).then(() => setReady(true));
     window.thread.on("storage:banner", setBanner);
   }, []);

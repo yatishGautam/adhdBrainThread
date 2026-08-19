@@ -29,6 +29,15 @@ export const COLLECTION = {
   sessions: 'sessions',
   /** Sits. Written only by the sync engine — they are recorded on the phone. */
   mindful: 'mindful',
+  /**
+   * Weekly goals and generated day plans. Local to this desktop for now: the backend has no
+   * columns for either, and `SyncState.TRACKED` deliberately omits them, so a write here marks
+   * nothing dirty and nothing is ever pushed. Both are shaped like every other record —
+   * `updatedAt`, tombstones — so teaching the server about them later is a wire change, not a
+   * storage one.
+   */
+  goals: 'goals',
+  plans: 'plans',
 } as const;
 
 export type CollectionName = (typeof COLLECTION)[keyof typeof COLLECTION];
