@@ -16,6 +16,7 @@ import type {
 import type { PlannerState } from "@shared/ipc/channels.js";
 import { Database } from "./storage/Database.js";
 import { AnalyticsService } from "./services/AnalyticsService.js";
+import { CalendarService } from "./services/CalendarService.js";
 import { PlannerService } from "./services/PlannerService.js";
 import { AuthService } from "./services/AuthService.js";
 import { SyncEngine, type SyncStatus } from "./sync/SyncEngine.js";
@@ -24,6 +25,10 @@ import { SessionService } from "./services/SessionService.js";
 import { StageController } from "./services/StageController.js";
 import { CelebrationOrchestrator } from "./services/CelebrationOrchestrator.js";
 import { CelebrationOverlay } from "./windows/celebrationWindow.js";
+import {
+	createCalendarWindow,
+	defaultCalendarBounds,
+} from "./windows/calendarWindow.js";
 import { createHudWindow, defaultHudPosition } from "./windows/hudWindow.js";
 import { createMainWindow } from "./windows/mainWindow.js";
 import {
@@ -44,10 +49,12 @@ export class AppContext {
 	celebrations!: CelebrationOrchestrator;
 	auth!: AuthService;
 	planner!: PlannerService;
+	calendar!: CalendarService;
 	sync!: SyncEngine;
 	syncState!: SyncState;
 	main: BrowserWindow | null = null;
 	hud: BrowserWindow | null = null;
+	calendarWidget: BrowserWindow | null = null;
 	private overlay!: CelebrationOverlay;
 	private tray: ReturnType<typeof createTray> | null = null;
 	private mainReady = false;
@@ -145,6 +152,7 @@ export class AppContext {
 		// invokes. It needs the account rather than a key — generation happens on the server,
 		// and this app has not held an API key since.
 		ctx.planner = new PlannerService(ctx.db, ctx.auth);
+		ctx.calendar = new CalendarService(ctx.db, ctx.auth);
 		// The engine is built before this point but the planner needs it to pull a finished run
 		// in, and a run finishing has to reach the windows — the plan arrives through sync, so
 		// nothing would announce it otherwise.
@@ -197,6 +205,36 @@ export class AppContext {
 		});
 	}
 
+	/**
+	 * Open the floating calendar, or close it if it is already up.
+	 *
+	 * A toggle rather than an open, because it is reached from one button and one tray item and
+	 * both of those read as "show me the calendar" — pressing again when it is already there and
+	 * having nothing happen is the behaviour people report as a broken button. Returns whether it
+	 * is now open, so the caller can render the button's state from the truth rather than guess.
+	 */
+	toggleCalendarWidget(): boolean {
+		if (this.calendarWidget && !this.calendarWidget.isDestroyed()) {
+			this.closeCalendarWidget();
+			return false;
+		}
+		const saved = this.db.settings.get().calendarBounds ?? defaultCalendarBounds();
+		this.calendarWidget = createCalendarWindow(saved, (bounds) => {
+			void this.db.settings.update({ calendarBounds: bounds });
+		});
+		this.calendarWidget.on("closed", () => {
+			this.calendarWidget = null;
+		});
+		return true;
+	}
+
+	closeCalendarWidget(): void {
+		if (this.calendarWidget && !this.calendarWidget.isDestroyed()) {
+			this.calendarWidget.close();
+		}
+		this.calendarWidget = null;
+	}
+
 	resetHud(): void {
 		if (this.hud && !this.hud.isDestroyed()) {
 			this.hud.close();
@@ -227,6 +265,7 @@ export class AppContext {
 				})();
 			},
 			onEnd: () => void this.sessions.end(),
+			onToggleCalendar: () => this.toggleCalendarWidget(),
 			onQuit: () => {
 				markQuitting();
 				onQuit();
@@ -266,6 +305,7 @@ export class AppContext {
 				})();
 			},
 			onEnd: () => void this.sessions.end(),
+			onToggleCalendar: () => this.toggleCalendarWidget(),
 			// Quit must quit. Closing the main window here left the app resident forever: the
 			// tray menu is rebuilt by every refresh, so this hook — not setupTray's — is the one
 			// the user's Quit click actually ran.

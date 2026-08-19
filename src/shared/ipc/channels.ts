@@ -4,6 +4,7 @@
  * other is a type error, not a runtime surprise.
  */
 import type { MomentumScope, ScopeSummary } from "../analytics.js";
+import type { Calendar, CalendarScope } from "../calendar.js";
 import type { AuthState, Credentials } from "../auth.js";
 import type { WeekPlanAccepted } from "../planner.js";
 import type { SyncStatus } from "../sync.js";
@@ -148,6 +149,25 @@ export interface PlannerState {
 	daysLeft: number;
 	/** The current week's plan, if one has been generated. */
 	week: WeekPlan | null;
+}
+
+/** What a view asks for. The scope picks the detail level, not just the layout. */
+export interface CalendarRequest {
+	from: string;
+	to: string;
+	scope: CalendarScope;
+}
+
+/**
+ * A calendar and where it came from.
+ *
+ * `source` is not decoration. A week built from local files while signed out is complete and
+ * correct; one built locally *because a request failed* may be missing what another device did
+ * this morning. The UI says which, quietly, rather than pretending the two are the same.
+ */
+export interface CalendarPayload {
+	calendar: Calendar;
+	source: "server" | "local";
 }
 
 export interface GeneratePlanRequest {
@@ -302,6 +322,21 @@ export interface Requests {
 		{ plan: DayPlan; thread: Thread },
 	];
 
+	/**
+	 * The calendar. Two channels, and the split is the point.
+	 *
+	 * `calendar:get` builds the week from local files and always answers — it is what the view
+	 * paints with, and it never touches the network. `calendar:refresh` asks the server for its
+	 * copy and answers `null` whenever it cannot be had, which includes being signed out. A view
+	 * calls the first and renders, then calls the second and swaps only if something comes back.
+	 *
+	 * Deliberately not one channel that does both: that shape makes every calendar paint wait on
+	 * a timeout the moment the wifi is captive-portalled, which is the exact case the whole
+	 * local-first design exists for.
+	 */
+	"calendar:get": [CalendarRequest, CalendarPayload];
+	"calendar:refresh": [CalendarRequest, CalendarPayload | null];
+
 	"analytics:scope": [{ scope: MomentumScope; anchor: string }, ScopeSummary];
 	"analytics:rebuild": [void, void];
 
@@ -336,6 +371,12 @@ export interface Requests {
 	"data:reveal": [void, void];
 
 	"window:mainReady": [void, void];
+	/** The floating calendar. Same idea as the HUD: a week you can leave open next to your work. */
+	"calendarWidget:toggle": [void, boolean];
+	"calendarWidget:close": [void, void];
+	/** What the widget renders with — its own scope, persisted so it reopens as you left it. */
+	"calendarWidget:scope": [{ scope: CalendarScope }, void];
+
 	"hud:show": [void, void];
 	"hud:reset": [void, void];
 	"hud:hide": [void, void];
@@ -447,6 +488,8 @@ export const REQUEST_CHANNELS = [
 	"planner:generate",
 	"planner:clear",
 	"planner:promoteBlock",
+	"calendar:get",
+	"calendar:refresh",
 	"analytics:scope",
 	"analytics:rebuild",
 	"settings:get",
@@ -466,6 +509,9 @@ export const REQUEST_CHANNELS = [
 	"data:export",
 	"data:reveal",
 	"window:mainReady",
+	"calendarWidget:toggle",
+	"calendarWidget:close",
+	"calendarWidget:scope",
 	"hud:show",
 	"hud:reset",
 	"hud:hide",

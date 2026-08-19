@@ -213,6 +213,14 @@ export interface Settings {
   recentCelebrationIds: string[];
   railCollapsed: boolean;
   hudBounds?: { x: number; y: number };
+  /** Where the floating calendar was parked, same as `hudBounds`. */
+  calendarBounds?: { x: number; y: number; width: number; height: number };
+  /**
+   * Which shape the floating calendar reopens in. Persisted rather than reset to a default,
+   * because the whole reason to leave a calendar open beside your work is that it is showing
+   * the thing you keep glancing at — and a widget that forgets is one you stop opening.
+   */
+  calendarWidgetScope?: 'day' | 'week' | 'month';
   timezone: string;
   /** Suppresses the recovery prompt for a session the user already answered. */
   lastOpenSessionId?: string;

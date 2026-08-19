@@ -8,6 +8,9 @@ const TABS: { id: MainTab; label: string }[] = [
   { id: 'today', label: 'Daily' },
   // Between the day and the dashboard, which is where the week sits in scope as well as in time.
   { id: 'week', label: 'Week' },
+  // Directly after the week: the goals are set there, and this is where you see what became of
+  // them. Before the dashboard, because it is about the week in front of you rather than trends.
+  { id: 'calendar', label: 'Calendar' },
   { id: 'analytics', label: 'Dashboard' },
 ];
 

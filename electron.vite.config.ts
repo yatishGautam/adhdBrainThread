@@ -29,6 +29,7 @@ export default defineConfig({
           index: resolve('src/renderer/index.html'),
           hud: resolve('src/renderer/hud.html'),
           celebration: resolve('src/renderer/celebration.html'),
+          calendar: resolve('src/renderer/calendar.html'),
         },
       },
     },

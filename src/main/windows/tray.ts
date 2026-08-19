@@ -9,6 +9,8 @@ export interface TrayHooks {
 	onShow: () => void;
 	onPauseResume: () => void;
 	onEnd: () => void;
+	/** The floating calendar. Reachable here so glancing at the week never opens a full window. */
+	onToggleCalendar: () => void;
 	onQuit: () => void;
 }
 
@@ -86,6 +88,8 @@ export function updateTray(
 				click: hooks.onPauseResume,
 			},
 			{ label: "End session", enabled: state.running, click: hooks.onEnd },
+			{ type: "separator" },
+			{ label: "Floating calendar", click: hooks.onToggleCalendar },
 			{ type: "separator" },
 			{ label: "Quit", accelerator: "Command+Q", click: hooks.onQuit },
 		]),

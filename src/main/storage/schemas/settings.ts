@@ -24,6 +24,10 @@ export const settingsSchema = z.object({
   recentCelebrationIds: z.array(z.string()),
   railCollapsed: z.boolean(),
   hudBounds: z.object({ x: z.number(), y: z.number() }).optional(),
+  calendarBounds: z
+    .object({ x: z.number(), y: z.number(), width: z.number(), height: z.number() })
+    .optional(),
+  calendarWidgetScope: z.enum(['day', 'week', 'month']).optional(),
   timezone: z.string(),
   lastOpenSessionId: z.string().optional(),
   wakeTime: clockTime().default('07:30'),

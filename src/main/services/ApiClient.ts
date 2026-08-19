@@ -7,6 +7,7 @@
  * to interpret status codes; by the time an error reaches it, it is a sentence.
  */
 import type { Account } from "@shared/auth.js";
+import type { Calendar, CalendarDetail } from "@shared/calendar.js";
 import type { PlanRunState, WeekPlanAccepted, WeekPlanRequest } from "@shared/planner.js";
 import type { PullResponse, PushResponse, WireOut } from "../sync/wire.js";
 
@@ -47,6 +48,8 @@ const SYNC_TIMEOUT_MS = 60_000;
  * 4-minute timeout is gone with the connection it was holding open.
  */
 const PLAN_TIMEOUT_MS = 20_000;
+/** Bigger than a form post, smaller than a first sync. Nothing on screen waits for it. */
+const CALENDAR_TIMEOUT_MS = 30_000;
 
 export class ApiClient {
 	constructor(private baseUrl: string) {}
@@ -116,6 +119,29 @@ export class ApiClient {
 		return this.request<PlanRunState>("GET", "/plan/status", { token });
 	}
 
+	// --------------------------------------------------------------- calendar
+
+	/**
+	 * The server's copy of a stretch of calendar.
+	 *
+	 * A read, and one nothing on screen waits for — `CalendarService` renders the local build
+	 * first and lets this replace it when it arrives. That is why it is safe for this to be the
+	 * one call that can quietly do nothing.
+	 *
+	 * `detail=summary` drops the per-day entry lists and keeps the counts, which is what a month
+	 * grid renders. Asking for `full` over a month is a 400 from the server rather than a slow
+	 * success, so the caller clamps the range before it gets here.
+	 */
+	calendar(
+		token: string,
+		from: string,
+		to: string,
+		detail: CalendarDetail = "full",
+	): Promise<Calendar> {
+		const query = new URLSearchParams({ from, to, detail });
+		return this.request<Calendar>("GET", `/calendar?${query.toString()}`, { token });
+	}
+
 	private async request<T>(
 		method: string,
 		path: string,
@@ -155,6 +181,10 @@ export class ApiClient {
 function timeoutFor(path: string): number {
 	if (path.startsWith("/plan")) return PLAN_TIMEOUT_MS;
 	if (path.startsWith("/sync")) return SYNC_TIMEOUT_MS;
+	// A month of calendar is a bigger read than a login and a smaller one than a first sync.
+	// It gets its own budget rather than the 15s default because nothing waits on it anyway —
+	// a slow answer that eventually lands still beats a timeout the user never learns about.
+	if (path.startsWith("/calendar")) return CALENDAR_TIMEOUT_MS;
 	return TIMEOUT_MS;
 }
 

@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react';
 import type { DayPlan, PlanBlock, Settings } from '@shared/domain.js';
 import { Panel } from './Panel.js';
+// The calendar's map, not a second copy of it: the block you read here and the same block
+// on the calendar must not drift to different colours.
+import { KIND_COLOUR, KIND_LABEL } from '../../../shared/calendar/entryStyle.js';
 import {
   clearPlan,
   generatePlan,
@@ -531,24 +534,6 @@ function BlockRow({
     </div>
   );
 }
-
-const KIND_COLOUR: Record<PlanBlock['kind'], string> = {
-  focus: 'var(--amber)',
-  break: 'var(--emerald)',
-  admin: 'var(--slate)',
-  meal: 'var(--lavender)',
-  buffer: 'var(--line-strong)',
-  wind_down: 'var(--lavender)',
-};
-
-const KIND_LABEL: Record<PlanBlock['kind'], string> = {
-  focus: 'Focus',
-  break: 'Break',
-  admin: 'Admin',
-  meal: 'Meal',
-  buffer: 'Slack',
-  wind_down: 'Wind down',
-};
 
 const ghostButton: React.CSSProperties = {
   background: 'none',

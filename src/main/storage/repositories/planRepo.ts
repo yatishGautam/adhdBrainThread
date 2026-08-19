@@ -49,6 +49,35 @@ export class PlanRepo {
     return plan && !plan.deletedAt ? plan : null;
   }
 
+  /**
+   * Every plan between two local dates, in date order.
+   *
+   * By date rather than by week key, because the calendar's ranges do not respect week
+   * boundaries — a month grid starts on whatever Monday the 1st falls after, and a week read
+   * across a year boundary spans two week-key partitions.
+   */
+  async range(from: string, to: string): Promise<DayPlan[]> {
+    const all = await this.plans.all();
+    return all
+      .filter((plan) => !plan.deletedAt && plan.localDate >= from && plan.localDate <= to)
+      .sort((a, b) => a.localDate.localeCompare(b.localDate));
+  }
+
+  /**
+   * The runs for a set of week keys.
+   *
+   * By key rather than by the dates a run covers, because `fromDate`/`toDate` are the window
+   * that run *planned* — pressed on a Thursday they read Thursday to Sunday. Matching a
+   * Monday-to-Wednesday range against those would find no run for a week that plainly has one.
+   */
+  async weeksFor(weekKeys: string[]): Promise<WeekPlan[]> {
+    const wanted = new Set(weekKeys);
+    const all = await this.weeks.all();
+    return all
+      .filter((plan) => !plan.deletedAt && wanted.has(plan.weekKey))
+      .sort((a, b) => a.weekKey.localeCompare(b.weekKey));
+  }
+
   /** Every day of a week that still has a plan, in date order. */
   async listWeekDays(weekKey: string): Promise<DayPlan[]> {
     const all = await this.plans.all();

@@ -580,6 +580,17 @@ export function registerHandlers(ctx: AppContext): void {
 		ctx,
 	);
 
+	// ---------------------------------------------------------------- calendar
+
+	// Local first, and it never touches the network — this is what the view paints with.
+	on("calendar:get", async (c, request) => ({
+		calendar: await c.calendar.local(request),
+		source: "local" as const,
+	}), ctx);
+	// The server's copy, or null. Null is an ordinary answer: signed out, offline, anything.
+	// The view already has a complete calendar, so there is nothing here to report as an error.
+	on("calendar:refresh", async (c, request) => c.calendar.remote(request), ctx);
+
 	// --------------------------------------------------------------- analytics
 
 	on(
@@ -697,6 +708,25 @@ export function registerHandlers(ctx: AppContext): void {
 		"window:mainReady",
 		async () => {
 			ctx.onMainReady();
+		},
+		ctx,
+	);
+	on(
+		"calendarWidget:toggle",
+		async () => ctx.toggleCalendarWidget(),
+		ctx,
+	);
+	on(
+		"calendarWidget:close",
+		async () => {
+			ctx.closeCalendarWidget();
+		},
+		ctx,
+	);
+	on(
+		"calendarWidget:scope",
+		async (c, { scope }) => {
+			await c.db.settings.update({ calendarWidgetScope: scope });
 		},
 		ctx,
 	);
