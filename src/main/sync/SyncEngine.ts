@@ -9,7 +9,15 @@
  * and returns; this runs afterwards, on a debounce, and a failure is a status line rather than
  * an error — the work is already saved.
  */
-import type { Day, MindfulSession, Session, Thread } from "@shared/domain.js";
+import type {
+	Day,
+	DayPlan,
+	Goal,
+	MindfulSession,
+	Session,
+	Thread,
+	WeekPlan,
+} from "@shared/domain.js";
 import type { SyncPhase, SyncStatus } from "@shared/sync.js";
 import type { AuthService } from "../services/AuthService.js";
 import { ApiError, NetworkError } from "../services/ApiClient.js";
@@ -19,8 +27,14 @@ import type { SyncState } from "./SyncState.js";
 import {
 	dayIn,
 	dayOut,
+	goalIn,
+	goalOut,
 	mindfulIn,
 	mindfulOut,
+	planIn,
+	planOut,
+	weekPlanIn,
+	weekPlanOut,
 	sessionIn,
 	sessionOut,
 	threadIn,
@@ -186,6 +200,28 @@ export class SyncEngine {
 			(record) => record.updatedAt ?? record.startedAt,
 		);
 
+		merged += await this.mergeInto<Goal>(
+			this.remote<Goal>(COLLECTION.goals),
+			response.goals,
+			goalIn,
+			(record) => record.id,
+			(record) => record.updatedAt,
+		);
+		merged += await this.mergeInto<DayPlan>(
+			this.remote<DayPlan>(COLLECTION.plans),
+			response.plans,
+			planIn,
+			(record) => record.localDate,
+			(record) => record.updatedAt ?? record.generatedAt,
+		);
+		merged += await this.mergeInto<WeekPlan>(
+			this.remote<WeekPlan>(COLLECTION.weekPlans),
+			response.weekPlans,
+			weekPlanIn,
+			(record) => record.weekKey,
+			(record) => record.updatedAt ?? record.generatedAt,
+		);
+
 		if (typeof response.seq === "number") this.state.advanceCursor(response.seq);
 		return merged;
 	}
@@ -231,15 +267,27 @@ export class SyncEngine {
 		const days = await this.dirtyRecords<Day>(COLLECTION.days);
 		const sessions = await this.dirtyRecords<Session>(COLLECTION.sessions);
 		const sits = await this.dirtyRecords<MindfulSession>(COLLECTION.mindful);
+		const goals = await this.dirtyRecords<Goal>(COLLECTION.goals);
+		const plans = await this.dirtyRecords<DayPlan>(COLLECTION.plans);
+		const weekPlans = await this.dirtyRecords<WeekPlan>(COLLECTION.weekPlans);
 		const profileDirty = this.state.isProfileDirty;
 
-		if (!threads.length && !days.length && !sessions.length && !sits.length && !profileDirty) {
+		if (
+			!threads.length &&
+			!days.length &&
+			!sessions.length &&
+			!sits.length &&
+			!goals.length &&
+			!plans.length &&
+			!weekPlans.length &&
+			!profileDirty
+		) {
 			return { pushed: 0, conflicts: 0 };
 		}
 
 		let pushed = 0;
 		let conflicts = 0;
-		const batches = chunk(threads, days, sessions, sits);
+		const batches = chunk(threads, days, sessions, sits, goals, plans, weekPlans);
 
 		for (const [index, batch] of batches.entries()) {
 			const body: WireOut = {
@@ -247,6 +295,9 @@ export class SyncEngine {
 				days: batch.days.map(dayOut),
 				sessions: batch.sessions.map(sessionOut),
 				mindfulSessions: batch.sits.map(mindfulOut),
+				goals: batch.goals.map(goalOut),
+				plans: batch.plans.map(planOut),
+				weekPlans: batch.weekPlans.map(weekPlanOut),
 			};
 			if (index === 0 && profileDirty) {
 				const displayName = this.auth.state().account?.displayName ?? null;
@@ -302,6 +353,21 @@ export class SyncEngine {
 				if (winner) await this.remote<MindfulSession>(COLLECTION.mindful).put(winner);
 				return;
 			}
+			case "goal": {
+				const winner = goalIn(conflict.server);
+				if (winner) await this.remote<Goal>(COLLECTION.goals).put(winner);
+				return;
+			}
+			case "plan": {
+				const winner = planIn(conflict.server);
+				if (winner) await this.remote<DayPlan>(COLLECTION.plans).put(winner);
+				return;
+			}
+			case "weekPlan": {
+				const winner = weekPlanIn(conflict.server);
+				if (winner) await this.remote<WeekPlan>(COLLECTION.weekPlans).put(winner);
+				return;
+			}
 			default:
 				// An unknown kind still must not loop forever; the caller has already dropped it
 				// from the queue.
@@ -329,6 +395,10 @@ export class SyncEngine {
 			COLLECTION.days,
 			COLLECTION.sessions,
 			COLLECTION.mindful,
+			// Goals only. Plans are the server's to write, so offering the local ones would push
+			// a plan this device generated back when it held the key — and the server would then
+			// hand that stale week to the phone as if it had just made it.
+			COLLECTION.goals,
 		] as const) {
 			const records = await this.remote<{ id?: string; localDate?: string }>(name).all();
 			// Days are keyed by date; everything else by id.
@@ -389,6 +459,9 @@ export interface Batch {
 	days: Day[];
 	sessions: Session[];
 	sits: MindfulSession[];
+	goals: Goal[];
+	plans: DayPlan[];
+	weekPlans: WeekPlan[];
 }
 
 /**
@@ -401,17 +474,32 @@ export function chunk(
 	days: Day[],
 	sessions: Session[],
 	sits: MindfulSession[],
+	goals: Goal[] = [],
+	plans: DayPlan[] = [],
+	weekPlans: WeekPlan[] = [],
 ): Batch[] {
 	const threadPages = pages(threads, MAX_THREADS);
 	const dayPages = pages(days, MAX_DAYS);
 	const sessionPages = pages(sessions, MAX_SESSIONS);
-	const count = Math.max(1, threadPages.length, dayPages.length, sessionPages.length);
+	const goalPages = pages(goals, MAX_THREADS);
+	const count = Math.max(
+		1,
+		threadPages.length,
+		dayPages.length,
+		sessionPages.length,
+		goalPages.length,
+	);
 
 	return Array.from({ length: count }, (_unused, index) => ({
 		threads: threadPages[index] ?? [],
 		days: dayPages[index] ?? [],
 		sessions: sessionPages[index] ?? [],
 		sits: index === 0 ? sits.slice(0, MAX_SESSIONS) : [],
+		goals: goalPages[index] ?? [],
+		// Plans are only ever tombstones and there are at most a handful, so they all ride the
+		// first batch rather than earning a page count of their own.
+		plans: index === 0 ? plans.slice(0, MAX_DAYS) : [],
+		weekPlans: index === 0 ? weekPlans.slice(0, MAX_DAYS) : [],
 	}));
 }
 

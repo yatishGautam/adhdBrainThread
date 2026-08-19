@@ -294,6 +294,16 @@ export interface PlanBlock {
   threadId?: string;
   todoId?: string;
   goalId?: string;
+  /**
+   * Set when the user turned this block into a thread and started working on it.
+   *
+   * This is what makes regenerating mid-week safe. Every other block is a suggestion and is
+   * replaced wholesale on the next run — which is the point of a disposable plan — but a
+   * promoted block points at a real thread with real time logged against it. The server carries
+   * these across a regeneration untouched, and drops any new block that would sit on top of one.
+   * Without the flag, planning again on Friday would quietly orphan Wednesday's thread.
+   */
+  promoted?: boolean;
 }
 
 /** Token spend for one generation, kept so the running bill is visible rather than a surprise. */
@@ -313,19 +323,68 @@ export interface PlanUsage {
  */
 export interface DayPlan {
   localDate: string;
+  /**
+   * The week this day was planned as part of. Ties it back to its `WeekPlan`.
+   *
+   * Optional because plan files written by the old local planner predate week plans and have no
+   * week to point at. Every plan written since carries one.
+   */
+  weekKey?: string;
   generatedAt: string;
   /** What the day was planned around. Echoed back so a stale plan can say why it looks wrong. */
   wakeTime: string;
   startTime: string;
   endTime: string;
   blocks: PlanBlock[];
-  /** Two or three sentences: the shape of the day and the one thing that actually matters. */
+  /** One or two sentences: the shape of the day and the one thing that actually matters on it. */
   headline: string;
   /**
-   * What was deliberately left out. A planner that silently drops six todos teaches you not to
-   * trust it; one that says "not today: X, Y" is making an argument you can disagree with.
+   * What was deliberately left out.
+   *
+   * Only ever set on plans written by the old local planner. What a run drops is now a fact
+   * about the week rather than about one of its days, so it lives on `WeekPlan.deferred` — but
+   * plans already on disk still carry it and are still worth reading.
+   */
+  deferred?: string[];
+  /**
+   * Optional for the same reason: the model that answered and what it cost are facts about the
+   * run, and a run now produces several days from one call. Stamping the same token count on
+   * each day would make the running total read several times the real bill. `WeekPlan.usage`
+   * holds it once. Old local plans keep theirs.
+   */
+  model?: string;
+  usage?: PlanUsage;
+  updatedAt?: string;
+  deletedAt?: string | null;
+}
+
+/**
+ * One press of the button: the shape of the days that were left in the week, what was dropped,
+ * and what the call cost.
+ *
+ * Generated on the server rather than here — see `PlannerService` for why the key moved — and
+ * arrives on every device through sync, which is the whole point. Planning on the phone and
+ * reading the plan on the laptop is one action, not two.
+ */
+export interface WeekPlan {
+  /** Primary key. ISO week key, `2026-W34`. */
+  weekKey: string;
+  generatedAt: string;
+  /**
+   * The window actually planned: the day the button was pressed, through Sunday. Stored rather
+   * than re-derived, so a plan read on Friday can still say which days it was written for.
+   */
+  fromDate: string;
+  toDate: string;
+  /** Two or three sentences about the week: what the remaining days are for. */
+  headline: string;
+  /**
+   * What was consciously left out. A planner that silently drops six todos teaches you not to
+   * trust it; one that says "not this week: X, Y" is making an argument you can disagree with.
    */
   deferred: string[];
   model: string;
   usage: PlanUsage;
+  updatedAt?: string;
+  deletedAt?: string | null;
 }

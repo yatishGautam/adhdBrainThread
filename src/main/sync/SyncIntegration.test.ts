@@ -42,7 +42,12 @@ class Phone {
     return (await response.json()) as { applied: string[]; seq: number };
   }
 
-  async pull(): Promise<{ threads: Record<string, unknown>[]; mindfulSessions?: Record<string, unknown>[] }> {
+  async pull(): Promise<{
+    threads: Record<string, unknown>[];
+    mindfulSessions?: Record<string, unknown>[];
+    goals?: Record<string, unknown>[];
+    plans?: Record<string, unknown>[];
+  }> {
     const response = await fetch(`${this.base}/sync?since=0`, {
       headers: { authorization: `Bearer ${this.token}` },
     });
@@ -224,4 +229,112 @@ describe.skipIf(!API)('a laptop and a phone on one account', () => {
     const second = await engine.sync();
     expect(second?.pushed).toBe(0);
   });
+
+  /**
+   * Goals are the collection this feature added that a *client* authors, so this is the one that
+   * has to survive a round trip in both directions. Plans go the other way — the server writes
+   * them — and are covered by the planner's own tests.
+   */
+  it('sends a goal written on the laptop to the server, context and all', async () => {
+    const goal = await db.goals.add('Ship the week planner', '2026-W34');
+    await db.goals.update(goal.id, { context: 'Backend is live.\nPhone needs a goals screen.' });
+    expect(state.pendingCount()).toBeGreaterThan(0);
+
+    await engine.sync();
+    expect(state.pendingCount()).toBe(0);
+
+    const onServer = (await phone.pull()).goals?.find((row) => row.id === goal.id);
+    expect(onServer).toBeDefined();
+    expect(onServer?.title).toBe('Ship the week planner');
+    // The field the planner actually reads. A newline in it is the part a careless mapper eats.
+    expect(onServer?.context).toBe('Backend is live.\nPhone needs a goals screen.');
+    expect(onServer?.weekKey).toBe('2026-W34');
+  });
+
+  it('applies a goal the phone created, ordering and all', async () => {
+    const id = `01PHONEGOAL${Date.now()}`;
+    await phone.push({
+      goals: [
+        {
+          id,
+          title: 'Set from the phone',
+          done: false,
+          context: '',
+          weekKey: '2026-W34',
+          // `boardOrder` on the wire, `order` locally — the rename that, done wrong, shows up
+          // as a list that reshuffles on every sync rather than as an error.
+          order: 3000,
+          createdAt: '2026-08-17T09:00:00.000Z',
+          updatedAt: '2026-08-17T09:00:00.000Z',
+        },
+      ],
+    });
+
+    await engine.sync();
+
+    const stored = await db.goals.get(id);
+    expect(stored?.title).toBe('Set from the phone');
+    expect(stored?.order).toBe(3000);
+  });
+
+  /**
+   * The plan the server generates has to arrive here intact — including `promoted`, which is
+   * what stops a regeneration orphaning a thread the user already started work on.
+   */
+  it('brings in a plan the server wrote, keeping the promoted flag on its blocks', async () => {
+    await phone.push({
+      plans: [
+        {
+          localDate: '2026-08-19',
+          weekKey: '2026-W34',
+          generatedAt: '2026-08-19T08:00:00.000Z',
+          wakeTime: '07:00',
+          startTime: '09:00',
+          endTime: '18:00',
+          headline: 'One thing today.',
+          blocks: [
+            {
+              id: '20260819-00',
+              start: '09:00',
+              end: '09:25',
+              kind: 'focus',
+              title: 'The thing already underway',
+              threadId: 'thread-real',
+              promoted: true,
+            },
+          ],
+          updatedAt: '2026-08-19T08:00:00.000Z',
+        },
+      ],
+      weekPlans: [
+        {
+          weekKey: '2026-W34',
+          generatedAt: '2026-08-19T08:00:00.000Z',
+          fromDate: '2026-08-19',
+          toDate: '2026-08-23',
+          headline: 'The shape of the week.',
+          deferred: ['Not this week: the accountant.'],
+          model: 'claude-opus-5',
+          usage: { inputTokens: 2956, outputTokens: 4284, costUsd: 0.12188 },
+          updatedAt: '2026-08-19T08:00:00.000Z',
+        },
+      ],
+    });
+
+    await engine.sync();
+
+    const plan = await db.plans.get('2026-08-19');
+    expect(plan?.blocks[0]?.promoted).toBe(true);
+    expect(plan?.blocks[0]?.threadId).toBe('thread-real');
+
+    const week = await db.plans.getWeek('2026-W34');
+    expect(week?.deferred).toEqual(['Not this week: the accountant.']);
+    // The cost is the server's number, round-tripped rather than recomputed anywhere.
+    expect(week?.usage.costUsd).toBeCloseTo(0.12188, 5);
+
+    // A plan the server wrote must not be queued straight back at it.
+    expect(state.keys('plans' as never)).toEqual([]);
+    expect(state.keys('weekPlans' as never)).toEqual([]);
+  });
+
 });

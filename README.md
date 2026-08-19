@@ -22,9 +22,9 @@ a floating always-on-top HUD, a momentum system that replaces streaks, and a cel
 - **A stage never starts itself.** The timer waits for you between blocks. A Pomodoro app that
   runs without you is one you stop trusting.
 - **A day exists because you used it.** Days are never manufactured to feel bad about.
-- **Nothing spends your money without you pressing something.** The day planner is the only
-  feature that calls a paid API. It never runs on a schedule, on boot, or on a data change, and
-  what it has cost is on screen next to the button.
+- **Nothing spends money without you pressing something.** The week planner is the only feature
+  that reaches a paid API. It never runs on a schedule, on boot, or on a data change, and what it
+  has cost is on screen next to the button.
 - **The data is the user's.** Plain JSON, pretty-printed, sorted keys, git-friendly.
 
 ## The app
@@ -53,17 +53,20 @@ planner. However much you write, the collapsed row stays one line, because a wee
 cannot be read at a glance stops being read. Nothing carries forward on its own: rolling an
 unfinished goal into next week is a button you press, per goal.
 
-**The day planner** turns those goals plus your open threads, to-dos and blockers into an ordered
-day, using [Claude](https://claude.com). It lives at the top of **Daily**, runs only when you
-press *Plan my day*, and takes your wake and working hours (defaulted from settings, editable
-each morning). A block that names a real thread gets a **Start** button wired to the actual
-session engine, so following the plan and using the timer are one action rather than two. A block
-that describes work with no thread behind it yet gets **+ Thread**, which puts it on the board and
-gives it a timer without leaving the day — deciding to do something the planner suggested should
-not mean retyping it on another tab. What it decided *not* to fit is printed underneath — a plan
-you cannot argue with is one you stop reading.
+**The week planner** turns those goals plus your open threads, to-dos and blockers into ordered
+days, using [Claude](https://claude.com). One press plans **every day the week has left** — seven
+on a Monday, three on a Friday — and the button says which, because that difference is the whole
+shape of the offer. The week's summary sits on **Week**; each day's blocks appear at the top of
+**Daily**, where the day is.
 
-See [Day planner](#day-planner) for the cost and the API key.
+A block that names a real thread gets a **Start** button wired to the actual session engine, so
+following the plan and using the timer are one action rather than two. A block that describes work
+with no thread behind it yet gets **+ Thread**, which puts it on the board and gives it a timer
+without leaving the day. What the planner decided *not* to fit is printed underneath — a plan you
+cannot argue with is one you stop reading.
+
+Generation happens on the server, not here, so the plan arrives on your phone without anyone
+pressing anything there. See [Week planner](#week-planner).
 
 **Dashboard** keeps the momentum system — a rolling score that dents rather than resets — and
 adds plain counts: steps completed, average and longest block, when you actually start work, and
@@ -73,71 +76,89 @@ all-time totals.
 When a stage ends the timer parks on the next one, glows and chimes, and waits for Resume.
 **Park** logs a distraction, writes it to today's Park list, and adds two minutes back.
 
-## Day planner
+## Week planner
 
-The planner is the only part of this app that talks to a paid API, so everything about it is
-built to be predictable and cheap.
+The planner is the only part of this app that reaches a paid API, and as of the move to the
+server it is the only part that does not hold the key.
+
+### It runs on the server now
+
+It used to run here, against a key on this machine. It moved for one reason that is not
+negotiable and one that is merely obvious: **the phone cannot hold an API key safely at all**,
+and three clients each holding their own key means three keys to rotate, three copies of the
+prompt to keep in step, and a bill nobody can total.
+
+What is left in this app is a button and a renderer. `PlannerService` asks the server to start a
+run and polls until it finishes; the plan arrives through the ordinary sync path, which is also
+why pressing the button on the phone puts the same week on this screen.
+
+The prompt, the caps, the id validation and the pricing table all live in the backend repo now,
+under `src/planner/`. There is no `ApiKeyStore` here any more and no IPC channel that carries a
+key in either direction — this app has never seen one.
+
+**Planning needs you signed in**, because the account is what identifies whose goals to read.
+The button says so rather than failing when pressed. If the server has no key configured,
+`/auth/me` reports `plannerAvailable: false` and the button says that instead.
 
 ### It costs money, and a Claude Pro subscription does not cover it
 
 The [Claude API](https://console.anthropic.com) bills separately from a Claude Pro or Max
-subscription — different product, different billing, no overlap. You buy credits in the console;
-there is no way to point an app at a chat subscription.
+subscription — different product, different billing, no overlap. Credits are bought in the
+console; there is no way to point an app at a chat subscription.
 
-The good news is the amounts are small. One plan a day, at the default model:
+The amounts are small, and now it is one run a week rather than one a day:
 
-| Model | Per plan | One plan a day |
+| Model | Per week | Weekly |
 | --- | --- | --- |
-| Claude Opus 5 *(default)* | ~$0.045 | ~$1.40/month |
-| Claude Sonnet 5 | ~$0.03 | ~$0.95/month |
-| Claude Haiku 4.5 | ~$0.01 | ~$0.32/month |
+| Claude Opus 5 *(default)* | ~$0.12 | ~$0.50/month |
+| Claude Sonnet 5 | ~$0.07 | ~$0.30/month |
+| Claude Haiku 4.5 | ~$0.03 | ~$0.10/month |
 
-Measured, not estimated: a real generation with three goals, three threads, two to-dos and a
-blocker costs 1,581 input and 1,487 output tokens, and takes about 25 seconds.
+Measured, not estimated: a real five-day generation with two goals, a thread, two to-dos and a
+blocker costs 2,956 input and 4,284 output tokens, and takes about a minute.
 
 Switch models on the **Week** tab. Opus 5 is the default because the hard part is judgement —
-weighing a vague goal against nine competing items — and that is where the tiers differ most.
-
-### The API key
-
-Three sources, first match wins:
-
-1. a key pasted into the **Week** tab — encrypted with the OS keychain (`safeStorage`) into
-   `apikey.json` in the app's data directory
-2. `ANTHROPIC_API_KEY` in the environment
-3. `ANTHROPIC_API_KEY` in a `.env` at the project root — development only, and `.env` is
-   gitignored
-
-The key never leaves the main process. There is deliberately no IPC channel that returns one:
-the renderer can ask whether a key is configured, where it came from, and see the last four
-characters, and that is all. On a machine with no keyring the key is held in memory for that run
-rather than written in plain text, and the UI says so.
+weighing a vague goal against nine competing items, and being honest about what will not fit in
+the days that are left — and that is where the tiers differ most.
 
 ### Keeping the bill down
 
-- **Nothing is automatic.** One button, guarded against re-entry so a double click cannot bill
-  twice.
+- **Nothing is automatic.** One button, guarded against re-entry here *and* on the server, which
+  is the only guard that holds when the phone presses it at the same moment.
 - **The context is capped, not trimmed by eye.** Goal context, to-do count, thread count and
-  lookback are all bounded in `constants.ts`, so a goal with an essay pasted into it cannot turn
-  a one-cent call into a fifty-cent one.
+  lookback are all bounded, so a goal with an essay pasted into it cannot turn a twelve-cent call
+  into a two-dollar one.
 - **A compact digest, not JSON.** Labelled lines cost meaningfully fewer tokens than
   pretty-printed JSON for the same facts.
-- **`effort: medium`.** Plans a day as well as `high` does for a fraction of the thinking tokens.
-- **No prompt caching, on purpose.** The prefix is well under the ~1024-token minimum and a plan
-  is generated once a day, so every cache read would miss the 5-minute window — caching would add
-  the 1.25× write premium and never earn it back.
-- **Spend is shown, summed from the stored plans themselves** rather than a counter that can
-  drift. Deleting a plan correctly forgets what it cost.
+- **No prompt caching, on purpose.** The prefix is well under the ~1024-token minimum and a week
+  is planned about once a week, so every cache read would miss the window — caching would add the
+  1.25× write premium and never earn it back.
+- **Spend is shown, summed from the runs themselves** rather than a counter that can drift, and
+  per *run* rather than per day: one press produces up to seven days from one call, so counting
+  per day would report the bill several times over.
 
 ### Nothing the model returns is trusted
 
-The reply is parsed against a Zod schema, and every `threadId` / `todoId` / `goalId` is checked
-against a real record before the plan is stored — a hallucinated id becomes an absent one, so the
-block loses its Start button rather than gaining one that starts nothing. Blocks that end before
-they start are dropped, and the rest are sorted. `model` and `usage` are stamped locally, because
-asking a model to report its own token spend is not a measurement.
+Server-side, the reply is parsed against a schema and every `threadId` / `todoId` / `goalId` is
+checked against a real record — a hallucinated id becomes an absent one, so the block loses its
+Start button rather than gaining one that starts nothing. Days outside the planned window are
+discarded, overlapping and out-of-range blocks are corrected, and `model` and `usage` are stamped
+by the server, because asking a model to report its own token spend is not a measurement.
 
-See `src/main/services/PlannerService.ts` and `plannerPrompt.ts`.
+### Regenerating cannot orphan work you started
+
+Plans are disposable: press the button again and every suggestion is replaced. With one exception.
+
+Turn a block into a thread with **+ Thread** and it stops being a suggestion — it points at a
+real thread with real time logged against it. `linkBlock` stamps `promoted: true` alongside the
+thread id, and the server carries promoted blocks across a regeneration untouched, dropping any
+freshly generated block that would sit on top of one. A day the model skips entirely is kept
+rather than thrown away if it holds one.
+
+Without that flag, planning again on Friday would leave Wednesday's thread alive on the board
+with nothing pointing at it, and the next run with no idea that hour was already spoken for.
+
+See `src/main/services/PlannerService.ts` here, and `src/planner/` in the backend repo.
 
 ## The other two repos
 
@@ -158,7 +179,7 @@ npm run dev
 
 `electron-vite dev` starts all three renderers (main window, HUD, celebration overlay) with HMR.
 
-The day planner needs an Anthropic API key. In development the quickest route is a gitignored
+The week planner needs a server with a key. In development the quickest route is a gitignored
 `.env` at the project root:
 
 ```
@@ -230,11 +251,14 @@ that `adhd-webapp/API.md` documents `api.yatishgautam.com`, which does not resol
 npm test
 ```
 
-138 unit and integration tests covering the storage engine (kill-mid-write, unreadable files,
+139 unit and integration tests covering the storage engine (kill-mid-write, unreadable files,
 migration from the old sharded layout), goals and plans round-tripped through a real `Database`,
-the ISO week maths across year boundaries, the planner's cost arithmetic and context builder, the
-momentum/insight math, celebration pack selection, the 25/5 stage cycle, sparse step ordering,
-and Notion link classification.
+the ISO week maths across year boundaries, the momentum/insight math, celebration pack selection,
+the 25/5 stage cycle, sparse step ordering, and Notion link classification.
+
+The sync integration suite runs against a real backend and covers the round trip in both
+directions for goals, and inbound for plans — including that a plan the server wrote is not
+queued straight back at it, and that `promoted` survives the trip.
 
 Nothing in the suite calls the Claude API — the planner's network boundary is the one seam left
 to a manual check, and a test that spends money on every run is a test people disable.
@@ -296,7 +320,7 @@ src/
     storage/         JsonStore: atomic writes, reload/repair, migration, repositories
     services/        SessionService (monotonic clock), StageController (the 25/5 cycle),
                       AnalyticsService (momentum/rollups), CelebrationOrchestrator,
-                      PlannerService + plannerPrompt (the Claude call), ApiKeyStore,
+                      PlannerService (asks the server to plan, then polls),
                       momentum math, insight cards, link opening, login item
     windows/          main window, HUD, celebration overlay (one per display), tray
     ipc/              every IPC handler, keyed by channel name
@@ -339,11 +363,14 @@ What survived, because it was doing real work:
   one record's `order` field rather than the whole list
 
 Collections are `threads.json`, plus `days/`, `sessions/` and `mindful/` split by month,
-`goals/` split by ISO week-numbering year, and `plans/` split by month. Goals and plans are
-**desktop-local**: the backend has no columns for them yet and they are deliberately absent from
-`SyncState`'s tracked list, so a write to either never enters the push queue. Both already carry
-`updatedAt` and tombstones, so teaching the server about them is a wire change rather than a
-storage one.
+`goals/` and `weekPlans/` split by ISO week-numbering year, and `plans/` split by month. All of
+them sync.
+
+Goals and plans are not symmetrical, and the asymmetry is the point. Goals are written here and
+pushed like anything else. Plans are written by the *server* and only pulled — a generation
+writes them through the untracked path, because queueing a record that came from the server sends
+it straight back and burns a round trip settling a conflict with ourselves. The single exception
+is a tombstone: throwing a plan away is a local decision and has to travel.
 
 Every schema addition is optional, so files written by earlier versions keep parsing.
 `migrate.ts` folds an existing sharded layout into the new one on first run, skipping any shard
@@ -362,13 +389,18 @@ Accounts are verified the same way, against a real backend rather than a mock �
 under-length password refusal, the duplicate email, sign out, wrong password, sign back in, and
 the token surviving a full restart out of the OS keychain.
 
-Weekly goals and the day planner are verified at the layers that can be tested without a GUI:
-138 passing tests including the ISO week maths across year boundaries, the planner's cost
-arithmetic and context builder, and a storage integration suite that round-trips goals and plans
-through the real `Database` (schema validation on reload, partitioning, tombstones, and a guard
-that neither collection can leak into the sync queue). The Claude request shape — adaptive
-thinking, `output_config.effort`, and structured output via `zodOutputFormat` — was verified with
-one real API call that returned a well-formed plan with every id copied correctly.
+Weekly goals and the week planner are verified at the layers that can be tested without a GUI:
+139 passing tests including the ISO week maths across year boundaries, a storage integration
+suite that round-trips goals and plans through the real `Database` (schema validation on reload,
+partitioning, tombstones), and a sync integration suite against a running backend covering goals
+in both directions and plans inbound.
+
+The guard that used to assert goals and plans could never enter the push queue has been replaced
+by its inverse, deliberately rather than deleted: it was a tripwire for the day the server grew
+columns for them, and that day came.
+
+The Claude request shape — adaptive thinking, `output_config.effort`, and structured output via
+`zodOutputFormat` — now lives in the backend repo and is exercised there.
 
 The planner's UI has **not** been driven in a running window: this machine denies Screen
 Recording and its Electron build does not answer on the remote-debugging port, so neither a

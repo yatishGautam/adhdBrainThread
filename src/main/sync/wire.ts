@@ -11,13 +11,25 @@
  * missing one falls back rather than throwing. A client that crashes on an unfamiliar payload
  * cannot be deployed independently of the server, and these three apps very much are.
  */
-import type { Day, MindfulSession, Session, Thread } from "@shared/domain.js";
+import type {
+	Day,
+	DayPlan,
+	Goal,
+	MindfulSession,
+	PlanBlock,
+	Session,
+	Thread,
+	WeekPlan,
+} from "@shared/domain.js";
 
 export interface WireOut {
 	threads?: unknown[];
 	days?: unknown[];
 	sessions?: unknown[];
 	mindfulSessions?: unknown[];
+	goals?: unknown[];
+	plans?: unknown[];
+	weekPlans?: unknown[];
 	profile?: { timezone: string; updatedAt: string; displayName?: string };
 }
 
@@ -27,6 +39,10 @@ export interface PullResponse {
 	sessions?: unknown[];
 	/** Absent from a backend deployed before sits existed. */
 	mindfulSessions?: unknown[];
+	/** Absent from a backend deployed before the week planner existed. */
+	goals?: unknown[];
+	plans?: unknown[];
+	weekPlans?: unknown[];
 	profile?: unknown;
 	seq?: number;
 }
@@ -111,6 +127,62 @@ export function mindfulOut(sit: MindfulSession): Record<string, unknown> {
 		completed: sit.completed,
 		updatedAt: iso(sit.updatedAt ?? sit.startedAt),
 		deletedAt: sit.deletedAt ? iso(sit.deletedAt) : null,
+	};
+}
+
+export function goalOut(goal: Goal): Record<string, unknown> {
+	return {
+		id: goal.id,
+		title: goal.title,
+		done: goal.done,
+		context: goal.context ?? "",
+		weekKey: goal.weekKey,
+		// `boardOrder` on the wire; `order` here, same rename as threads.
+		order: goal.order ?? null,
+		createdAt: iso(goal.createdAt),
+		updatedAt: iso(goal.updatedAt),
+		completedAt: goal.completedAt ? iso(goal.completedAt) : null,
+		completedLocalDate: goal.completedLocalDate ?? null,
+		carriedFromWeek: goal.carriedFromWeek ?? null,
+		deletedAt: goal.deletedAt ? iso(goal.deletedAt) : null,
+	};
+}
+
+/**
+ * Plans go out, but only ever to carry a tombstone.
+ *
+ * The server writes plans; this app never authors one. What it can do is throw one away, and
+ * that has to reach the phone — so the record is sent back whole, with `deletedAt` set. The
+ * server's last-write-wins then does the rest.
+ */
+export function planOut(plan: DayPlan): Record<string, unknown> {
+	return {
+		localDate: plan.localDate,
+		weekKey: plan.weekKey ?? "",
+		generatedAt: iso(plan.generatedAt),
+		wakeTime: plan.wakeTime,
+		startTime: plan.startTime,
+		endTime: plan.endTime,
+		blocks: plan.blocks ?? [],
+		headline: plan.headline ?? "",
+		updatedAt: iso(plan.updatedAt ?? plan.generatedAt),
+		deletedAt: plan.deletedAt ? iso(plan.deletedAt) : null,
+	};
+}
+
+export function weekPlanOut(plan: WeekPlan): Record<string, unknown> {
+	return {
+		weekKey: plan.weekKey,
+		generatedAt: iso(plan.generatedAt),
+		fromDate: plan.fromDate,
+		toDate: plan.toDate,
+		headline: plan.headline ?? "",
+		deferred: plan.deferred ?? [],
+		model: plan.model ?? "",
+		// Round-tripped, never recomputed here. What a run cost is the server's number.
+		usage: plan.usage ?? { inputTokens: 0, outputTokens: 0, costUsd: 0 },
+		updatedAt: iso(plan.updatedAt ?? plan.generatedAt),
+		deletedAt: plan.deletedAt ? iso(plan.deletedAt) : null,
 	};
 }
 
@@ -209,6 +281,74 @@ export function mindfulIn(raw: unknown): MindfulSession | null {
 		actualMs: num(row.actualMs) ?? 0,
 		completed: bool(row.completed),
 		updatedAt: str(row.updatedAt) ?? startedAt,
+		deletedAt: str(row.deletedAt) ?? null,
+	};
+}
+
+export function goalIn(raw: unknown): Goal | null {
+	const row = raw as Record<string, unknown>;
+	const id = str(row.id);
+	const weekKey = str(row.weekKey);
+	const createdAt = str(row.createdAt);
+	if (!id || !weekKey || !createdAt) return null;
+
+	return {
+		id,
+		title: str(row.title) ?? "Untitled",
+		done: bool(row.done),
+		context: str(row.context) ?? "",
+		weekKey,
+		order: num(row.boardOrder ?? row.order) ?? 0,
+		createdAt,
+		updatedAt: str(row.updatedAt) ?? createdAt,
+		...optional("completedAt", str(row.completedAt)),
+		...optional("completedLocalDate", date(row.completedLocalDate)),
+		...optional("carriedFromWeek", str(row.carriedFromWeek)),
+		deletedAt: str(row.deletedAt) ?? null,
+	};
+}
+
+export function planIn(raw: unknown): DayPlan | null {
+	const row = raw as Record<string, unknown>;
+	const localDate = date(row.localDate);
+	const generatedAt = str(row.generatedAt);
+	if (!localDate || !generatedAt) return null;
+
+	return {
+		localDate,
+		...optional("weekKey", str(row.weekKey)),
+		generatedAt,
+		wakeTime: str(row.wakeTime) ?? "07:00",
+		startTime: str(row.startTime) ?? "09:00",
+		endTime: str(row.endTime) ?? "18:00",
+		blocks: array(row.blocks) as PlanBlock[],
+		headline: str(row.headline) ?? "",
+		updatedAt: str(row.updatedAt) ?? generatedAt,
+		deletedAt: str(row.deletedAt) ?? null,
+	};
+}
+
+export function weekPlanIn(raw: unknown): WeekPlan | null {
+	const row = raw as Record<string, unknown>;
+	const weekKey = str(row.weekKey);
+	const generatedAt = str(row.generatedAt);
+	if (!weekKey || !generatedAt) return null;
+
+	const usage = row.usage as Record<string, unknown> | undefined;
+	return {
+		weekKey,
+		generatedAt,
+		fromDate: date(row.fromDate) ?? "",
+		toDate: date(row.toDate) ?? "",
+		headline: str(row.headline) ?? "",
+		deferred: strings(row.deferred),
+		model: str(row.model) ?? "",
+		usage: {
+			inputTokens: num(usage?.inputTokens) ?? 0,
+			outputTokens: num(usage?.outputTokens) ?? 0,
+			costUsd: num(usage?.costUsd) ?? 0,
+		},
+		updatedAt: str(row.updatedAt) ?? generatedAt,
 		deletedAt: str(row.deletedAt) ?? null,
 	};
 }

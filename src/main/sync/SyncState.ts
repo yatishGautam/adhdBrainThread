@@ -18,6 +18,12 @@ const TRACKED: CollectionName[] = [
 	COLLECTION.days,
 	COLLECTION.sessions,
 	COLLECTION.mindful,
+	COLLECTION.goals,
+	// Plans are written by the server, so the only local write that ever queues one is a
+	// tombstone. They are tracked anyway: "I threw this week's plan away" has to reach the
+	// other device, and a delete that stays local is a plan that reappears on the next pull.
+	COLLECTION.plans,
+	COLLECTION.weekPlans,
 ];
 
 interface Persisted {

@@ -12,6 +12,12 @@ export interface Account {
 	email: string;
 	displayName: string | null;
 	timezone: string;
+	/**
+	 * Whether the server this account lives on can generate plans — that is, whether it has an
+	 * API key configured. A property of the deployment, not of the account, and absent entirely
+	 * from a backend deployed before the week planner existed.
+	 */
+	plannerAvailable?: boolean;
 }
 
 /**

@@ -28,7 +28,9 @@ export function PlanSection({ localDate }: { localDate: string }): React.JSX.Ele
   const generating = usePlanStore((s) => s.generating);
   const error = usePlanStore((s) => s.error);
   const setError = usePlanStore((s) => s.setError);
-  const keyConfigured = usePlanStore((s) => s.state?.key.configured ?? false);
+  const availability = usePlanStore((s) => s.state?.availability ?? null);
+  const daysLeft = usePlanStore((s) => s.state?.daysLeft ?? 0);
+  const canPlan = Boolean(availability?.signedIn && availability?.serverReady);
   const [setupOpen, setSetupOpen] = useState(false);
 
   useEffect(() => {
@@ -86,7 +88,9 @@ export function PlanSection({ localDate }: { localDate: string }): React.JSX.Ele
       {setupOpen || (!plan && !generating) ? (
         <SetupBar
           localDate={localDate}
-          keyConfigured={keyConfigured}
+          canPlan={canPlan}
+          signedIn={Boolean(availability?.signedIn)}
+          daysLeft={daysLeft}
           generating={generating}
           onDone={() => setSetupOpen(false)}
         />
@@ -115,12 +119,19 @@ function PlanActions({
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-      <span
-        title={`${plan.usage.inputTokens} in, ${plan.usage.outputTokens} out, via ${plan.model}`}
-        style={{ fontSize: 10.5, color: 'var(--text-faint)', fontFamily: 'var(--font-mono)' }}
-      >
-        ${plan.usage.costUsd.toFixed(3)}
-      </span>
+      {/*
+        Only plans from the old local planner carry their own cost. A day produced by a week run
+        was paid for by the run, and the total for that is on the Week page — showing a share of
+        it here would be a number nobody could reconcile with a bill.
+      */}
+      {plan.usage ? (
+        <span
+          title={`${plan.usage.inputTokens} in, ${plan.usage.outputTokens} out, via ${plan.model ?? 'an earlier model'}`}
+          style={{ fontSize: 10.5, color: 'var(--text-faint)', fontFamily: 'var(--font-mono)' }}
+        >
+          ${plan.usage.costUsd.toFixed(3)}
+        </span>
+      ) : null}
       <button
         onClick={onGenerate}
         style={ghostButton}
@@ -138,15 +149,23 @@ function PlanActions({
 /**
  * Wake and work times default to the settings but are editable here, because the morning you
  * wake at 11 should not require opening a settings page to get a usable plan.
+ *
+ * One press plans every day left in the week, not just this one — so the button says how many
+ * days that is. Pressing it on a Friday is a much smaller thing than pressing it on a Monday,
+ * and the label is the only place that difference is visible before the bill.
  */
 function SetupBar({
   localDate,
-  keyConfigured,
+  canPlan,
+  signedIn,
+  daysLeft,
   generating,
   onDone,
 }: {
   localDate: string;
-  keyConfigured: boolean;
+  canPlan: boolean;
+  signedIn: boolean;
+  daysLeft: number;
   generating: boolean;
   onDone: () => void;
 }): React.JSX.Element {
@@ -199,9 +218,9 @@ function SetupBar({
 
       <input
         value={note}
-        placeholder="Anything about today only? (dentist at 3, low energy, deadline tomorrow…)"
+        placeholder="Anything about the rest of this week? (dentist Thursday, low energy, deadline Friday…)"
         onChange={(e) => setNote(e.target.value)}
-        onKeyDown={(e) => e.key === 'Enter' && keyConfigured && !generating && void run()}
+        onKeyDown={(e) => e.key === 'Enter' && canPlan && !generating && void run()}
         style={{
           width: '100%',
           fontSize: 12.5,
@@ -216,35 +235,44 @@ function SetupBar({
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <button
           onClick={() => void run()}
-          disabled={!keyConfigured || generating}
-          className={keyConfigured && !generating ? 'btn-launch' : undefined}
+          disabled={!canPlan || generating}
+          className={canPlan && !generating ? 'btn-launch' : undefined}
           style={{
             padding: '8px 16px',
             borderRadius: 10,
-            border: keyConfigured ? 'none' : '1px solid var(--line)',
-            background: keyConfigured ? undefined : 'transparent',
-            color: keyConfigured ? undefined : 'var(--text-faint)',
+            border: canPlan ? 'none' : '1px solid var(--line)',
+            background: canPlan ? undefined : 'transparent',
+            color: canPlan ? undefined : 'var(--text-faint)',
             fontSize: 13,
             fontWeight: 600,
             fontFamily: 'inherit',
-            cursor: keyConfigured && !generating ? 'pointer' : 'default',
+            cursor: canPlan && !generating ? 'pointer' : 'default',
           }}
         >
-          {generating ? 'Thinking…' : 'Plan my day'}
+          {generating ? 'Thinking…' : planLabel(daysLeft)}
         </button>
         <span style={{ fontSize: 10.5, color: 'var(--text-faint)' }}>
-          {keyConfigured
-            ? 'One call to Claude — roughly a nickel, and it takes about half a minute.'
-            : 'Add an API key on the Week page first.'}
+          {canPlan
+            ? 'One call, on the server — about a minute, and it plans every day left in the week.'
+            : signedIn
+              ? 'This server has no planning key configured.'
+              : 'Planning happens on the server. Sign in from Settings first.'}
         </span>
       </div>
     </div>
   );
 }
 
+/** The days left, said as a person would. The count is the honest part of the offer. */
+function planLabel(daysLeft: number): string {
+  if (daysLeft <= 1) return 'Plan the rest of today';
+  if (daysLeft >= 7) return 'Plan my week';
+  return `Plan the next ${daysLeft} days`;
+}
+
 /**
- * A generation takes about twenty-five seconds. A bare spinner for that long reads as a hang,
- * so this says what is happening and roughly how long is left.
+ * A run takes the better part of a minute — longer than the old single-day plan. A bare spinner
+ * for that long reads as a hang, so this says what is happening and roughly how long is left.
  */
 function Generating(): React.JSX.Element {
   const [elapsed, setElapsed] = useState(0);
@@ -339,7 +367,7 @@ function PlanBody({ plan }: { plan: DayPlan }): React.JSX.Element {
         ))}
       </div>
 
-      {plan.deferred.length ? (
+      {(plan.deferred ?? []).length ? (
         <div
           style={{
             marginTop: 14,
@@ -358,7 +386,7 @@ function PlanBody({ plan }: { plan: DayPlan }): React.JSX.Element {
           >
             Not today
           </div>
-          {plan.deferred.map((line) => (
+          {(plan.deferred ?? []).map((line) => (
             <div
               key={line}
               style={{

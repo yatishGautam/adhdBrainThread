@@ -2232,6 +2232,10 @@ function weekStart(key) {
 function weekEnd(key) {
   return addLocalDays(weekStart(key), 6);
 }
+function weekDates(key) {
+  const monday = weekStart(key);
+  return Array.from({ length: 7 }, (_, i) => addLocalDays(monday, i));
+}
 function shiftWeek(key, offset) {
   return weekKeyOf(addLocalDays(weekStart(key), offset * 7));
 }
@@ -2304,6 +2308,7 @@ async function initGoalStore() {
 }
 const usePlanStore = create((set) => ({
   plans: {},
+  weeks: {},
   state: null,
   generating: false,
   error: null,
@@ -2312,6 +2317,16 @@ const usePlanStore = create((set) => ({
 async function loadPlan(localDate2) {
   const plan = await window.thread.invoke["planner:get"]({ localDate: localDate2 });
   usePlanStore.setState((state) => ({ plans: { ...state.plans, [localDate2]: plan } }));
+}
+async function loadWeekPlan(weekKey) {
+  const { week, days } = await window.thread.invoke["planner:week"]({ weekKey });
+  usePlanStore.setState((state) => ({
+    weeks: { ...state.weeks, [weekKey]: week },
+    plans: {
+      ...state.plans,
+      ...Object.fromEntries(days.map((plan) => [plan.localDate, plan]))
+    }
+  }));
 }
 async function refreshPlannerState() {
   const state = await window.thread.invoke["planner:state"](void 0);
@@ -2322,13 +2337,10 @@ async function generatePlan(request) {
   usePlanStore.setState({ generating: true, error: null });
   try {
     await window.thread.invoke["planner:generate"](request);
-    await refreshPlannerState();
     return true;
   } catch (error) {
-    usePlanStore.setState({ error: messageOf$2(error) });
+    usePlanStore.setState({ error: messageOf$1(error), generating: false });
     return false;
-  } finally {
-    usePlanStore.setState({ generating: false });
   }
 }
 async function clearPlan(localDate2) {
@@ -2339,8 +2351,21 @@ async function initPlanStore() {
   window.thread.on("planner:changed", ({ localDate: localDate2, plan }) => {
     usePlanStore.setState((state) => ({ plans: { ...state.plans, [localDate2]: plan } }));
   });
+  window.thread.on("planner:weekChanged", ({ weekKey, week, days }) => {
+    usePlanStore.setState((state) => ({
+      weeks: { ...state.weeks, [weekKey]: week },
+      plans: {
+        ...state.plans,
+        ...Object.fromEntries(days.map((plan) => [plan.localDate, plan]))
+      }
+    }));
+  });
+  window.thread.on("planner:runFinished", ({ error }) => {
+    usePlanStore.setState({ generating: false, ...error ? { error } : {} });
+    void refreshPlannerState();
+  });
 }
-function messageOf$2(error) {
+function messageOf$1(error) {
   const raw = error instanceof Error ? error.message : String(error);
   return raw.replace(/^Error invoking remote method '[^']+':\s*/, "").replace(/^Error:\s*/, "");
 }
@@ -2745,9 +2770,9 @@ function detail$1(status) {
     return `${status.message ?? ""} Your work is saved here and will go up when it can.`.trim();
   }
   if (!status.lastSyncedAt) return "Nothing has synced yet.";
-  return `Last synced ${relative(status.lastSyncedAt)}.`;
+  return `Last synced ${relative$1(status.lastSyncedAt)}.`;
 }
-function relative(iso) {
+function relative$1(iso) {
   const then = Date.parse(iso);
   if (Number.isNaN(then)) return "recently";
   const seconds = Math.max(0, Math.round((Date.now() - then) / 1e3));
@@ -2965,7 +2990,7 @@ function SignedIn() {
     )
   ] });
 }
-function Avatar({ label, size = 44 }) {
+function Avatar({ label: label2, size = 44 }) {
   return /* @__PURE__ */ jsxRuntimeExports.jsx(
     "div",
     {
@@ -2983,7 +3008,7 @@ function Avatar({ label, size = 44 }) {
         fontSize: size * 0.4,
         fontWeight: 700
       },
-      children: initials(label)
+      children: initials(label2)
     }
   );
 }
@@ -3015,15 +3040,15 @@ function ServerField() {
   ] });
 }
 function Field$1({
-  label,
-  hint,
+  label: label2,
+  hint: hint2,
   hintTone = "muted",
   children
 }) {
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("label", { style: { display: "block", marginBottom: 16 }, children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { display: "block", marginBottom: 6, fontSize: "var(--text-xs)", color: "var(--text-muted)" }, children: label }),
+    /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { display: "block", marginBottom: 6, fontSize: "var(--text-xs)", color: "var(--text-muted)" }, children: label2 }),
     children,
-    hint ? /* @__PURE__ */ jsxRuntimeExports.jsx(
+    hint2 ? /* @__PURE__ */ jsxRuntimeExports.jsx(
       "span",
       {
         style: {
@@ -3033,7 +3058,7 @@ function Field$1({
           color: hintTone === "warn" ? "var(--coral)" : "var(--text-faint)",
           lineHeight: 1.5
         },
-        children: hint
+        children: hint2
       }
     ) : null
   ] });
@@ -3057,8 +3082,8 @@ function ErrorNote({ message: message2 }) {
     }
   );
 }
-function initials(label) {
-  const trimmed = label.trim();
+function initials(label2) {
+  const trimmed = label2.trim();
   if (!trimmed) return "?";
   const words = trimmed.split(/\s+/).filter(Boolean);
   if (words.length >= 2) return `${words[0]?.[0] ?? ""}${words[1]?.[0] ?? ""}`.toUpperCase();
@@ -4690,7 +4715,7 @@ function ThreadsView() {
       setError(null);
       setExpandedId(thread.id);
     } catch (cause) {
-      setError(messageOf$1(cause));
+      setError(messageOf(cause));
     }
   };
   const move = async (id, toIndex, status) => {
@@ -4700,7 +4725,7 @@ function ThreadsView() {
       await window.thread.invoke["threads:reorder"]({ id, toIndex, status });
       setError(null);
     } catch (cause) {
-      setError(messageOf$1(cause));
+      setError(messageOf(cause));
     }
   };
   const dragProps = (list, thread, index) => ({
@@ -4896,7 +4921,7 @@ function boardOrder(threads) {
     return STATUS_ORDER[a2.status] - STATUS_ORDER[b2.status] || b2.updatedAt.localeCompare(a2.updatedAt);
   });
 }
-function messageOf$1(cause) {
+function messageOf(cause) {
   const raw = cause instanceof Error ? cause.message : String(cause);
   return raw.replace(/^Error invoking remote method '[^']*':\s*Error:\s*/, "");
 }
@@ -5138,7 +5163,7 @@ function Hint({ children }) {
 function Panel({
   title: title2,
   subtitle,
-  hint,
+  hint: hint2,
   warm,
   accent,
   right,
@@ -5183,7 +5208,7 @@ function Panel({
                       children: title2
                     }
                   ),
-                  hint ? /* @__PURE__ */ jsxRuntimeExports.jsx(Hint, { children: hint }) : null
+                  hint2 ? /* @__PURE__ */ jsxRuntimeExports.jsx(Hint, { children: hint2 }) : null
                 ] }),
                 subtitle ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { fontSize: 11, color: "var(--text-faint)", marginTop: 3 }, children: subtitle }) : null
               ] }),
@@ -5201,7 +5226,9 @@ function PlanSection({ localDate: localDate2 }) {
   const generating = usePlanStore((s2) => s2.generating);
   const error = usePlanStore((s2) => s2.error);
   const setError = usePlanStore((s2) => s2.setError);
-  const keyConfigured = usePlanStore((s2) => s2.state?.key.configured ?? false);
+  const availability = usePlanStore((s2) => s2.state?.availability ?? null);
+  const daysLeft = usePlanStore((s2) => s2.state?.daysLeft ?? 0);
+  const canPlan = Boolean(availability?.signedIn && availability?.serverReady);
   const [setupOpen, setSetupOpen] = reactExports.useState(false);
   reactExports.useEffect(() => {
     void loadPlan(localDate2);
@@ -5259,7 +5286,9 @@ function PlanSection({ localDate: localDate2 }) {
           SetupBar,
           {
             localDate: localDate2,
-            keyConfigured,
+            canPlan,
+            signedIn: Boolean(availability?.signedIn),
+            daysLeft,
             generating,
             onDone: () => setSetupOpen(false)
           }
@@ -5279,17 +5308,17 @@ function PlanActions({
   if (generating) return null;
   if (!plan) return null;
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 10 }, children: [
-    /* @__PURE__ */ jsxRuntimeExports.jsxs(
+    plan.usage ? /* @__PURE__ */ jsxRuntimeExports.jsxs(
       "span",
       {
-        title: `${plan.usage.inputTokens} in, ${plan.usage.outputTokens} out, via ${plan.model}`,
+        title: `${plan.usage.inputTokens} in, ${plan.usage.outputTokens} out, via ${plan.model ?? "an earlier model"}`,
         style: { fontSize: 10.5, color: "var(--text-faint)", fontFamily: "var(--font-mono)" },
         children: [
           "$",
           plan.usage.costUsd.toFixed(3)
         ]
       }
-    ),
+    ) : null,
     /* @__PURE__ */ jsxRuntimeExports.jsx(
       "button",
       {
@@ -5304,7 +5333,9 @@ function PlanActions({
 }
 function SetupBar({
   localDate: localDate2,
-  keyConfigured,
+  canPlan,
+  signedIn,
+  daysLeft,
   generating,
   onDone
 }) {
@@ -5355,9 +5386,9 @@ function SetupBar({
           "input",
           {
             value: note,
-            placeholder: "Anything about today only? (dentist at 3, low energy, deadline tomorrow…)",
+            placeholder: "Anything about the rest of this week? (dentist Thursday, low energy, deadline Friday…)",
             onChange: (e3) => setNote(e3.target.value),
-            onKeyDown: (e3) => e3.key === "Enter" && keyConfigured && !generating && void run(),
+            onKeyDown: (e3) => e3.key === "Enter" && canPlan && !generating && void run(),
             style: {
               width: "100%",
               fontSize: 12.5,
@@ -5374,27 +5405,32 @@ function SetupBar({
             "button",
             {
               onClick: () => void run(),
-              disabled: !keyConfigured || generating,
-              className: keyConfigured && !generating ? "btn-launch" : void 0,
+              disabled: !canPlan || generating,
+              className: canPlan && !generating ? "btn-launch" : void 0,
               style: {
                 padding: "8px 16px",
                 borderRadius: 10,
-                border: keyConfigured ? "none" : "1px solid var(--line)",
-                background: keyConfigured ? void 0 : "transparent",
-                color: keyConfigured ? void 0 : "var(--text-faint)",
+                border: canPlan ? "none" : "1px solid var(--line)",
+                background: canPlan ? void 0 : "transparent",
+                color: canPlan ? void 0 : "var(--text-faint)",
                 fontSize: 13,
                 fontWeight: 600,
                 fontFamily: "inherit",
-                cursor: keyConfigured && !generating ? "pointer" : "default"
+                cursor: canPlan && !generating ? "pointer" : "default"
               },
-              children: generating ? "Thinking…" : "Plan my day"
+              children: generating ? "Thinking…" : planLabel(daysLeft)
             }
           ),
-          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { fontSize: 10.5, color: "var(--text-faint)" }, children: keyConfigured ? "One call to Claude — roughly a nickel, and it takes about half a minute." : "Add an API key on the Week page first." })
+          /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { fontSize: 10.5, color: "var(--text-faint)" }, children: canPlan ? "One call, on the server — about a minute, and it plans every day left in the week." : signedIn ? "This server has no planning key configured." : "Planning happens on the server. Sign in from Settings first." })
         ] })
       ]
     }
   );
+}
+function planLabel(daysLeft) {
+  if (daysLeft <= 1) return "Plan the rest of today";
+  if (daysLeft >= 7) return "Plan my week";
+  return `Plan the next ${daysLeft} days`;
 }
 function Generating() {
   const [elapsed, setElapsed] = reactExports.useState(0);
@@ -5424,7 +5460,7 @@ function Generating() {
   ] });
 }
 function Time({
-  label,
+  label: label2,
   value,
   onChange
 }) {
@@ -5438,7 +5474,7 @@ function Time({
           letterSpacing: "0.06em",
           color: "var(--text-faint)"
         },
-        children: label
+        children: label2
       }
     ),
     /* @__PURE__ */ jsxRuntimeExports.jsx(
@@ -5475,7 +5511,7 @@ function PlanBody({ plan }) {
       }
     ),
     /* @__PURE__ */ jsxRuntimeExports.jsx("div", { children: plan.blocks.map((block) => /* @__PURE__ */ jsxRuntimeExports.jsx(BlockRow, { block, localDate: plan.localDate }, block.id)) }),
-    plan.deferred.length ? /* @__PURE__ */ jsxRuntimeExports.jsxs(
+    (plan.deferred ?? []).length ? /* @__PURE__ */ jsxRuntimeExports.jsxs(
       "div",
       {
         style: {
@@ -5497,7 +5533,7 @@ function PlanBody({ plan }) {
               children: "Not today"
             }
           ),
-          plan.deferred.map((line) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
+          (plan.deferred ?? []).map((line) => /* @__PURE__ */ jsxRuntimeExports.jsxs(
             "div",
             {
               style: {
@@ -6498,7 +6534,7 @@ function GoalRow({ goal }) {
   );
 }
 function RowButton({
-  label,
+  label: label2,
   title: title2,
   onClick
 }) {
@@ -6516,7 +6552,7 @@ function RowButton({
         lineHeight: 1,
         padding: "2px 3px"
       },
-      children: label
+      children: label2
     }
   );
 }
@@ -6633,7 +6669,7 @@ function PlannerSettings() {
             model.id
           );
         }) }) }),
-        /* @__PURE__ */ jsxRuntimeExports.jsx(ApiKeyField, {})
+        /* @__PURE__ */ jsxRuntimeExports.jsx(PlannerAvailability, {})
       ]
     }
   );
@@ -6655,104 +6691,12 @@ function Spend() {
     ] })
   ] });
 }
-function ApiKeyField() {
-  const state = usePlanStore((s2) => s2.state);
-  const [value, setValue] = reactExports.useState("");
-  const [busy, setBusy] = reactExports.useState(false);
-  const [error, setError] = reactExports.useState(null);
-  const key = state?.key;
-  const save = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      await window.thread.invoke["planner:setKey"]({ key: value });
-      setValue("");
-      await refreshPlannerState();
-    } catch (err) {
-      setError(messageOf(err));
-    } finally {
-      setBusy(false);
-    }
-  };
-  return /* @__PURE__ */ jsxRuntimeExports.jsxs(Field, { label: "API key", children: [
-    key?.configured ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 10 }, children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx(
-        "span",
-        {
-          style: {
-            fontSize: 12,
-            fontFamily: "var(--font-mono)",
-            color: "var(--text-muted)"
-          },
-          children: key.hint
-        }
-      ),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { fontSize: 11, color: "var(--text-faint)" }, children: sourceLabel(key.source) }),
-      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { flex: 1 } }),
-      key.source === "stored" ? /* @__PURE__ */ jsxRuntimeExports.jsx(
-        "button",
-        {
-          onClick: () => {
-            void window.thread.invoke["planner:clearKey"](void 0).then(refreshPlannerState);
-          },
-          style: {
-            background: "none",
-            border: "none",
-            color: "var(--text-faint)",
-            fontSize: 11,
-            cursor: "pointer"
-          },
-          children: "Forget it"
-        }
-      ) : null
-    ] }) : /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", gap: 8 }, children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx(
-        "input",
-        {
-          type: "password",
-          value,
-          placeholder: "sk-ant-…",
-          onChange: (e3) => setValue(e3.target.value),
-          onKeyDown: (e3) => e3.key === "Enter" && value.trim() && void save(),
-          style: {
-            flex: 1,
-            fontSize: 12.5,
-            fontFamily: "var(--font-mono)",
-            background: "var(--ink)",
-            border: "1px solid var(--line)",
-            borderRadius: 8,
-            padding: "7px 10px"
-          }
-        }
-      ),
-      /* @__PURE__ */ jsxRuntimeExports.jsx(
-        "button",
-        {
-          onClick: () => void save(),
-          disabled: !value.trim() || busy,
-          style: {
-            padding: "7px 14px",
-            borderRadius: 8,
-            border: "1px solid var(--line)",
-            background: value.trim() ? "var(--surface-raised)" : "transparent",
-            color: value.trim() ? "var(--text)" : "var(--text-faint)",
-            fontSize: 12,
-            fontFamily: "inherit",
-            cursor: value.trim() && !busy ? "pointer" : "default"
-          },
-          children: busy ? "Saving…" : "Save"
-        }
-      )
-    ] }),
-    error ? /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: { fontSize: 11, color: "var(--clay)", margin: "6px 0 0" }, children: error }) : null,
-    /* @__PURE__ */ jsxRuntimeExports.jsxs("p", { style: { fontSize: 10.5, color: "var(--text-faint)", margin: "6px 0 0", lineHeight: 1.5 }, children: [
-      key?.configured ? "Encrypted in your keychain and never leaves this machine. Billed to your Anthropic API credits, which are separate from a Claude Pro subscription." : "From console.anthropic.com. Stored encrypted in your keychain — the app never sends it anywhere but Anthropic.",
-      key?.configured && !key.canPersist ? " No keyring available on this machine, so it is held for this session only." : ""
-    ] })
-  ] });
+function PlannerAvailability() {
+  const availability = usePlanStore((s2) => s2.state?.availability ?? null);
+  return /* @__PURE__ */ jsxRuntimeExports.jsx(Field, { label: "Where planning happens", children: /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: { fontSize: 11.5, color: "var(--text-muted)", margin: 0, lineHeight: 1.55 }, children: availability?.signedIn ? availability.serverReady ? "On your server, with its own API key. This app never sees the key, and the plan it generates syncs to every device you are signed in on — including your phone." : "Your account is signed in, but that server has no planning key configured, so the button will not work yet." : "On your server, with its own API key. Sign in from Settings to use it — and the plan then syncs to every device, including your phone." }) });
 }
 function Field({
-  label,
+  label: label2,
   children
 }) {
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { marginBottom: 14 }, children: [
@@ -6766,14 +6710,14 @@ function Field({
           color: "var(--text-faint)",
           marginBottom: 6
         },
-        children: label
+        children: label2
       }
     ),
     children
   ] });
 }
 function TimeField({
-  label,
+  label: label2,
   value,
   onChange
 }) {
@@ -6787,7 +6731,7 @@ function TimeField({
           letterSpacing: "0.06em",
           color: "var(--text-faint)"
         },
-        children: label
+        children: label2
       }
     ),
     /* @__PURE__ */ jsxRuntimeExports.jsx(
@@ -6809,15 +6753,255 @@ function TimeField({
     )
   ] });
 }
-function sourceLabel(source) {
-  if (source === "stored") return "from your keychain";
-  if (source === "env") return "from ANTHROPIC_API_KEY";
-  if (source === "dotenv") return "from .env";
-  return "";
+function WeekPlanPanel({
+  weekKey,
+  isCurrentWeek
+}) {
+  const week = usePlanStore((s2) => s2.weeks[weekKey] ?? null);
+  const plans = usePlanStore((s2) => s2.plans);
+  const generating = usePlanStore((s2) => s2.generating);
+  const error = usePlanStore((s2) => s2.error);
+  const setError = usePlanStore((s2) => s2.setError);
+  const availability = usePlanStore((s2) => s2.state?.availability ?? null);
+  const daysLeft = usePlanStore((s2) => s2.state?.daysLeft ?? 0);
+  const [note, setNote] = reactExports.useState("");
+  const canPlan = Boolean(availability?.signedIn && availability?.serverReady) && isCurrentWeek;
+  reactExports.useEffect(() => {
+    if (weekKey) void loadWeekPlan(weekKey);
+  }, [weekKey]);
+  const days = weekDates(weekKey).map((date2) => plans[date2]).filter((plan) => Boolean(plan) && !plan?.deletedAt);
+  const run = async () => {
+    const ok = await generatePlan(note.trim() ? { note: note.trim() } : {});
+    if (ok) setNote("");
+  };
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(
+    Panel,
+    {
+      title: "The plan",
+      accent: "var(--lavender)",
+      subtitle: week ? `Built ${relative(week.generatedAt)} for ${formatWeekRange(weekKey)}. Regenerating replaces it.` : "Turn the goals above into ordered days — every day this week has left, in one pass.",
+      right: week ? /* @__PURE__ */ jsxRuntimeExports.jsx(Cost, { week }) : null,
+      children: [
+        error ? /* @__PURE__ */ jsxRuntimeExports.jsx(Banner, { text: error, onDismiss: () => setError(null) }) : null,
+        week ? /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "p",
+          {
+            style: {
+              fontSize: 13,
+              lineHeight: 1.6,
+              color: "var(--text)",
+              margin: "0 0 14px"
+            },
+            children: week.headline
+          }
+        ) : null,
+        days.length ? /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { marginBottom: 14 }, children: days.map((plan) => /* @__PURE__ */ jsxRuntimeExports.jsx(DaySummary, { plan }, plan.localDate)) }) : null,
+        week?.deferred.length ? /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { marginBottom: 14 }, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: labelStyle, children: "Not this week" }),
+          week.deferred.map((line) => /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "p",
+            {
+              style: {
+                fontSize: 12,
+                lineHeight: 1.55,
+                color: "var(--text-muted)",
+                margin: "0 0 6px",
+                paddingLeft: 12,
+                borderLeft: "2px solid var(--line)"
+              },
+              children: line
+            },
+            line
+          ))
+        ] }) : null,
+        generating ? /* @__PURE__ */ jsxRuntimeExports.jsx(Working, {}) : /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
+          isCurrentWeek ? /* @__PURE__ */ jsxRuntimeExports.jsx(
+            "input",
+            {
+              value: note,
+              placeholder: "Anything about this week? (Thursday is meetings, low energy, deadline Friday…)",
+              onChange: (e3) => setNote(e3.target.value),
+              onKeyDown: (e3) => e3.key === "Enter" && canPlan && void run(),
+              style: {
+                width: "100%",
+                fontSize: 12.5,
+                background: "var(--ink)",
+                border: "1px solid var(--line)",
+                borderRadius: 8,
+                padding: "7px 10px",
+                marginBottom: 10
+              }
+            }
+          ) : null,
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "center", gap: 10 }, children: [
+            /* @__PURE__ */ jsxRuntimeExports.jsx(
+              "button",
+              {
+                onClick: () => void run(),
+                disabled: !canPlan,
+                className: canPlan ? "btn-launch" : void 0,
+                style: {
+                  padding: "8px 16px",
+                  borderRadius: 10,
+                  border: canPlan ? "none" : "1px solid var(--line)",
+                  background: canPlan ? void 0 : "transparent",
+                  color: canPlan ? void 0 : "var(--text-faint)",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  fontFamily: "inherit",
+                  cursor: canPlan ? "pointer" : "default"
+                },
+                children: week ? "Plan it again" : label(daysLeft)
+              }
+            ),
+            /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { fontSize: 10.5, color: "var(--text-faint)", flex: 1 }, children: hint({
+              isCurrentWeek,
+              signedIn: Boolean(availability?.signedIn),
+              serverReady: Boolean(availability?.serverReady),
+              daysLeft
+            }) })
+          ] })
+        ] })
+      ]
+    }
+  );
 }
-function messageOf(error) {
-  const raw = error instanceof Error ? error.message : String(error);
-  return raw.replace(/^Error invoking remote method '[^']+':\s*/, "").replace(/^Error:\s*/, "");
+function DaySummary({ plan }) {
+  const focus = plan.blocks.filter((block) => block.kind === "focus").length;
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(
+    "div",
+    {
+      style: {
+        display: "flex",
+        gap: 12,
+        padding: "8px 0",
+        borderTop: "1px solid var(--line)"
+      },
+      children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { width: 52, flexShrink: 0 }, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { fontSize: 12, color: "var(--text)", fontWeight: 600 }, children: weekdayOf(plan.localDate) }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { fontSize: 10, color: "var(--text-faint)", fontFamily: "var(--font-mono)" }, children: plan.localDate.slice(8) })
+        ] }),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { flex: 1, minWidth: 0 }, children: [
+          /* @__PURE__ */ jsxRuntimeExports.jsx("p", { style: { fontSize: 12.5, lineHeight: 1.5, color: "var(--text-muted)", margin: 0 }, children: plan.headline }),
+          /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { fontSize: 10.5, color: "var(--text-faint)", marginTop: 3 }, children: [
+            plan.blocks.length,
+            " block",
+            plan.blocks.length === 1 ? "" : "s",
+            focus ? ` · ${focus} focus` : " · nothing scheduled"
+          ] })
+        ] })
+      ]
+    }
+  );
+}
+function Cost({ week }) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(
+    "span",
+    {
+      title: `${week.usage.inputTokens} in, ${week.usage.outputTokens} out, via ${week.model}`,
+      style: { fontSize: 10.5, color: "var(--text-faint)", fontFamily: "var(--font-mono)" },
+      children: [
+        "$",
+        week.usage.costUsd.toFixed(3)
+      ]
+    }
+  );
+}
+function Working() {
+  const [elapsed, setElapsed] = reactExports.useState(0);
+  reactExports.useEffect(() => {
+    const timer = setInterval(() => setElapsed((value) => value + 1), 1e3);
+    return () => clearInterval(timer);
+  }, []);
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(
+    "div",
+    {
+      style: {
+        border: "1px dashed var(--line)",
+        borderRadius: 10,
+        padding: "14px 16px",
+        fontSize: 12.5,
+        color: "var(--text-muted)",
+        lineHeight: 1.6
+      },
+      children: [
+        "Reading your goals, threads and to-dos, and shaping the days around them.",
+        /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { fontSize: 10.5, color: "var(--text-faint)", marginTop: 4 }, children: [
+          elapsed,
+          "s · usually under a minute · it finishes on the server even if you navigate away"
+        ] })
+      ]
+    }
+  );
+}
+function Banner({ text, onDismiss }) {
+  return /* @__PURE__ */ jsxRuntimeExports.jsxs(
+    "div",
+    {
+      style: {
+        fontSize: 12,
+        color: "var(--clay)",
+        background: "color-mix(in srgb, var(--clay) 10%, transparent)",
+        border: "1px solid color-mix(in srgb, var(--clay) 30%, transparent)",
+        borderRadius: 8,
+        padding: "8px 10px",
+        marginBottom: 12,
+        display: "flex",
+        gap: 10
+      },
+      children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { flex: 1 }, children: text }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "button",
+          {
+            onClick: onDismiss,
+            style: {
+              background: "none",
+              border: "none",
+              color: "var(--text-faint)",
+              cursor: "pointer",
+              fontSize: 12
+            },
+            children: "×"
+          }
+        )
+      ]
+    }
+  );
+}
+const labelStyle = {
+  fontSize: 10.5,
+  textTransform: "uppercase",
+  letterSpacing: "0.06em",
+  color: "var(--text-faint)",
+  marginBottom: 6
+};
+function label(daysLeft) {
+  if (daysLeft <= 1) return "Plan the rest of today";
+  if (daysLeft >= 7) return "Plan my week";
+  return `Plan the next ${daysLeft} days`;
+}
+function hint(state) {
+  if (!state.isCurrentWeek) return "Only this week can be planned — a past week is a record, not a plan.";
+  if (!state.signedIn) return "Planning happens on the server. Sign in from Settings first.";
+  if (!state.serverReady) return "This server has no planning key configured.";
+  return `One call, about a minute, and it plans ${state.daysLeft} day${state.daysLeft === 1 ? "" : "s"} at once. It syncs to your phone too.`;
+}
+function weekdayOf(localDate2) {
+  const [y2, m2, d2] = localDate2.split("-").map(Number);
+  return new Date(Date.UTC(y2, m2 - 1, d2)).toLocaleDateString("en-GB", {
+    weekday: "short",
+    timeZone: "UTC"
+  });
+}
+function relative(iso) {
+  const minutes = Math.round((Date.now() - Date.parse(iso)) / 6e4);
+  if (minutes < 2) return "just now";
+  if (minutes < 60) return `${minutes} minutes ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+  return new Date(iso).toLocaleDateString("en-GB", { weekday: "long" }).replace(/^/, "on ");
 }
 function WeekView() {
   const weekKey = useGoalStore((s2) => s2.weekKey);
@@ -6922,6 +7106,7 @@ function WeekView() {
           ]
         }
       ),
+      /* @__PURE__ */ jsxRuntimeExports.jsx(WeekPlanPanel, { weekKey, isCurrentWeek: weekKey === currentWeek }),
       /* @__PURE__ */ jsxRuntimeExports.jsx(PlannerSettings, {})
     ] })
   ] });
@@ -6959,7 +7144,7 @@ function WeekNav({
   ] });
 }
 function NavButton({
-  label,
+  label: label2,
   title: title2,
   onClick
 }) {
@@ -6979,7 +7164,7 @@ function NavButton({
         fontSize: 14,
         lineHeight: 1
       },
-      children: label
+      children: label2
     }
   );
 }
@@ -11293,7 +11478,7 @@ function defaultFormatter(value) {
   return Array.isArray(value) && isNumOrStr(value[0]) && isNumOrStr(value[1]) ? value.join(" ~ ") : value;
 }
 var DefaultTooltipContent = function DefaultTooltipContent2(props) {
-  var _props$separator = props.separator, separator = _props$separator === void 0 ? " : " : _props$separator, _props$contentStyle = props.contentStyle, contentStyle = _props$contentStyle === void 0 ? {} : _props$contentStyle, _props$itemStyle = props.itemStyle, itemStyle = _props$itemStyle === void 0 ? {} : _props$itemStyle, _props$labelStyle = props.labelStyle, labelStyle = _props$labelStyle === void 0 ? {} : _props$labelStyle, payload = props.payload, formatter = props.formatter, itemSorter = props.itemSorter, wrapperClassName = props.wrapperClassName, labelClassName = props.labelClassName, label = props.label, labelFormatter = props.labelFormatter, _props$accessibilityL = props.accessibilityLayer, accessibilityLayer = _props$accessibilityL === void 0 ? false : _props$accessibilityL;
+  var _props$separator = props.separator, separator = _props$separator === void 0 ? " : " : _props$separator, _props$contentStyle = props.contentStyle, contentStyle = _props$contentStyle === void 0 ? {} : _props$contentStyle, _props$itemStyle = props.itemStyle, itemStyle = _props$itemStyle === void 0 ? {} : _props$itemStyle, _props$labelStyle = props.labelStyle, labelStyle2 = _props$labelStyle === void 0 ? {} : _props$labelStyle, payload = props.payload, formatter = props.formatter, itemSorter = props.itemSorter, wrapperClassName = props.wrapperClassName, labelClassName = props.labelClassName, label2 = props.label, labelFormatter = props.labelFormatter, _props$accessibilityL = props.accessibilityLayer, accessibilityLayer = _props$accessibilityL === void 0 ? false : _props$accessibilityL;
   var renderContent2 = function renderContent3() {
     if (payload && payload.length) {
       var listStyle = {
@@ -11357,13 +11542,13 @@ var DefaultTooltipContent = function DefaultTooltipContent2(props) {
   }, contentStyle);
   var finalLabelStyle = _objectSpread$v({
     margin: 0
-  }, labelStyle);
-  var hasLabel = !isNil$1(label);
-  var finalLabel = hasLabel ? label : "";
+  }, labelStyle2);
+  var hasLabel = !isNil$1(label2);
+  var finalLabel = hasLabel ? label2 : "";
   var wrapperCN = clsx("recharts-default-tooltip", wrapperClassName);
   var labelCN = clsx("recharts-tooltip-label", labelClassName);
   if (hasLabel && labelFormatter && payload !== void 0 && payload !== null) {
-    finalLabel = labelFormatter(label, payload);
+    finalLabel = labelFormatter(label2, payload);
   }
   var accessibilityAttributes = accessibilityLayer ? {
     role: "status",
@@ -18427,18 +18612,18 @@ function _extends$i() {
 }
 var getLabel = function getLabel2(props) {
   var value = props.value, formatter = props.formatter;
-  var label = isNil$1(props.children) ? value : props.children;
+  var label2 = isNil$1(props.children) ? value : props.children;
   if (isFunction$3(formatter)) {
-    return formatter(label);
+    return formatter(label2);
   }
-  return label;
+  return label2;
 };
 var getDeltaAngle$1 = function getDeltaAngle(startAngle, endAngle) {
   var sign2 = mathSign(endAngle - startAngle);
   var deltaAngle = Math.min(Math.abs(endAngle - startAngle), 360);
   return sign2 * deltaAngle;
 };
-var renderRadialLabel = function renderRadialLabel2(labelProps, label, attrs) {
+var renderRadialLabel = function renderRadialLabel2(labelProps, label2, attrs) {
   var position = labelProps.position, viewBox = labelProps.viewBox, offset = labelProps.offset, className = labelProps.className;
   var _ref = viewBox, cx = _ref.cx, cy = _ref.cy, innerRadius = _ref.innerRadius, outerRadius = _ref.outerRadius, startAngle = _ref.startAngle, endAngle = _ref.endAngle, clockWise = _ref.clockWise;
   var radius = (innerRadius + outerRadius) / 2;
@@ -18468,7 +18653,7 @@ var renderRadialLabel = function renderRadialLabel2(labelProps, label, attrs) {
     d: path
   })), /* @__PURE__ */ React.createElement("textPath", {
     xlinkHref: "#".concat(id)
-  }, label));
+  }, label2));
 };
 var getAttrsOfPolarLabel = function getAttrsOfPolarLabel2(props) {
   var viewBox = props.viewBox, offset = props.offset, position = props.position;
@@ -18673,26 +18858,26 @@ function Label(_ref4) {
   if (/* @__PURE__ */ reactExports.isValidElement(content)) {
     return /* @__PURE__ */ reactExports.cloneElement(content, props);
   }
-  var label;
+  var label2;
   if (isFunction$3(content)) {
-    label = /* @__PURE__ */ reactExports.createElement(content, props);
-    if (/* @__PURE__ */ reactExports.isValidElement(label)) {
-      return label;
+    label2 = /* @__PURE__ */ reactExports.createElement(content, props);
+    if (/* @__PURE__ */ reactExports.isValidElement(label2)) {
+      return label2;
     }
   } else {
-    label = getLabel(props);
+    label2 = getLabel(props);
   }
   var isPolarLabel = isPolar(viewBox);
   var attrs = filterProps(props, true);
   if (isPolarLabel && (position === "insideStart" || position === "insideEnd" || position === "end")) {
-    return renderRadialLabel(props, label, attrs);
+    return renderRadialLabel(props, label2, attrs);
   }
   var positionAttrs = isPolarLabel ? getAttrsOfPolarLabel(props) : getAttrsOfCartesianLabel(props);
   return /* @__PURE__ */ React.createElement(Text, _extends$i({
     className: clsx("recharts-label", className)
   }, attrs, positionAttrs, {
     breakAll: textBreakAll
-  }), label);
+  }), label2);
 }
 Label.displayName = "Label";
 var parseViewBox = function parseViewBox2(props) {
@@ -18742,47 +18927,47 @@ var parseViewBox = function parseViewBox2(props) {
   }
   return {};
 };
-var parseLabel = function parseLabel2(label, viewBox) {
-  if (!label) {
+var parseLabel = function parseLabel2(label2, viewBox) {
+  if (!label2) {
     return null;
   }
-  if (label === true) {
+  if (label2 === true) {
     return /* @__PURE__ */ React.createElement(Label, {
       key: "label-implicit",
       viewBox
     });
   }
-  if (isNumOrStr(label)) {
+  if (isNumOrStr(label2)) {
     return /* @__PURE__ */ React.createElement(Label, {
       key: "label-implicit",
       viewBox,
-      value: label
+      value: label2
     });
   }
-  if (/* @__PURE__ */ reactExports.isValidElement(label)) {
-    if (label.type === Label) {
-      return /* @__PURE__ */ reactExports.cloneElement(label, {
+  if (/* @__PURE__ */ reactExports.isValidElement(label2)) {
+    if (label2.type === Label) {
+      return /* @__PURE__ */ reactExports.cloneElement(label2, {
         key: "label-implicit",
         viewBox
       });
     }
     return /* @__PURE__ */ React.createElement(Label, {
       key: "label-implicit",
-      content: label,
+      content: label2,
       viewBox
     });
   }
-  if (isFunction$3(label)) {
+  if (isFunction$3(label2)) {
     return /* @__PURE__ */ React.createElement(Label, {
       key: "label-implicit",
-      content: label,
+      content: label2,
       viewBox
     });
   }
-  if (isObject$8(label)) {
+  if (isObject$8(label2)) {
     return /* @__PURE__ */ React.createElement(Label, _extends$i({
       viewBox
-    }, label, {
+    }, label2, {
       key: "label-implicit"
     }));
   }
@@ -18963,27 +19148,27 @@ function LabelList(_ref) {
   }));
 }
 LabelList.displayName = "LabelList";
-function parseLabelList(label, data) {
-  if (!label) {
+function parseLabelList(label2, data) {
+  if (!label2) {
     return null;
   }
-  if (label === true) {
+  if (label2 === true) {
     return /* @__PURE__ */ React.createElement(LabelList, {
       key: "labelList-implicit",
       data
     });
   }
-  if (/* @__PURE__ */ React.isValidElement(label) || isFunction$3(label)) {
+  if (/* @__PURE__ */ React.isValidElement(label2) || isFunction$3(label2)) {
     return /* @__PURE__ */ React.createElement(LabelList, {
       key: "labelList-implicit",
       data,
-      content: label
+      content: label2
     });
   }
-  if (isObject$8(label)) {
+  if (isObject$8(label2)) {
     return /* @__PURE__ */ React.createElement(LabelList, _extends$h({
       data
-    }, label, {
+    }, label2, {
       key: "labelList-implicit"
     }));
   }
@@ -20013,15 +20198,15 @@ function _toPropertyKey$m(arg) {
   var key = _toPrimitive$m(arg, "string");
   return _typeof$m(key) === "symbol" ? key : String(key);
 }
-function _toPrimitive$m(input, hint) {
+function _toPrimitive$m(input, hint2) {
   if (_typeof$m(input) !== "object" || input === null) return input;
   var prim = input[Symbol.toPrimitive];
   if (prim !== void 0) {
-    var res = prim.call(input, hint);
+    var res = prim.call(input, hint2);
     if (_typeof$m(res) !== "object") return res;
     throw new TypeError("@@toPrimitive must return a primitive value.");
   }
-  return (hint === "string" ? String : Number)(input);
+  return (hint2 === "string" ? String : Number)(input);
 }
 var getIntersectionKeys = function getIntersectionKeys2(preObj, nextObj) {
   return [Object.keys(preObj), Object.keys(nextObj)].reduce(function(a2, b2) {
@@ -20304,15 +20489,15 @@ function _toPropertyKey$l(arg) {
   var key = _toPrimitive$l(arg, "string");
   return _typeof$l(key) === "symbol" ? key : String(key);
 }
-function _toPrimitive$l(input, hint) {
+function _toPrimitive$l(input, hint2) {
   if (_typeof$l(input) !== "object" || input === null) return input;
   var prim = input[Symbol.toPrimitive];
   if (prim !== void 0) {
-    var res = prim.call(input, hint);
+    var res = prim.call(input, hint2);
     if (_typeof$l(res) !== "object") return res;
     throw new TypeError("@@toPrimitive must return a primitive value.");
   }
-  return (hint === "string" ? String : Number)(input);
+  return (hint2 === "string" ? String : Number)(input);
 }
 function _slicedToArray$4(arr, i) {
   return _arrayWithHoles$4(arr) || _iterableToArrayLimit$4(arr, i) || _unsupportedIterableToArray$7(arr, i) || _nonIterableRest$4();
@@ -20565,15 +20750,15 @@ function _toPropertyKey$k(arg) {
   var key = _toPrimitive$k(arg, "string");
   return _typeof$k(key) === "symbol" ? key : String(key);
 }
-function _toPrimitive$k(input, hint) {
+function _toPrimitive$k(input, hint2) {
   if (_typeof$k(input) !== "object" || input === null) return input;
   var prim = input[Symbol.toPrimitive];
   if (prim !== void 0) {
-    var res = prim.call(input, hint);
+    var res = prim.call(input, hint2);
     if (_typeof$k(res) !== "object") return res;
     throw new TypeError("@@toPrimitive must return a primitive value.");
   }
-  return (hint === "string" ? String : Number)(input);
+  return (hint2 === "string" ? String : Number)(input);
 }
 function _inherits$a(subClass, superClass) {
   if (typeof superClass !== "function" && superClass !== null) {
@@ -23437,16 +23622,16 @@ var createLabeledScales = function createLabeledScales2(options) {
   return _objectSpread$8(_objectSpread$8({}, scales), {}, {
     apply: function apply2(coord) {
       var _ref5 = arguments.length > 1 && arguments[1] !== void 0 ? arguments[1] : {}, bandAware = _ref5.bandAware, position = _ref5.position;
-      return mapValues$1(coord, function(value, label) {
-        return scales[label].apply(value, {
+      return mapValues$1(coord, function(value, label2) {
+        return scales[label2].apply(value, {
           bandAware,
           position
         });
       });
     },
     isInRange: function isInRange(coord) {
-      return every$1(coord, function(value, label) {
-        return scales[label].isInRange(value);
+      return every$1(coord, function(value, label2) {
+        return scales[label2].isInRange(value);
       });
     }
   });
@@ -28293,7 +28478,7 @@ function TrendChart({ trend }) {
     )
   ] }) }) });
 }
-function StatTile({ label, value }) {
+function StatTile({ label: label2, value }) {
   return /* @__PURE__ */ jsxRuntimeExports.jsxs(
     "div",
     {
@@ -28314,7 +28499,7 @@ function StatTile({ label, value }) {
             children: value
           }
         ),
-        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { fontSize: 11, color: "var(--text-faint)", marginTop: 4 }, children: label })
+        /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { fontSize: 11, color: "var(--text-faint)", marginTop: 4 }, children: label2 })
       ]
     }
   );
@@ -28392,10 +28577,10 @@ function DistractionSection({ stats }) {
     ] }) : null
   ] });
 }
-function MiniStat({ label, value }) {
+function MiniStat({ label: label2, value }) {
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { padding: "10px 12px", borderRadius: 10, background: "var(--surface)", border: "1px solid var(--line)" }, children: [
     /* @__PURE__ */ jsxRuntimeExports.jsx("div", { className: "mono", style: { fontSize: 16 }, children: value }),
-    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { fontSize: 10, color: "var(--text-faint)" }, children: label })
+    /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { fontSize: 10, color: "var(--text-faint)" }, children: label2 })
   ] });
 }
 function hourLabel(hour) {

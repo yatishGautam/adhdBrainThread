@@ -61,6 +61,17 @@ export function weekDates(key: WeekKey): string[] {
   return Array.from({ length: 7 }, (_, i) => addLocalDays(monday, i));
 }
 
+/**
+ * The days of this week that have not happened yet, today included.
+ *
+ * The whole question the planner is built around: pressing the button on Thursday must plan
+ * Thursday to Sunday, not replay Monday. The server does this arithmetic too, from the local
+ * date this app sends it — the copy here is what the button counts to label itself.
+ */
+export function remainingWeekDates(localDate: string): string[] {
+  return weekDates(weekKeyOf(localDate)).filter((date) => date >= localDate);
+}
+
 /** `offset: -1` is last week. Goes through dates rather than the number, so week 1 wraps. */
 export function shiftWeek(key: WeekKey, offset: number): WeekKey {
   return weekKeyOf(addLocalDays(weekStart(key), offset * 7));
