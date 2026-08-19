@@ -122,6 +122,9 @@ export class SyncEngine {
 		this.setPhase("syncing", null);
 		try {
 			const pulled = await this.pullAndMerge(token);
+			// After the pull, so anything the server already holds resolves as a conflict rather
+			// than being uploaded over a newer copy.
+			await this.backfillOnce();
 			const { pushed, conflicts } = this.pushSuspended
 				? { pushed: 0, conflicts: 0 }
 				: await this.pushDirty(token);
@@ -304,6 +307,39 @@ export class SyncEngine {
 				// from the queue.
 				return;
 		}
+	}
+
+	/**
+	 * Offers every local record to the server once.
+	 *
+	 * The dirty queue is only ever filled by local writes, so records that existed *before* this
+	 * device signed in were never queued — nothing had written them since sync existed. The
+	 * engine then correctly reported nothing pending while the account stayed empty, which looks
+	 * from the outside exactly like sync being broken.
+	 *
+	 * Marking rather than pushing directly means the normal path still applies: chunking,
+	 * last-write-wins, and conflicts resolving in the server's favour. A record the server
+	 * already has newer comes straight back as a conflict and is dropped from the queue.
+	 */
+	private async backfillOnce(): Promise<void> {
+		if (this.state.hasBackfilled) return;
+
+		for (const name of [
+			COLLECTION.threads,
+			COLLECTION.days,
+			COLLECTION.sessions,
+			COLLECTION.mindful,
+		] as const) {
+			const records = await this.remote<{ id?: string; localDate?: string }>(name).all();
+			// Days are keyed by date; everything else by id.
+			const keys = records
+				.map((record) => record.id ?? record.localDate)
+				.filter((key): key is string => typeof key === "string" && key.length > 0);
+			if (keys.length) this.state.markMany(name, keys);
+		}
+
+		this.state.markBackfilled();
+		await this.state.flush();
 	}
 
 	// -------------------------------------------------------------- internals
