@@ -155,8 +155,28 @@ reruns starts seeing 429s. Restart the API; the limiter counts in memory.
 ## Build
 
 ```bash
-npm run build      # typecheck + electron-vite build
+npm run build       # typecheck + electron-vite build
+npm run pack:mac    # a runnable .app in dist/
 npm run dist:mac    # packaged .dmg / .zip via electron-builder
+npm run install:mac # pack, then replace /Applications/ADHD Superpower.app
+```
+
+### Installing over yourself
+
+`install:mac` exists because this app stays resident. Closing its window does not quit it, so
+copying a new build over the old one leaves a process whose code no longer matches the files
+underneath it — which then crashes in ways that look like bugs in the app.
+
+The script stops it with **Quit**, not a kill, and the difference matters: quitting runs the
+app's own shutdown, which ends a focus block in progress as `ended_early` and flushes the JSON
+store. It escalates to `TERM` and then `KILL` only if Quit is ignored, and says so when it does,
+because a killed app loses whatever had not reached the write debounce and leaves an open
+session behind for the recovery prompt to find.
+
+It does not relaunch unless you ask:
+
+```bash
+npm run install:mac -- --launch
 ```
 
 ## Architecture

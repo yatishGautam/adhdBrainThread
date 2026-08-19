@@ -7,6 +7,20 @@ export function formatClock(ms: number): string {
 	return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
+/**
+ * The countdown as it appears in the macOS menu bar.
+ *
+ * Minutes, not `mm:ss`. The menu bar is a fixed, shared, and on a notched Mac a *small* amount
+ * of space: a title that changes width every second makes the system re-flow the whole bar,
+ * which is what pushes items in and out behind the overflow chevron. Minutes change sixty times
+ * less often and are two or three characters instead of five.
+ *
+ * Rounded up, so it never reads "0m" while there is still time on the clock.
+ */
+export function formatTrayCountdown(ms: number): string {
+	return `${Math.ceil(Math.max(0, ms) / 60_000)}m`;
+}
+
 /** "1h 20m" / "45m" / "2m". Never "0h 0m". */
 export function formatDuration(ms: number): string {
 	const minutes = Math.round(ms / 60_000);

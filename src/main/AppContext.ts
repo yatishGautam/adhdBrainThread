@@ -26,6 +26,7 @@ import { createMainWindow } from "./windows/mainWindow.js";
 import {
 	createTray,
 	updateTray,
+	updateTrayCountdown,
 	markQuitting,
 	type TrayState,
 } from "./windows/tray.js";
@@ -90,7 +91,13 @@ export class AppContext {
 		);
 
 		ctx.sessions = new SessionService(ctx.db, {
-			onTick: (tick) => ctx.broadcast("session:tick", tick),
+			onTick: (tick) => {
+				ctx.broadcast("session:tick", tick);
+				// The menu bar used to be written only when the session *changed*, so it showed
+				// whatever the clock said when you pressed start and then sat there, stale, for
+				// twenty-five minutes.
+				ctx.tickTray(tick.remainingMs, tick.paused);
+			},
 			onChanged: (state) => {
 				ctx.broadcast("session:changed", state);
 				ctx.refreshTray();
@@ -209,6 +216,17 @@ export class AppContext {
 			},
 		});
 		this.refreshTray();
+	}
+
+	/** The once-a-second path. Title only, and only when the minute has actually turned over. */
+	private tickTray(remainingMs: number, paused: boolean): void {
+		if (!this.tray || this.tray.isDestroyed()) return;
+		updateTrayCountdown(this.tray, {
+			running: true,
+			paused,
+			threadTitle: null,
+			remainingMs,
+		});
 	}
 
 	private async refreshTray(): Promise<void> {
