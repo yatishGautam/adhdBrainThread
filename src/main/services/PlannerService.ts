@@ -12,6 +12,9 @@
  * schedule, no on-open generation, no regeneration when the board changes. Every call is a
  * button press, guarded here against re-entry and again on the server.
  *
+ * A third rule, learned the hard way: **push before asking.** The server plans from the records
+ * it holds, not from this disk, so anything unsynced is invisible to it.
+ *
  * The other rule is newer, and it is about the phone: **the plan never travels down the request
  * that asked for it.** Generating takes the better part of a minute, and a connection held open
  * that long is one iOS kills in the background as ordinary behaviour. So the server answers 202
@@ -100,6 +103,12 @@ export class PlannerService {
 
     this.running = true;
     try {
+      // Push first. The server plans from what it *holds*, so a goal typed thirty seconds ago
+      // and still sitting in the dirty queue is a goal the plan will never hear about — and the
+      // plan comes back saying no goals were set this week, which is both wrong and expensive,
+      // because it is a paid call that ignored the whole point of the press.
+      await this.sync?.sync().catch(() => undefined);
+
       const accepted = await this.auth.api.planWeek(token, body);
       // Deliberately not awaited: the caller gets its acknowledgement now, and the wait happens
       // in the background. The plan is already the server's responsibility by this point.
