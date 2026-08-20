@@ -12,6 +12,7 @@ import {
 } from '../../stores/planStore.js';
 import { useSessionStore } from '../../stores/sessionStore.js';
 import { useThreadStore } from '../../stores/threadStore.js';
+import { useUiStore } from '../../stores/uiStore.js';
 
 /**
  * The suggested day, at the top of the daily page.
@@ -231,9 +232,32 @@ function SetupBar({
           border: '1px solid var(--line)',
           borderRadius: 8,
           padding: '7px 10px',
-          marginBottom: 10,
+          marginBottom: 6,
         }}
       />
+
+      <div style={{ fontSize: 10.5, color: 'var(--text-faint)', marginBottom: 10 }}>
+        {settings.plannerContext.trim() ? (
+          <>The planner also knows your standing context — </>
+        ) : (
+          <>It can also know what is always true (meetings, meds, energy) — </>
+        )}
+        <button
+          onClick={() => useUiStore.getState().setTab('week')}
+          style={{
+            background: 'none',
+            border: 'none',
+            padding: 0,
+            font: 'inherit',
+            color: 'var(--text-muted)',
+            textDecoration: 'underline',
+            cursor: 'pointer',
+          }}
+        >
+          {settings.plannerContext.trim() ? 'review it on the Week tab' : 'set it once on the Week tab'}
+        </button>
+        .
+      </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <button

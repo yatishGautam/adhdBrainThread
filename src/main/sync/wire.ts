@@ -18,9 +18,11 @@ import type {
 	MindfulSession,
 	PlanBlock,
 	Session,
+	Settings,
 	Thread,
 	WeekPlan,
 } from "@shared/domain.js";
+import { PLANNER_MODELS } from "@shared/constants.js";
 
 export interface WireOut {
 	threads?: unknown[];
@@ -30,7 +32,12 @@ export interface WireOut {
 	goals?: unknown[];
 	plans?: unknown[];
 	weekPlans?: unknown[];
-	profile?: { timezone: string; updatedAt: string; displayName?: string };
+	profile?: {
+		timezone: string;
+		updatedAt: string;
+		displayName?: string;
+		settings?: Record<string, string>;
+	};
 }
 
 export interface PullResponse {
@@ -418,4 +425,61 @@ function outcome(value: string | null): Session["outcome"] {
 	return (OUTCOMES as readonly string[]).includes(value ?? "")
 		? (value as Session["outcome"])
 		: "ended_early";
+}
+
+// ------------------------------------------------------------------- profile settings
+
+/**
+ * The slice of Settings that rides the profile. Only what the server's planner actually reads —
+ * HUD positions and sound toggles are this machine's business, and pushing them would make every
+ * devices' local preferences fight through last-write-wins for no reason.
+ */
+export function plannerSettingsOut(settings: Settings): Record<string, string> {
+	return {
+		wakeTime: settings.wakeTime,
+		dayStartTime: settings.dayStartTime,
+		dayEndTime: settings.dayEndTime,
+		plannerContext: settings.plannerContext,
+		plannerModel: settings.plannerModel,
+		plannerEffort: settings.plannerEffort,
+	};
+}
+
+/**
+ * The same slice coming back, defensively. The blob is schema-less on the server, so every key
+ * is validated here rather than trusted: a malformed time would fail the settings schema and
+ * take the whole local settings file hostage over one bad value.
+ */
+export function plannerSettingsIn(raw: unknown): Partial<Settings> {
+	if (typeof raw !== "object" || raw === null) return {};
+	const settings = (raw as { settings?: unknown }).settings;
+	if (typeof settings !== "object" || settings === null) return {};
+	const blob = settings as Record<string, unknown>;
+	const patch: Partial<Settings> = {};
+
+	const clock = (value: unknown): string | undefined =>
+		typeof value === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(value) ? value : undefined;
+
+	const wakeTime = clock(blob.wakeTime);
+	if (wakeTime) patch.wakeTime = wakeTime;
+	const dayStartTime = clock(blob.dayStartTime);
+	if (dayStartTime) patch.dayStartTime = dayStartTime;
+	const dayEndTime = clock(blob.dayEndTime);
+	if (dayEndTime) patch.dayEndTime = dayEndTime;
+
+	if (typeof blob.plannerContext === "string") patch.plannerContext = blob.plannerContext;
+	if (
+		typeof blob.plannerModel === "string" &&
+		PLANNER_MODELS.some((model) => model.id === blob.plannerModel)
+	) {
+		patch.plannerModel = blob.plannerModel;
+	}
+	if (
+		blob.plannerEffort === "low" ||
+		blob.plannerEffort === "medium" ||
+		blob.plannerEffort === "high"
+	) {
+		patch.plannerEffort = blob.plannerEffort;
+	}
+	return patch;
 }

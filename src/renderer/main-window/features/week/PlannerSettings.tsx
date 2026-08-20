@@ -33,7 +33,7 @@ export function PlannerSettings(): React.JSX.Element {
     <Panel
       title="Planner"
       accent="var(--lavender)"
-      subtitle="What a normal day looks like, and which model shapes it. Both are overridable each morning."
+      subtitle="What a normal day looks like, and which model shapes it. Synced to your account, so plans built anywhere — including your phone — know all of it."
       right={state ? <Spend /> : null}
     >
       <div style={{ display: 'flex', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
@@ -54,10 +54,10 @@ export function PlannerSettings(): React.JSX.Element {
         />
       </div>
 
-      <Field label="Always true">
+      <Field label="Context — always true">
         <textarea
           defaultValue={settings.plannerContext}
-          placeholder="Standing meetings, medication timing, when your focus is best or worst, anything that shapes every day."
+          placeholder="Anything the planner should always know: my morning meeting is at 9, I want to be up by 7, meds at 8, focus dies after lunch…"
           onBlur={(e) => {
             if (e.target.value !== settings.plannerContext) {
               void patch({ plannerContext: e.target.value });

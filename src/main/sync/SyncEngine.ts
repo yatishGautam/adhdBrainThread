@@ -15,6 +15,7 @@ import type {
 	Goal,
 	MindfulSession,
 	Session,
+	Settings,
 	Thread,
 	WeekPlan,
 } from "@shared/domain.js";
@@ -33,6 +34,8 @@ import {
 	mindfulOut,
 	planIn,
 	planOut,
+	plannerSettingsIn,
+	plannerSettingsOut,
 	weekPlanIn,
 	weekPlanOut,
 	sessionIn,
@@ -70,6 +73,8 @@ export class SyncEngine {
 		private readonly auth: AuthService,
 		private readonly state: SyncState,
 		private readonly onChanged: (status: SyncStatus) => void,
+		/** Called when a pull brings planner settings edited on another device. */
+		private readonly onSettingsAdopted?: (settings: Settings) => void,
 	) {}
 
 	status(): SyncStatus {
@@ -222,8 +227,28 @@ export class SyncEngine {
 			(record) => record.updatedAt ?? record.generatedAt,
 		);
 
+		merged += await this.adoptProfileSettings(response.profile);
+
 		if (typeof response.seq === "number") this.state.advanceCursor(response.seq);
 		return merged;
+	}
+
+	/**
+	 * Planner settings edited on another device land here. Skipped entirely while this machine
+	 * has its own profile edit queued — the pending push is newer intent, and adopting over it
+	 * would erase what was just typed before it ever left the building.
+	 */
+	private async adoptProfileSettings(raw: unknown): Promise<number> {
+		if (!raw || this.state.isProfileDirty) return 0;
+		const patch = plannerSettingsIn(raw);
+		const current = this.db.settings.get();
+		const changed = (Object.keys(patch) as (keyof typeof patch)[]).some(
+			(key) => patch[key] !== current[key],
+		);
+		if (!changed) return 0;
+		const settings = await this.db.settings.update(patch);
+		this.onSettingsAdopted?.(settings);
+		return 1;
 	}
 
 	/**
@@ -301,10 +326,16 @@ export class SyncEngine {
 			};
 			if (index === 0 && profileDirty) {
 				const displayName = this.auth.state().account?.displayName ?? null;
+				const settings = this.db.settings.get();
 				body.profile = {
-					timezone: this.db.settings.get().timezone,
+					timezone: settings.timezone,
 					updatedAt: new Date().toISOString(),
 					...(displayName ? { displayName } : {}),
+					// The planner slice rides along so the server — which builds every plan from
+					// the profile it holds — actually knows the standing context and day shape
+					// typed into this app. The server merges these keys rather than replacing
+					// the blob, so keys another device owns survive this push.
+					settings: plannerSettingsOut(settings),
 				};
 			}
 

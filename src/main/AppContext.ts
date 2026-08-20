@@ -97,8 +97,12 @@ export class AppContext {
 		});
 		await ctx.auth.load();
 
-		ctx.sync = new SyncEngine(ctx.db, ctx.auth, ctx.syncState, (status) =>
-			ctx.broadcast("sync:changed", status),
+		ctx.sync = new SyncEngine(
+			ctx.db,
+			ctx.auth,
+			ctx.syncState,
+			(status) => ctx.broadcast("sync:changed", status),
+			(settings) => ctx.broadcastSettings(settings),
 		);
 
 		ctx.sessions = new SessionService(ctx.db, {

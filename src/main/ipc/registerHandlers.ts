@@ -618,7 +618,21 @@ export function registerHandlers(ctx: AppContext): void {
 		"settings:update",
 		async (_c, { patch }) => {
 			const settings = await db.settings.update(patch);
-			if (patch.timezone !== undefined) ctx.syncState.markProfile();
+			// Any key the server's planner reads has to reach the profile, or the "always true"
+			// context becomes a textarea that talks to nobody.
+			const profileKeys = [
+				"timezone",
+				"wakeTime",
+				"dayStartTime",
+				"dayEndTime",
+				"plannerContext",
+				"plannerModel",
+				"plannerEffort",
+			] as const;
+			if (profileKeys.some((key) => patch[key] !== undefined)) {
+				ctx.syncState.markProfile();
+				ctx.sync?.schedule();
+			}
 			ctx.broadcastSettings(settings);
 			return settings;
 		},
