@@ -20,7 +20,7 @@ export function Countdown({
 
   return (
     <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-      {paused ? <span style={{ fontSize: 9, color: 'var(--text-faint)' }}>PAUSED</span> : null}
+      {paused ? <span style={{ fontSize: 10, color: 'var(--hud-text-faint)' }}>PAUSED</span> : null}
       <motion.span
         className="mono"
         animate={pulsing ? { opacity: [1, 0.7, 1] } : { opacity: 1 }}
@@ -29,7 +29,7 @@ export function Countdown({
           fontSize: 26,
           lineHeight: 1,
           fontWeight: 600,
-          color: paused ? 'var(--text-muted)' : urgencyColor(urgency),
+          color: paused ? 'var(--hud-text-muted)' : urgencyColor(urgency),
           display: 'inline-block',
         }}
       >

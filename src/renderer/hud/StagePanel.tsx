@@ -14,14 +14,14 @@ export function StagePanel({ stage }: { stage: StageState }): React.JSX.Element 
 	return (
 		<>
 			<div style={{ minWidth: 0, textAlign: "center" }}>
-				<div style={{ fontSize: 14, fontWeight: 600 }}>
+				<div style={{ fontSize: 15, fontWeight: 600 }}>
 					{isBreak ? "Break" : "Next: focus"}
 				</div>
 				<div
 					title={stage.threadTitle}
 					style={{
-						fontSize: 11,
-						color: "var(--text-muted)",
+						fontSize: 12,
+						color: "var(--hud-text-muted)",
 						whiteSpace: "nowrap",
 						overflow: "hidden",
 						textOverflow: "ellipsis",
@@ -45,7 +45,7 @@ export function StagePanel({ stage }: { stage: StageState }): React.JSX.Element 
 					{formatClock(stage.remainingMs)}
 				</span>
 				{!stage.running ? (
-					<span style={{ fontSize: 9, color: "var(--text-faint)" }}>
+					<span style={{ fontSize: 10, color: "var(--hud-text-faint)" }}>
 						WAITING FOR YOU
 					</span>
 				) : null}

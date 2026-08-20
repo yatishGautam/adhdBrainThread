@@ -39,6 +39,20 @@
   --shadow-card-hover: 0 2px 4px rgba(0, 0, 0, 0.3), 0 10px 26px rgba(0, 0, 0, 0.3);
   /* A 1px light catch along the top edge sells the "raised glass" read on a dark UI. */
   --edge-light: inset 0 1px 0 rgba(255, 255, 255, 0.045);
+  /*
+   * The HUD floats over whatever you are actually working on, so it is deliberately see-through:
+   * you should be able to read the line of code underneath the clock. It firms up on hover, for
+   * the moment you stop glancing at it and start pressing its buttons.
+   */
+  --hud-surface: color-mix(in srgb, var(--surface) 64%, transparent);
+  --hud-surface-hover: color-mix(in srgb, var(--surface) 94%, transparent);
+  --hud-line: color-mix(in srgb, var(--line-strong) 55%, transparent);
+  /* Text sitting on top of an unknown background needs its own ground under it, and the
+     secondary greys have to be lifted: over a bright editor, --text-muted disappears. */
+  --hud-text-shadow: 0 1px 2px rgba(8, 10, 15, 0.75);
+  --hud-text-muted: #d2d9e5;
+  --hud-text-faint: #aeb7c6;
+
   --text: #edf0f5;
   --text-muted: #a8b1c1;
   /* Was #5f6875 — under 3:1 on the page and used for real content, not just decoration. */

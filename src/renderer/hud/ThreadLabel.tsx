@@ -5,7 +5,7 @@ export function ThreadLabel({ title, nextAction }: { title: string; nextAction: 
       <div
         title={title}
         style={{
-          fontSize: 14,
+          fontSize: 15,
           fontWeight: 600,
           whiteSpace: 'nowrap',
           overflow: 'hidden',
@@ -18,8 +18,8 @@ export function ThreadLabel({ title, nextAction }: { title: string; nextAction: 
         <div
           title={nextAction}
           style={{
-            fontSize: 11,
-            color: 'var(--text-muted)',
+            fontSize: 12,
+            color: 'var(--hud-text-muted)',
             whiteSpace: 'nowrap',
             overflow: 'hidden',
             textOverflow: 'ellipsis',

@@ -4,8 +4,8 @@ export function EmptyHud(): React.JSX.Element {
 			onClick={() => void window.thread.invoke["hud:hide"](undefined)}
 			style={{
 				flex: 1,
-				fontSize: 12,
-				color: "var(--text-faint)",
+				fontSize: 13,
+				color: "var(--hud-text-faint)",
 				display: "flex",
 				alignItems: "center",
 				justifyContent: "center",

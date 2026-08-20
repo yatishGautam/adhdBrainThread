@@ -64,11 +64,11 @@ export function ParkButton(): React.JSX.Element {
             border: '1px solid var(--line)',
             borderRadius: 10,
             padding: 8,
-            width: 170,
+            width: 182,
             zIndex: 10,
           }}
         >
-          <div style={{ fontSize: 9, color: 'var(--text-faint)', marginBottom: 5 }}>
+          <div style={{ fontSize: 10, color: 'var(--text-faint)', marginBottom: 5 }}>
             What pulled you away?
           </div>
           <input
@@ -76,7 +76,7 @@ export function ParkButton(): React.JSX.Element {
             value={note}
             placeholder="Note (optional)"
             onChange={(e) => setNote(e.target.value)}
-            style={{ width: '100%', fontSize: 11, marginBottom: 6, borderBottom: '1px solid var(--line)' }}
+            style={{ width: '100%', fontSize: 12, marginBottom: 6, borderBottom: '1px solid var(--line)' }}
           />
           <div style={{ display: 'flex', gap: 6 }}>
             <button onClick={() => tag('internal')} style={tagBtn} title="A thought, an urge, your own head">
@@ -94,7 +94,7 @@ export function ParkButton(): React.JSX.Element {
 
 const tagBtn: React.CSSProperties = {
   flex: 1,
-  fontSize: 10,
+  fontSize: 11,
   padding: '4px 0',
   borderRadius: 6,
   border: '1px solid var(--line)',

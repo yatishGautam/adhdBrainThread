@@ -65,14 +65,20 @@ export function HudButton({
 	);
 }
 
+/*
+ * Type here is sized for the *shrunk* HUD: on a 13" screen the whole window renders at 80%, so
+ * a 10px label landed at 8px and stopped being readable at a glance.
+ */
 export const hudBtn: React.CSSProperties = {
-	padding: "6px 10px",
+	padding: "6px 9px",
 	borderRadius: 8,
 	border: "1px solid var(--line)",
-	background: "var(--surface-raised)",
-	color: "var(--text-muted)",
+	// A shade behind the see-through shell, so the buttons read as part of the same pane of
+	// glass — but solid enough that their labels never fight with the wallpaper.
+	background: "color-mix(in srgb, var(--surface-raised) 85%, transparent)",
+	color: "var(--hud-text-muted)",
 	cursor: "pointer",
-	fontSize: 10,
+	fontSize: 12,
 	whiteSpace: "nowrap",
-	minWidth: 56,
+	minWidth: 52,
 };

@@ -28,6 +28,7 @@ export function HudApp(): React.JSX.Element {
 	const [stage, setStage] = useState<StageState | null>(null);
 	const [tick, setTick] = useState<SessionTick | null>(null);
 	const [toast, setToast] = useState<string | null>(null);
+	const [hovered, setHovered] = useState(false);
 	const shell = useAnimationControls();
 
 	useEffect(() => {
@@ -82,21 +83,31 @@ export function HudApp(): React.JSX.Element {
 	return (
 		<motion.div
 			animate={shell}
+			onMouseEnter={() => setHovered(true)}
+			onMouseLeave={() => setHovered(false)}
 			style={
 				{
-					width: "100vw",
-					height: "100vh",
+					// Sized by HudScale, which owns the window-to-layout conversion.
+					width: "100%",
+					height: "100%",
 					position: "relative",
 					display: "flex",
 					flexDirection: "column",
 					justifyContent: "center",
 					gap: 8,
 					padding: "10px 14px",
-					background: "var(--surface)",
-					border: "1px solid var(--line)",
+					// See-through, so the HUD never hides the thing you are working on. Under the
+					// cursor it firms up: reaching for Park should not mean squinting at it.
+					background: hovered
+						? "var(--hud-surface-hover)"
+						: "var(--hud-surface)",
+					border: "1px solid var(--hud-line)",
 					borderRadius: 22,
+					// The text has an unknown background behind it, so it carries its own shadow.
+					textShadow: "var(--hud-text-shadow)",
 					opacity: paused ? 0.75 : 1,
-					transition: "opacity var(--motion-slow) var(--ease-out)",
+					transition:
+						"opacity var(--motion-slow) var(--ease-out), background var(--motion-slow) var(--ease-out)",
 					// The whole HUD doubles as its own drag handle; only interactive controls opt out.
 					WebkitAppRegion: "drag",
 				} as React.CSSProperties
