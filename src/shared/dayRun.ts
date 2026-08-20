@@ -10,7 +10,17 @@
  * The shift rule, stated once: a block whose ORIGINAL start is at or after `shiftFrom` slides
  * by `shiftMs`; everything earlier stays put. The anchor is what keeps the derivation stable —
  * sliding "whatever is ahead at read time" would render the same records differently as the
- * clock advances, and sliding everything would rewrite the finished morning.
+ * clock advances.
+ *
+ * Two scopes press against that anchor. `rest` is running late: the hours still ahead move and
+ * the finished morning stays where it was actually lived. `day` is the whole stack — you got
+ * ready twenty minutes slow, or you caught the time back up, and the entire day is simply a
+ * different shape of the same day. `day` anchors at midnight, so nothing is left behind.
+ *
+ * Whichever scope you press, the anchor only ever moves EARLIER. One record holds one anchor
+ * and one total, so letting the anchor advance while the total accumulated would strand the
+ * blocks behind it at their unshifted times while everything ahead jumped by the sum — the
+ * morning folding back on top of the afternoon, the same clock times printed twice.
  */
 import type { DayPlan, DayRun, PlanBlock } from './domain.js';
 
@@ -79,32 +89,57 @@ export function dayProgress(plan: DayPlan, run: DayRun | null, nowMinutes: numbe
   };
 }
 
+/** How much of the day a nudge picks up. */
+export type ShiftScope = 'rest' | 'day';
+
+/** The whole-stack anchor: earlier than any block, so every block slides. */
+const DAY_START = '00:00';
+
 /**
- * Fold one more "running late" press into a run.
+ * Fold one more nudge into a run.
  *
- * The anchor moves to the current moment's frontier: the first live block that has not yet
- * ended. Everything from there slides by the accumulated shift; the blocks already behind the
- * clock are past mending and stay where they were. Pressing it twice accumulates — fifteen
- * late and then fifteen more is thirty.
+ * `rest` anchors at the current moment's frontier — the first live block that has not yet
+ * ended — so the hours ahead move and the ones already behind the clock stay where they were
+ * actually lived. `day` anchors at midnight and moves the entire stack, in either direction:
+ * running twenty late from the moment you woke, or handing that twenty back when the drive
+ * turned out shorter than the plan feared.
+ *
+ * Pressing accumulates — fifteen late and then fifteen more is thirty — and a total that lands
+ * back on zero drops the anchor with it, because a day back on plan is not anchored to
+ * anything. The anchor itself only ever moves earlier; see the note at the top of the file for
+ * why one record cannot let it advance.
  */
 export function applyShift(
   plan: DayPlan,
   run: DayRun,
   deltaMs: number,
   nowMinutes: number,
+  scope: ShiftScope = 'rest',
 ): DayRun {
   const frontier = effectiveBlocks(plan, run)
     .filter((entry) => !entry.skipped)
     .find((entry) => entry.end > nowMinutes);
 
+  // The anchor is the block's ORIGINAL start — the derivation always shifts from originals,
+  // so anchoring at its shifted position would double-apply on the next read.
+  const proposed = scope === 'day' ? DAY_START : frontier?.block.start;
+  const anchor = earlier(run.shiftFrom, proposed);
+  const shiftMs = run.shiftMs + deltaMs;
+
+  const { shiftFrom: _replaced, ...rest } = run;
   return {
-    ...run,
-    shiftMs: run.shiftMs + deltaMs,
-    // The anchor is the block's ORIGINAL start — the derivation always shifts from originals,
-    // so anchoring at its shifted position would double-apply on the next read.
-    ...(frontier ? { shiftFrom: frontier.block.start } : {}),
+    ...rest,
+    shiftMs,
+    ...(shiftMs !== 0 && anchor ? { shiftFrom: anchor } : {}),
     updatedAt: new Date().toISOString(),
   };
+}
+
+/** The earlier of two anchors, tolerating either being absent. */
+function earlier(a: string | undefined, b: string | undefined): string | undefined {
+  if (!a) return b;
+  if (!b) return a;
+  return toMinutes(a) <= toMinutes(b) ? a : b;
 }
 
 export function toMinutes(time: string): number {

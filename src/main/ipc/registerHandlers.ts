@@ -308,13 +308,19 @@ export function registerHandlers(ctx: AppContext): void {
 	);
 	on(
 		"dayrun:shift",
-		async (_c, { localDate, deltaMs }) => {
+		async (_c, { localDate, deltaMs, scope }) => {
 			const plan = await db.plans.get(localDate);
 			if (!plan) throw new Error("There is no plan to shift.");
 			const run = await db.dayRuns.get(localDate);
 			if (!run) throw new Error("The day has not been started.");
 			const shifted = await db.dayRuns.save(
-				applyShift(plan, run, deltaMs, minutesNow(db.settings.get().timezone)),
+				applyShift(
+					plan,
+					run,
+					deltaMs,
+					minutesNow(db.settings.get().timezone),
+					scope ?? "rest",
+				),
 			);
 			ctx.broadcast("dayrun:changed", { localDate, run: shifted });
 			return shifted;

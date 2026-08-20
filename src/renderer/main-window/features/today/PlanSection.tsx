@@ -422,15 +422,17 @@ function PlanBody({
   const progress = live ? dayProgress(plan, live, nowMinutes) : null;
   const skipped = new Set(run?.skippedBlockIds ?? []);
   // Rows display the *effective* times: a day shifted +30 must read as the day being lived,
-  // not the one that fell behind.
+  // not the one that fell behind. And they read in effective order — when only the rest of the
+  // day moved, the plan's own order is no longer the order the hours arrive in, and a list that
+  // prints 13:00 above 12:35 is a list you stop believing.
+  const shifted = live ? effectiveBlocks(plan, live) : [];
   const effectiveTimes = new Map(
-    live
-      ? effectiveBlocks(plan, live).map((entry) => [
-          entry.block.id,
-          { start: toClock(entry.start), end: toClock(entry.end) },
-        ])
-      : [],
+    shifted.map((entry) => [
+      entry.block.id,
+      { start: toClock(entry.start), end: toClock(entry.end) },
+    ]),
   );
+  const rows = live ? shifted.map((entry) => entry.block) : plan.blocks;
 
   return (
     <div>
@@ -448,7 +450,7 @@ function PlanBody({
       {isToday ? <RunBar plan={plan} run={run} nowMinutes={nowMinutes} /> : null}
 
       <div>
-        {plan.blocks.map((block) => (
+        {rows.map((block) => (
           <BlockRow
             key={block.id}
             block={block}
@@ -716,6 +718,26 @@ const ghostButton: React.CSSProperties = {
   fontFamily: 'inherit',
   cursor: 'pointer',
   padding: '2px 4px',
+};
+
+/** Minutes the whole-day stepper offers. Small enough for "I was a bit slow", both ways. */
+const WHOLE_DAY_STEPS = [-15, -5, 5, 15] as const;
+
+const nudgeLabel: React.CSSProperties = {
+  fontSize: 9,
+  textTransform: 'uppercase',
+  letterSpacing: '0.08em',
+  color: 'var(--text-faint)',
+  fontFamily: 'var(--font-mono)',
+};
+
+const nudgeGroup: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 1,
+  border: '1px solid var(--line)',
+  borderRadius: 8,
+  padding: '1px 2px',
 };
 
 // ------------------------------------------------------------------ hand edits
@@ -1066,6 +1088,13 @@ function RunBar({
   const progress = dayProgress(plan, run, nowMinutes);
   const shiftedMinutes = Math.round(run.shiftMs / 60_000);
 
+  const nudge = (deltaMs: number, scope: 'rest' | 'day'): void => {
+    if (!deltaMs) return;
+    void act(() =>
+      window.thread.invoke['dayrun:shift']({ localDate: plan.localDate, deltaMs, scope }),
+    );
+  };
+
   const status = progress.current
     ? `Block ${progress.position} of ${progress.total}`
     : progress.next
@@ -1088,10 +1117,19 @@ function RunBar({
     >
       <span style={{ fontSize: 12.5, color: 'var(--text)', fontWeight: 600 }}>{status}</span>
       {shiftedMinutes !== 0 ? (
-        <span style={{ fontSize: 10.5, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+        <button
+          onClick={() => nudge(-run.shiftMs, 'day')}
+          style={{
+            ...ghostButton,
+            color: 'var(--text-muted)',
+            fontFamily: 'var(--font-mono)',
+            fontSize: 10.5,
+          }}
+          title="Put the whole day back where the plan had it"
+        >
           shifted {shiftedMinutes > 0 ? '+' : ''}
           {shiftedMinutes}m
-        </span>
+        </button>
       ) : null}
       {progress.slipped.length ? (
         <span style={{ fontSize: 10.5, color: 'var(--text-faint)' }}>
@@ -1101,29 +1139,39 @@ function RunBar({
 
       <span style={{ flex: 1 }} />
 
+      {/*
+        Two different repairs, kept visibly apart. The whole day moves when the day itself
+        landed at a different hour than the plan assumed — you were slow getting ready, or the
+        drive gave the time back — and it moves in both directions, because arriving early is
+        as real as running late. "From here" is the other case: the morning happened when it
+        happened, and only what is still ahead needs to give.
+      */}
+      <span style={nudgeLabel}>whole day</span>
+      <div style={nudgeGroup}>
+        {WHOLE_DAY_STEPS.map((minutes) => (
+          <button
+            key={minutes}
+            onClick={() => nudge(minutes * 60_000, 'day')}
+            style={{ ...ghostButton, fontFamily: 'var(--font-mono)', fontSize: 11 }}
+            title={`Move every block ${Math.abs(minutes)} minutes ${
+              minutes > 0 ? 'later' : 'earlier'
+            }, the ones behind you included`}
+          >
+            {minutes > 0 ? `+${minutes}` : minutes}
+          </button>
+        ))}
+      </div>
+
+      <span style={nudgeLabel}>from here</span>
       <button
-        onClick={() =>
-          void act(() =>
-            window.thread.invoke['dayrun:shift']({
-              localDate: plan.localDate,
-              deltaMs: 15 * 60_000,
-            }),
-          )
-        }
+        onClick={() => nudge(15 * 60_000, 'rest')}
         style={ghostButton}
         title="Running late — slide everything still ahead by fifteen minutes"
       >
         +15m
       </button>
       <button
-        onClick={() =>
-          void act(() =>
-            window.thread.invoke['dayrun:shift']({
-              localDate: plan.localDate,
-              deltaMs: 30 * 60_000,
-            }),
-          )
-        }
+        onClick={() => nudge(30 * 60_000, 'rest')}
         style={ghostButton}
         title="Slide everything still ahead by thirty minutes"
       >

@@ -422,7 +422,9 @@ export interface CoachInsight {
  *
  * The shift rule that makes the derivation stable: a block whose original `start` is at or
  * after `shiftFrom` slides by `shiftMs`; everything earlier is the finished morning and stays
- * put. Running late is one tap, and the morning does not get rewritten to pretend otherwise.
+ * put. Running late is one tap, and the morning does not get rewritten to pretend otherwise —
+ * unless you say so: moving the whole stack anchors at `00:00`, which is the honest record of
+ * a day that started twenty minutes late everywhere, not just from here on.
  */
 export interface DayRun {
   /** Primary key. One run per day at most — starting again resumes, never duplicates. */

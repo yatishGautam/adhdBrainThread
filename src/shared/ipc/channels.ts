@@ -357,7 +357,10 @@ export interface Requests {
 	 */
 	"dayrun:get": [{ localDate: string }, DayRun | null];
 	"dayrun:start": [{ localDate: string }, DayRun];
-	"dayrun:shift": [{ localDate: string; deltaMs: number }, DayRun];
+	"dayrun:shift": [
+		{ localDate: string; deltaMs: number; scope?: "rest" | "day" },
+		DayRun,
+	];
 	"dayrun:skip": [{ localDate: string; blockId: string }, DayRun];
 	"dayrun:end": [{ localDate: string }, DayRun | null];
 	/**

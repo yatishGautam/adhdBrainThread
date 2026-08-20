@@ -98,13 +98,15 @@ describe('applyShift', () => {
     expect(out.shiftMs).toBe(15 * 60_000);
   });
 
-  it('accumulates: late twice is the sum, anchored where the day now stands', () => {
+  it('accumulates, and holds the anchor at the first bend rather than chasing the clock', () => {
     const once = applyShift(DAY, run(), 15 * 60_000, toMinutes('09:20'));
     const twice = applyShift(DAY, once, 15 * 60_000, toMinutes('11:20'));
     expect(twice.shiftMs).toBe(30 * 60_000);
-    // 11:20 with +15 applied: block c runs 11:15-12:05, still ahead of nothing — it IS current;
-    // the frontier is the first block whose effective end is ahead, which is c at original 11:00.
-    expect(twice.shiftFrom).toBe('11:00');
+    // The frontier at 11:20 is c, but letting the anchor advance there would strand a and b at
+    // their unshifted times while c jumped the full thirty — the morning printing on top of the
+    // afternoon. One record holds one anchor: it stays where the day first bent.
+    expect(twice.shiftFrom).toBe('09:00');
+    expect(effectiveBlocks(DAY, twice).map((entry) => entry.start)).toEqual([570, 630, 690]);
   });
 
   it('skips do not anchor the shift', () => {
@@ -115,5 +117,32 @@ describe('applyShift', () => {
       toMinutes('09:55'),
     );
     expect(out.shiftFrom).toBe('11:00');
+  });
+
+  it('moves the whole stack when the scope says so — the finished morning included', () => {
+    const out = applyShift(DAY, run(), 20 * 60_000, toMinutes('11:20'), 'day');
+    expect(out.shiftFrom).toBe('00:00');
+    expect(effectiveBlocks(DAY, out).map((entry) => entry.start)).toEqual([560, 620, 680]);
+  });
+
+  it('moves the stack backwards too — arriving early is as real as running late', () => {
+    const out = applyShift(DAY, run(), -10 * 60_000, toMinutes('08:40'), 'day');
+    expect(out.shiftMs).toBe(-10 * 60_000);
+    expect(effectiveBlocks(DAY, out).map((entry) => entry.start)).toEqual([530, 590, 650]);
+  });
+
+  it('keeps the whole-day anchor once claimed, so a later nudge cannot strand the morning', () => {
+    const whole = applyShift(DAY, run(), 20 * 60_000, toMinutes('09:10'), 'day');
+    const then = applyShift(DAY, whole, 15 * 60_000, toMinutes('10:30'));
+    expect(then.shiftFrom).toBe('00:00');
+    expect(effectiveBlocks(DAY, then).map((entry) => entry.start)).toEqual([575, 635, 695]);
+  });
+
+  it('drops the anchor when the day comes back to plan', () => {
+    const late = applyShift(DAY, run(), 20 * 60_000, toMinutes('09:10'), 'day');
+    const back = applyShift(DAY, late, -late.shiftMs, toMinutes('09:10'), 'day');
+    expect(back.shiftMs).toBe(0);
+    expect(back.shiftFrom).toBeUndefined();
+    expect(effectiveBlocks(DAY, back).map((entry) => entry.start)).toEqual([540, 600, 660]);
   });
 });
