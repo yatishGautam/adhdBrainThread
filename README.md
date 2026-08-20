@@ -65,6 +65,18 @@ with no thread behind it yet gets **+ Thread**, which puts it on the board and g
 without leaving the day. What the planner decided *not* to fit is printed underneath — a plan you
 cannot argue with is one you stop reading.
 
+**The order is yours to change.** Grab a block by its handle and drag it up or down the day, or
+move it with the arrow keys. A day has a shape — where it starts, the gaps you left between
+things — and that shape is what a drag keeps: the ladder stays, and only what stands on it is
+permuted. Durations travel with the block, because an hour of deep work is an hour wherever you
+drop it, so the sums cannot change and the day still ends when it ended. Dragging can reorder
+your afternoon; it cannot lengthen it.
+
+**And a slot can be opened where the thing belongs.** The seam between two blocks is a target: it
+opens an editor in place, sized to the gap it found. A real gap gets filled, because that is what
+the gap was for. Too small to be a block, and the new one makes its own room and pushes the
+afternoon down — which is what actually happens when you add work to a full day.
+
 Generation happens on the server, not here, so the plan arrives on your phone without anyone
 pressing anything there. See [Week planner](#week-planner).
 
@@ -78,6 +90,13 @@ all-time totals.
 **The HUD** is a small frameless always-on-top window running a 25/5 cycle with manual advance.
 When a stage ends the timer parks on the next one, glows and chimes, and waits for Resume.
 **Park** logs a distraction, writes it to today's Park list, and adds two minutes back.
+
+It is translucent at rest — you can read the line of code underneath it — and firms up under the
+cursor, for the moment you stop glancing at it and start pressing its buttons. Its size comes
+from the screen it is on: drawn at 470×106 and scaled by the display's work-area width, so a 14"
+laptop gets 395×89 and a desk monitor gets the full size. The scale reaches the renderer as a
+query parameter rather than `webContents.setZoomFactor`, because Chromium keys zoom by *origin*
+and all four windows share one — zooming the HUD would have zoomed the dashboard with it.
 
 ## Week planner
 
@@ -160,11 +179,20 @@ freshly generated block that would sit on top of one. A day the model skips enti
 rather than thrown away if it holds one.
 
 The second exception is yours by hand. Plans stopped being read-only: every block has an Edit
-affordance — title, times, kind, or move it to another day — plus Delete, and a plan grows an
-"+ Add a block" of its own (including on a day that was never planned). Every hand edit stamps
-the block `pinned: true`, which carries the same contract as `promoted`: the model proposes,
-and anything you touch is yours. The old "a half-edited plan is a document nobody trusts" rule
-existed because edits did not survive regeneration; now they do, so it retired.
+affordance — title, times, kind, or move it to another day — plus Delete, a plan grows an
+"+ Add a block" of its own (including on a day that was never planned), blocks can be dragged
+into a different order, and a slot can be opened at any seam. Every hand edit stamps the block
+`pinned: true`, which carries the same contract as `promoted`: the model proposes, and anything
+you touch is yours. The old "a half-edited plan is a document nobody trusts" rule existed
+because edits did not survive regeneration; now they do, so it retired.
+
+None of this needs the server to learn anything. Plan blocks cross the wire as opaque JSON, and
+the planner already carries pinned blocks through a regeneration untouched — a reordered day
+syncs as an ordinary plan write, and reaches the phone the same way.
+
+The arithmetic of a move lives in `src/shared/planLayout.ts`, ported rule-for-rule to the phone
+as `Sources/Core/PlanLayout.swift` with tests asserting the same cases and the same numbers, so
+a block dragged on either device lands where the other would have put it.
 
 See `src/main/services/PlannerService.ts` here, and `src/planner/` in the backend repo.
 
