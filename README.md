@@ -148,9 +148,10 @@ Start button rather than gaining one that starts nothing. Days outside the plann
 discarded, overlapping and out-of-range blocks are corrected, and `model` and `usage` are stamped
 by the server, because asking a model to report its own token spend is not a measurement.
 
-### Regenerating cannot orphan work you started
+### Regenerating cannot orphan work you started — or erase your edits
 
-Plans are disposable: press the button again and every suggestion is replaced. With one exception.
+Plans are disposable: press the button again and every suggestion is replaced. With two
+exceptions.
 
 Turn a block into a thread with **+ Thread** and it stops being a suggestion — it points at a
 real thread with real time logged against it. `linkBlock` stamps `promoted: true` alongside the
@@ -158,10 +159,52 @@ thread id, and the server carries promoted blocks across a regeneration untouche
 freshly generated block that would sit on top of one. A day the model skips entirely is kept
 rather than thrown away if it holds one.
 
-Without that flag, planning again on Friday would leave Wednesday's thread alive on the board
-with nothing pointing at it, and the next run with no idea that hour was already spoken for.
+The second exception is yours by hand. Plans stopped being read-only: every block has an Edit
+affordance — title, times, kind, or move it to another day — plus Delete, and a plan grows an
+"+ Add a block" of its own (including on a day that was never planned). Every hand edit stamps
+the block `pinned: true`, which carries the same contract as `promoted`: the model proposes,
+and anything you touch is yours. The old "a half-edited plan is a document nobody trusts" rule
+existed because edits did not survive regeneration; now they do, so it retired.
 
 See `src/main/services/PlannerService.ts` here, and `src/planner/` in the backend repo.
+
+### The standing context reaches the planner
+
+"Anything the planner should always know" — the **Context — always true** box on the Week tab —
+rides the profile push as part of the planner settings slice, alongside the wake/work/done
+times, the model and the effort. The server merges these keys into the profile blob key by key
+and builds every plan from them, whichever device pressed the button. (For a while the box
+wrote `settings.json` and stopped there; the server planned every week with an empty context.)
+
+## The day, run live
+
+**Start my day** turns the plan from a document into a runtime. A day run is to the day what a
+session is to a block: an explicit start, a live pointer, a clean end. The Daily page highlights
+the block whose window contains the clock (NOW), says "block 3 of 9", and keeps four mending
+verbs one click away, ordered by cost:
+
+- **+15m / +30m** — running late. Slides everything still ahead; the finished morning stays
+  put. The shift is anchored (`shiftFrom`) so the same records render the same way on every
+  device — the arithmetic lives in `src/shared/dayRun.ts`, the third pure module ported across
+  the repos with its tests, after week keys and the calendar projection.
+- **Skip** — let the current block go. It stays visible, struck through, labelled "let go".
+  Never "missed": a decision is not a failure.
+- **Replan rest** — life happened. One call to `POST /plan/day` reshapes only the hours still
+  ahead; what happened and what is pinned stays exactly where it was.
+- **End day** — close it out.
+
+Rows show the *effective* times while a run is live: a day shifted +30 reads as the day being
+lived, not the one that fell behind. Nothing auto-starts — the run points, you ignite — and the
+run record syncs, so the phone's lock screen and this window agree about what "now" means.
+
+### Nudges
+
+`NowService` watches today's plan and announces each block as its start crosses the clock: the
+HUD pops with the block's name, and the OS notification's click lands on the Daily page next to
+the block's own Start button. Quiet on purpose while a session runs — the answer to "what
+should I be doing" is: what you are doing — and a laptop waking from sleep only announces the
+last few minutes, never the whole morning it slept through. Nudges fire at the shifted times
+and never for a skipped block. The toggle lives with the planner settings, per machine.
 
 ## Calendar
 
