@@ -1,11 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
-import { MIN_PASSWORD_LENGTH } from '@shared/auth.js';
-import { runAuth, useAuthStore } from '../../stores/authStore.js';
+import type { EmailPurpose } from '@shared/auth.js';
+import { CODE_LENGTH, MIN_PASSWORD_LENGTH } from '@shared/auth.js';
+import { runAuth, runAuthStep, useAuthStore } from '../../stores/authStore.js';
 import { useUiStore } from '../../stores/uiStore.js';
 import { SyncPanel } from './SyncPanel.js';
 import { ServerStatus } from './ServerStatus.js';
 
 type Mode = 'signin' | 'create';
+/**
+ * Where the code flow has got to. `form` covers both a plain sign-in and the first screen of the
+ * code flow, because in both cases the only thing being asked for is an address.
+ */
+type Step = 'form' | 'code' | 'password';
 
 /**
  * Signing in, as a page.
@@ -51,105 +57,259 @@ export function AccountView(): React.JSX.Element {
 
 // ------------------------------------------------------------------ signed out
 
+/**
+ * Three steps, and only for the ones that need three.
+ *
+ * Signing in is still one form: you know your password, you type it, you are in. Creating an
+ * account and recovering a forgotten password are the same three steps as each other, because
+ * they are the same question — can you read this mailbox? — and the server decides which of the
+ * two it was and tells you in the mail rather than telling this screen.
+ *
+ * Which means `Send me a code` deliberately says nothing about whether that address already has
+ * an account, and neither does anything below. If you ask to create an account with an address
+ * that already has one, the code still arrives and lets you set a new password. That is not a
+ * fallback, it is the recovery path finding you where you already were.
+ */
 function SignedOut(): React.JSX.Element {
   const [mode, setMode] = useState<Mode>('signin');
+  const [step, setStep] = useState<Step>('form');
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [code, setCode] = useState('');
+  const [ticket, setTicket] = useState('');
+  const [purpose, setPurpose] = useState<EmailPurpose>('signup');
+  const [toLog, setToLog] = useState(false);
   const busy = useAuthStore((s) => s.busy);
   const error = useAuthStore((s) => s.error);
   const setError = useAuthStore((s) => s.setError);
   const first = useRef<HTMLInputElement>(null);
 
-  useEffect(() => first.current?.focus(), [mode]);
+  useEffect(() => first.current?.focus(), [mode, step]);
 
-  const tooShort = mode === 'create' && password.length > 0 && password.length < MIN_PASSWORD_LENGTH;
-  const canSubmit = email.trim().length > 0 && password.length > 0 && !tooShort && !busy;
+  const digits = code.replace(/\D/g, '');
+  const tooShort = password.length > 0 && password.length < MIN_PASSWORD_LENGTH;
 
-  const submit = async (event: React.FormEvent): Promise<void> => {
-    event.preventDefault();
-    if (!canSubmit) return;
+  const restart = (next: Mode): void => {
+    setMode(next);
+    setStep('form');
+    setCode('');
+    setTicket('');
+    setPassword('');
+    setError(null);
+  };
+
+  /** Step one, from either direction: "Email me a code" on sign-up, "Forgot?" on sign-in. */
+  const sendCode = async (): Promise<void> => {
+    const result = await runAuthStep(() => window.thread.invoke['auth:emailStart']({ email }));
+    if (!result) return;
+    // A backend with no mail configured prints the code to its own log instead. Worth saying
+    // out loud in a dev build; in production this is never true.
+    setToLog(result.delivery === 'log');
+    setCode('');
+    setStep('code');
+  };
+
+  /** Step two. The server judges the code; this only refuses to spend a round trip on nothing. */
+  const sendVerify = async (): Promise<void> => {
+    const result = await runAuthStep(() =>
+      window.thread.invoke['auth:emailVerify']({ email, code: digits }),
+    );
+    if (!result) return;
+    setTicket(result.ticket);
+    setPurpose(result.purpose);
+    setPassword('');
+    setStep('password');
+  };
+
+  /** Step three: spend the ticket, and come back signed in. */
+  const sendPassword = async (): Promise<void> => {
     const ok = await runAuth(() =>
-      mode === 'create'
-        ? window.thread.invoke['auth:register']({ email, password, displayName })
-        : window.thread.invoke['auth:login']({ email, password }),
+      window.thread.invoke['auth:setPassword']({
+        ticket,
+        password,
+        // Only on a genuine sign-up. A reset has a profile already, and sending a blank name
+        // would overwrite the one the phone is using.
+        displayName: purpose === 'signup' ? displayName : undefined,
+      }),
     );
     if (ok) setPassword('');
   };
 
-  const switchTo = (next: Mode): void => {
-    setMode(next);
-    setError(null);
+  const submit = async (event: React.FormEvent): Promise<void> => {
+    event.preventDefault();
+    if (busy) return;
+    if (step === 'code') return sendVerify();
+    if (step === 'password') return sendPassword();
+    if (mode === 'create') return sendCode();
+    const ok = await runAuth(() => window.thread.invoke['auth:login']({ email, password }));
+    if (ok) setPassword('');
   };
+
+  const canSubmit = ((): boolean => {
+    if (busy) return false;
+    if (step === 'code') return digits.length === CODE_LENGTH;
+    if (step === 'password') return password.length >= MIN_PASSWORD_LENGTH;
+    if (mode === 'create') return email.trim().includes('@');
+    return email.trim().length > 0 && password.length > 0;
+  })();
+
+  const heading = ((): string => {
+    if (step === 'code') return 'Check your email';
+    if (step === 'password') return purpose === 'reset' ? 'Choose a new password' : 'Choose a password';
+    return mode === 'create' ? 'Create your account' : 'Welcome back';
+  })();
+
+  const blurb = ((): string => {
+    if (step === 'code') {
+      return toLog
+        ? `This server has no mail configured, so the code is in its log rather than an inbox. Sent for ${email}.`
+        : `We sent six digits to ${email}. It works once and expires in 15 minutes.`;
+    }
+    if (step === 'password') {
+      return purpose === 'reset'
+        ? 'Your address checked out. Setting a new password signs you out everywhere else, which is the point.'
+        : 'Your address checked out. One more step and this Mac and your phone are looking at the same threads.';
+    }
+    return mode === 'create'
+      ? 'One account keeps this Mac and your phone looking at the same threads, days and sits. We will email you a code first.'
+      : 'Sign in and this Mac picks up whatever your phone has been writing.';
+  })();
+
+  const label = ((): string => {
+    if (busy) return 'Working…';
+    if (step === 'code') return 'Continue';
+    if (step === 'password') return purpose === 'reset' ? 'Set password and sign in' : 'Create account';
+    return mode === 'create' ? 'Email me a code' : 'Sign in';
+  })();
 
   return (
     <form onSubmit={(event) => void submit(event)}>
       <h1 style={{ margin: '0 0 6px', fontSize: 'var(--text-xxl)', fontWeight: 600, letterSpacing: '-0.01em' }}>
-        {mode === 'create' ? 'Create your account' : 'Welcome back'}
+        {heading}
       </h1>
       <p style={{ margin: '0 0 28px', fontSize: 'var(--text-sm)', color: 'var(--text-muted)', lineHeight: 1.55 }}>
-        {mode === 'create'
-          ? 'One account keeps this Mac and your phone looking at the same threads, days and sits.'
-          : 'Sign in and this Mac picks up whatever your phone has been writing.'}
+        {blurb}
       </p>
 
-      <Segmented mode={mode} onChange={switchTo} />
+      {/* Hidden mid-flow: switching tabs while holding a live code would only throw it away. */}
+      {step === 'form' ? <Segmented mode={mode} onChange={restart} /> : null}
 
-      {mode === 'create' ? (
-        <Field label="Your name" hint="What the app calls you. You can leave it blank.">
+      {step === 'form' ? (
+        <>
+          <Field label="Email">
+            <input
+              ref={first}
+              type="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              autoComplete="username"
+              spellCheck={false}
+              placeholder="you@example.com"
+              style={inputStyle}
+            />
+          </Field>
+
+          {mode === 'signin' ? (
+            <Field label="Password">
+              <input
+                type="password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                autoComplete="current-password"
+                style={inputStyle}
+              />
+            </Field>
+          ) : null}
+        </>
+      ) : null}
+
+      {step === 'code' ? (
+        <Field label="Six-digit code" hint="Spaces and dashes are fine — paste it however it arrived.">
           <input
-            ref={mode === 'create' ? first : undefined}
-            value={displayName}
-            onChange={(event) => setDisplayName(event.target.value)}
-            autoComplete="name"
-            placeholder="Yatish"
-            style={inputStyle}
+            ref={first}
+            value={code}
+            onChange={(event) => setCode(event.target.value)}
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            spellCheck={false}
+            placeholder="123456"
+            style={{ ...inputStyle, fontSize: 'var(--text-xl)', letterSpacing: '0.25em', fontVariantNumeric: 'tabular-nums' }}
           />
         </Field>
       ) : null}
 
-      <Field label="Email">
-        <input
-          ref={mode === 'signin' ? first : undefined}
-          type="email"
-          value={email}
-          onChange={(event) => setEmail(event.target.value)}
-          autoComplete="username"
-          spellCheck={false}
-          placeholder="you@example.com"
-          style={inputStyle}
-        />
-      </Field>
+      {step === 'password' ? (
+        <>
+          {purpose === 'signup' ? (
+            <Field label="Your name" hint="What the app calls you. You can leave it blank.">
+              <input
+                value={displayName}
+                onChange={(event) => setDisplayName(event.target.value)}
+                autoComplete="name"
+                placeholder="Yatish"
+                style={inputStyle}
+              />
+            </Field>
+          ) : null}
 
-      <Field
-        label="Password"
-        hint={
-          mode === 'create'
-            ? `At least ${MIN_PASSWORD_LENGTH} characters. A short phrase you can actually recall beats a clever word you can't.`
-            : undefined
-        }
-        hintTone={tooShort ? 'warn' : 'muted'}
-      >
-        <input
-          type="password"
-          value={password}
-          onChange={(event) => setPassword(event.target.value)}
-          autoComplete={mode === 'create' ? 'new-password' : 'current-password'}
-          style={inputStyle}
-        />
-      </Field>
+          <Field
+            label="Password"
+            hint={`At least ${MIN_PASSWORD_LENGTH} characters. A short phrase you can actually recall beats a clever word you can't.`}
+            hintTone={tooShort ? 'warn' : 'muted'}
+          >
+            <input
+              ref={purpose === 'reset' ? first : undefined}
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              autoComplete="new-password"
+              style={inputStyle}
+            />
+          </Field>
+        </>
+      ) : null}
 
       {error ? <ErrorNote message={error} /> : null}
 
       <button type="submit" disabled={!canSubmit} className="btn-launch" style={primaryStyle(canSubmit)}>
-        {busy ? 'Working…' : mode === 'create' ? 'Create account' : 'Sign in'}
+        {label}
       </button>
 
-      <p style={{ margin: '18px 0 0', fontSize: 'var(--text-xs)', color: 'var(--text-faint)', textAlign: 'center', lineHeight: 1.6 }}>
-        You stay signed in until you sign out — closing the app does not log you out.
-      </p>
+      {step === 'form' && mode === 'signin' ? (
+        <button
+          type="button"
+          disabled={busy || !email.trim().includes('@')}
+          onClick={() => void sendCode()}
+          style={{ ...linkStyle, display: 'block', margin: '14px auto 0', color: 'var(--text-muted)' }}
+        >
+          {email.trim().includes('@') ? 'Forgot your password?' : 'Forgot your password? Enter your email first'}
+        </button>
+      ) : null}
 
-      <ServerField />
+      {step === 'code' ? (
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 14 }}>
+          <button type="button" onClick={() => restart(mode)} style={{ ...linkStyle, color: 'var(--text-faint)' }}>
+            ← Use a different address
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void sendCode()}
+            style={{ ...linkStyle, color: 'var(--text-muted)' }}
+          >
+            Send another
+          </button>
+        </div>
+      ) : null}
+
+      {step === 'form' ? (
+        <p style={{ margin: '18px 0 0', fontSize: 'var(--text-xs)', color: 'var(--text-faint)', textAlign: 'center', lineHeight: 1.6 }}>
+          You stay signed in until you sign out — closing the app does not log you out.
+        </p>
+      ) : null}
+
+      {step === 'form' ? <ServerField /> : null}
     </form>
   );
 }

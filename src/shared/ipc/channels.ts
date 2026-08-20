@@ -5,7 +5,7 @@
  */
 import type { MomentumScope, ScopeSummary } from "../analytics.js";
 import type { Calendar, CalendarScope } from "../calendar.js";
-import type { AuthState, Credentials } from "../auth.js";
+import type { AuthState, Credentials, EmailStartResult, EmailVerifyResult } from "../auth.js";
 import type { WeekPlanAccepted } from "../planner.js";
 import type { SyncStatus } from "../sync.js";
 import type {
@@ -433,6 +433,18 @@ export interface Requests {
 	"auth:state": [void, AuthState];
 	"auth:register": [Credentials, AuthState];
 	"auth:login": [Credentials, AuthState];
+	/**
+	 * Signing up, and recovering a forgotten password: the same three calls, because they answer
+	 * the same question — can you read this mailbox?
+	 *
+	 * The first two break the "every auth channel returns AuthState" rule above, and have to:
+	 * neither one signs anybody in. `emailStart` carries no account information at all by
+	 * design, and `emailVerify` carries a ticket, not a session. Only `setPassword` ends with a
+	 * token, and that one returns `AuthState` like everything else.
+	 */
+	"auth:emailStart": [{ email: string }, EmailStartResult];
+	"auth:emailVerify": [{ email: string; code: string }, EmailVerifyResult];
+	"auth:setPassword": [{ ticket: string; password: string; displayName?: string }, AuthState];
 	"auth:logout": [void, AuthState];
 	"auth:deleteAccount": [void, AuthState];
 	/** Points the client at a different backend. Signs out, because a token is server-scoped. */
@@ -601,6 +613,9 @@ export const REQUEST_CHANNELS = [
 	"auth:register",
 	"auth:login",
 	"auth:logout",
+	"auth:emailStart",
+	"auth:emailVerify",
+	"auth:setPassword",
 	"auth:deleteAccount",
 	"auth:setServer",
 	"sync:status",

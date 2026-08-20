@@ -47,6 +47,23 @@ export async function runAuth(action: () => Promise<AuthState>): Promise<boolean
 }
 
 /**
+ * The same thing as `runAuth` for the two account calls that do not answer with an `AuthState` —
+ * asking for a code, and sending one back. Neither signs anybody in, so neither has account
+ * state to apply; what they have is a result the form needs and an error the form shows in the
+ * same place every other account error appears. `null` means it failed and the message is in the
+ * store.
+ */
+export async function runAuthStep<T>(action: () => Promise<T>): Promise<T | null> {
+  useAuthStore.setState({ error: null });
+  try {
+    return await action();
+  } catch (error: unknown) {
+    useAuthStore.setState({ error: readableError(error), busy: false });
+    return null;
+  }
+}
+
+/**
  * Electron prefixes every rejected `invoke` with "Error invoking remote method 'x': Error: ".
  * The message underneath was already written for a person to read, so take the last part and
  * drop the plumbing.
