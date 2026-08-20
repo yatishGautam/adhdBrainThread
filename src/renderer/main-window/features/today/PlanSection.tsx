@@ -394,6 +394,8 @@ function PlanBody({ plan }: { plan: DayPlan }): React.JSX.Element {
         ))}
       </div>
 
+      <AddBlock plan={plan} />
+
       {(plan.deferred ?? []).length ? (
         <div
           style={{
@@ -444,6 +446,7 @@ function BlockRow({
 }): React.JSX.Element {
   const [hover, setHover] = useState(false);
   const [promoting, setPromoting] = useState(false);
+  const [editing, setEditing] = useState(false);
   const setError = usePlanStore((s) => s.setError);
   const threads = useThreadStore((s) => s.threads);
   const running = useSessionStore((s) => s.state);
@@ -473,6 +476,7 @@ function BlockRow({
   };
 
   return (
+    <>
     <div
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
@@ -482,7 +486,7 @@ function BlockRow({
         gap: 12,
         padding: '7px 8px',
         borderRadius: 8,
-        background: hover ? 'var(--surface-raised)' : 'transparent',
+        background: hover || editing ? 'var(--surface-raised)' : 'transparent',
         transition: 'background var(--motion-fast) var(--ease-out)',
       }}
     >
@@ -520,6 +524,34 @@ function BlockRow({
         ) : null}
       </div>
 
+      {block.pinned ? (
+        <span
+          title="Pinned — you shaped this block, so a regeneration plans around it"
+          style={{
+            fontSize: 9,
+            color: 'var(--text-faint)',
+            fontFamily: 'var(--font-mono)',
+            letterSpacing: '0.08em',
+            flexShrink: 0,
+          }}
+        >
+          PINNED
+        </span>
+      ) : null}
+
+      <button
+        onClick={() => setEditing((open) => !open)}
+        title="Edit this block — time, title, kind, or move it to another day"
+        style={{
+          ...ghostButton,
+          opacity: editing ? 1 : hover ? 1 : 0,
+          color: editing ? 'var(--text)' : 'var(--text-muted)',
+          flexShrink: 0,
+        }}
+      >
+        {editing ? 'Close' : 'Edit'}
+      </button>
+
       {canStart ? (
         <button
           onClick={() => {
@@ -556,6 +588,11 @@ function BlockRow({
         </button>
       ) : null}
     </div>
+
+    {editing ? (
+      <BlockEditor localDate={localDate} block={block} onClose={() => setEditing(false)} />
+    ) : null}
+    </>
   );
 }
 
@@ -568,3 +605,286 @@ const ghostButton: React.CSSProperties = {
   cursor: 'pointer',
   padding: '2px 4px',
 };
+
+// ------------------------------------------------------------------ hand edits
+
+/**
+ * The edit panel under a block row. Everything saved here stamps the block `pinned: true` —
+ * the server plans around a pinned block instead of replacing it, so an edit survives every
+ * later regeneration. That is the deal that makes editing worth offering at all: the model
+ * proposes, and anything you touch becomes yours.
+ */
+function BlockEditor({
+  localDate,
+  block,
+  onClose,
+}: {
+  localDate: string;
+  block: PlanBlock;
+  onClose: () => void;
+}): React.JSX.Element {
+  const [title, setTitle] = useState(block.title);
+  const [start, setStart] = useState(block.start);
+  const [end, setEnd] = useState(block.end);
+  const [kind, setKind] = useState<PlanBlock['kind']>(block.kind);
+  const [moveTo, setMoveTo] = useState(localDate);
+  const [busy, setBusy] = useState(false);
+  const setError = usePlanStore((s) => s.setError);
+
+  const invalid = timeToMinutes(end) <= timeToMinutes(start);
+
+  const save = async (): Promise<void> => {
+    if (invalid || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await window.thread.invoke['planner:editBlock']({
+        localDate,
+        block: { ...block, title: title.trim() || 'Untitled block', start, end, kind },
+      });
+      if (moveTo !== localDate) {
+        await window.thread.invoke['planner:moveBlock']({
+          fromDate: localDate,
+          toDate: moveTo,
+          blockId: block.id,
+        });
+      }
+      onClose();
+    } catch (error: unknown) {
+      setError(cleanError(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async (): Promise<void> => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await window.thread.invoke['planner:deleteBlock']({ localDate, blockId: block.id });
+      onClose();
+    } catch (error: unknown) {
+      setError(cleanError(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div
+      style={{
+        margin: '2px 8px 10px 108px',
+        padding: 12,
+        border: '1px solid var(--line)',
+        borderRadius: 10,
+        background: 'var(--surface-raised)',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 10,
+      }}
+    >
+      <input
+        value={title}
+        autoFocus
+        placeholder="What this block is — name the first concrete action"
+        onChange={(e) => setTitle(e.target.value)}
+        onKeyDown={(e) => e.key === 'Enter' && void save()}
+        style={{
+          fontSize: 13,
+          background: 'var(--ink)',
+          border: '1px solid var(--line)',
+          borderRadius: 8,
+          padding: '7px 10px',
+        }}
+      />
+
+      <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+        <Time label="From" value={start} onChange={setStart} />
+        <Time label="Until" value={end} onChange={setEnd} />
+
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <span
+            style={{
+              fontSize: 10.5,
+              textTransform: 'uppercase',
+              letterSpacing: '0.06em',
+              color: 'var(--text-faint)',
+            }}
+          >
+            Day
+          </span>
+          <select
+            value={moveTo}
+            onChange={(e) => setMoveTo(e.target.value)}
+            style={{
+              fontSize: 12.5,
+              fontFamily: 'inherit',
+              background: 'var(--ink)',
+              color: 'var(--text)',
+              border: '1px solid var(--line)',
+              borderRadius: 8,
+              padding: '6px 8px',
+              colorScheme: 'dark',
+            }}
+          >
+            {dayOptions(localDate).map((date) => (
+              <option key={date} value={date}>
+                {dayOptionLabel(date, localDate)}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        {KIND_OPTIONS.map((option) => {
+          const active = kind === option;
+          return (
+            <button
+              key={option}
+              onClick={() => setKind(option)}
+              style={{
+                padding: '4px 10px',
+                borderRadius: 999,
+                border: `1px solid ${active ? KIND_COLOUR[option] : 'var(--line)'}`,
+                background: 'transparent',
+                color: active ? 'var(--text)' : 'var(--text-faint)',
+                fontSize: 11.5,
+                fontFamily: 'inherit',
+                cursor: 'pointer',
+              }}
+            >
+              <span
+                style={{
+                  display: 'inline-block',
+                  width: 6,
+                  height: 6,
+                  borderRadius: '50%',
+                  background: KIND_COLOUR[option],
+                  marginRight: 6,
+                  verticalAlign: 'middle',
+                }}
+              />
+              {KIND_LABEL[option]}
+            </button>
+          );
+        })}
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <button
+          onClick={() => void save()}
+          disabled={invalid || busy}
+          style={{
+            padding: '6px 14px',
+            borderRadius: 8,
+            border: 'none',
+            background: invalid ? 'var(--line)' : 'var(--amber)',
+            color: invalid ? 'var(--text-faint)' : 'var(--ink)',
+            fontSize: 12.5,
+            fontWeight: 600,
+            fontFamily: 'inherit',
+            cursor: invalid || busy ? 'default' : 'pointer',
+          }}
+        >
+          {busy ? 'Saving…' : moveTo !== localDate ? `Save & move` : 'Save'}
+        </button>
+        <button onClick={onClose} style={ghostButton}>
+          Cancel
+        </button>
+        <span style={{ flex: 1 }} />
+        {invalid ? (
+          <span style={{ fontSize: 11, color: 'var(--clay, #c96f4a)' }}>
+            The block ends before it starts.
+          </span>
+        ) : (
+          <span style={{ fontSize: 10.5, color: 'var(--text-faint)' }}>
+            Saved edits are pinned — regeneration plans around them.
+          </span>
+        )}
+        <button
+          onClick={() => void remove()}
+          style={{ ...ghostButton, color: 'var(--clay, #c96f4a)' }}
+          title="Remove this block from the day"
+        >
+          Delete
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** The + at the bottom of a plan: a block of your own, pinned from birth. */
+function AddBlock({ plan }: { plan: DayPlan }): React.JSX.Element {
+  const [draft, setDraft] = useState<PlanBlock | null>(null);
+
+  if (!draft) {
+    return (
+      <button
+        onClick={() => setDraft(freshBlock(plan))}
+        title="Add a block of your own — it is pinned, so regeneration plans around it"
+        style={{ ...ghostButton, marginTop: 6, color: 'var(--text-muted)' }}
+      >
+        + Add a block
+      </button>
+    );
+  }
+
+  return <BlockEditor localDate={plan.localDate} block={draft} onClose={() => setDraft(null)} />;
+}
+
+const KIND_OPTIONS: PlanBlock['kind'][] = ['focus', 'admin', 'break', 'meal', 'buffer', 'wind_down'];
+
+function freshBlock(plan: DayPlan): PlanBlock {
+  const last = plan.blocks[plan.blocks.length - 1];
+  const start = last ? last.end : plan.startTime;
+  const end = minutesToTime(Math.min(timeToMinutes(start) + 45, 23 * 60 + 59));
+  return {
+    // Unique within the day is the whole contract; `hand-` keeps it out of the derived-id space.
+    id: `hand-${Math.random().toString(36).slice(2, 10)}`,
+    start,
+    end,
+    kind: 'focus',
+    title: '',
+    pinned: true,
+  };
+}
+
+function timeToMinutes(time: string): number {
+  const [hour = 0, minute = 0] = time.split(':').map(Number);
+  return hour * 60 + minute;
+}
+
+function minutesToTime(total: number): string {
+  const hour = Math.floor(total / 60) % 24;
+  const minute = total % 60;
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+}
+
+/** Today and the six days after it — where a block can be sent. */
+function dayOptions(localDate: string): string[] {
+  return Array.from({ length: 7 }, (_, offset) => addDays(localDate, offset));
+}
+
+function addDays(localDate: string, days: number): string {
+  const date = new Date(`${localDate}T00:00:00`);
+  date.setDate(date.getDate() + days);
+  const pad = (value: number): string => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+function dayOptionLabel(date: string, today: string): string {
+  if (date === today) return 'This day';
+  if (date === addDays(today, 1)) return 'Tomorrow';
+  return new Date(`${date}T00:00:00`).toLocaleDateString('en-GB', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+  });
+}
+
+function cleanError(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error);
+  return raw.replace(/^Error invoking remote method '[^']+':\s*/, '').replace(/^Error:\s*/, '');
+}

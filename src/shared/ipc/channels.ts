@@ -15,6 +15,7 @@ import type {
 	Distraction,
 	DistractionKind,
 	Goal,
+	PlanBlock,
 	Session,
 	SessionOutcome,
 	Settings,
@@ -331,6 +332,17 @@ export interface Requests {
 	"planner:generate": [GeneratePlanRequest, WeekPlanAccepted];
 	"planner:clear": [{ localDate: string }, void];
 	/**
+	 * Hand edits. Each one stamps the block `pinned: true`, which is what tells the next
+	 * generation this hour is owned rather than suggested. `editBlock` upserts — a new id adds a
+	 * block, so there is no separate add channel to keep in step.
+	 */
+	"planner:editBlock": [{ localDate: string; block: PlanBlock }, DayPlan];
+	"planner:deleteBlock": [{ localDate: string; blockId: string }, DayPlan | null];
+	"planner:moveBlock": [
+		{ fromDate: string; toDate: string; blockId: string },
+		{ from: DayPlan | null; to: DayPlan },
+	];
+	/**
 	 * Turn a plan block into a real thread and link the block to it. The block stops being a
 	 * suggestion and starts being work you can run a timer on — the same move `todo:promote`
 	 * makes, and it returns both halves for the same reason.
@@ -514,6 +526,9 @@ export const REQUEST_CHANNELS = [
 	"planner:week",
 	"planner:generate",
 	"planner:clear",
+	"planner:editBlock",
+	"planner:deleteBlock",
+	"planner:moveBlock",
 	"planner:promoteBlock",
 	"calendar:get",
 	"calendar:refresh",

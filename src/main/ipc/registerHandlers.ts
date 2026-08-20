@@ -12,6 +12,17 @@ import { MIN_PASSWORD_LENGTH } from "@shared/auth.js";
 import type { AppContext } from "../AppContext.js";
 import { openLink } from "../services/openLink.js";
 import { launchesAtStartup, setLaunchAtStartup } from "../services/startup.js";
+import type { PlanShell } from "../storage/repositories/planRepo.js";
+import type { Settings } from "@shared/domain.js";
+
+/** The day frame a hand-made plan starts from, when the day was never planned at all. */
+function planShell(settings: Settings): PlanShell {
+	return {
+		wakeTime: settings.wakeTime,
+		startTime: settings.dayStartTime,
+		endTime: settings.dayEndTime,
+	};
+}
 
 type Handler<K extends keyof Requests> = (
 	ctx: AppContext,
@@ -229,6 +240,40 @@ export function registerHandlers(ctx: AppContext): void {
 		async (_c, { localDate }) => {
 			await db.plans.remove(localDate);
 			ctx.broadcast("planner:changed", { localDate, plan: null });
+		},
+		ctx,
+	);
+	on(
+		"planner:editBlock",
+		async (_c, { localDate, block }) => {
+			const plan = await db.plans.editBlock(localDate, block, planShell(db.settings.get()));
+			ctx.broadcast("planner:changed", { localDate, plan });
+			return plan;
+		},
+		ctx,
+	);
+	on(
+		"planner:deleteBlock",
+		async (_c, { localDate, blockId }) => {
+			const plan = await db.plans.deleteBlock(localDate, blockId);
+			ctx.broadcast("planner:changed", { localDate, plan });
+			return plan;
+		},
+		ctx,
+	);
+	on(
+		"planner:moveBlock",
+		async (_c, { fromDate, toDate, blockId }) => {
+			const moved = await db.plans.moveBlock(
+				fromDate,
+				toDate,
+				blockId,
+				planShell(db.settings.get()),
+			);
+			// Both days changed; a renderer looking at either has to hear about it.
+			ctx.broadcast("planner:changed", { localDate: fromDate, plan: moved.from });
+			ctx.broadcast("planner:changed", { localDate: toDate, plan: moved.to });
+			return moved;
 		},
 		ctx,
 	);

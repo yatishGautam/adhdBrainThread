@@ -5,8 +5,25 @@
  * second opinion next to the first. A plan is disposable by design — it is a suggestion that
  * was true when it was made, and the honest thing to do with a stale one is throw it away.
  */
-import type { DayPlan, WeekPlan } from '@shared/domain.js';
+import type { DayPlan, PlanBlock, WeekPlan } from '@shared/domain.js';
+import { weekKeyOf } from '@shared/week.js';
 import { COLLECTION, type Collection, type Store } from '../Store.js';
+
+/** The day's frame for a plan created by hand, taken from settings by the caller. */
+export interface PlanShell {
+  wakeTime: string;
+  startTime: string;
+  endTime: string;
+}
+
+/** Wall-clock order. A hand edit must not leave 14:00 rendered above 09:00. */
+function sortBlocks(blocks: PlanBlock[]): PlanBlock[] {
+  const minutes = (time: string): number => {
+    const [hour = 0, minute = 0] = time.split(':').map(Number);
+    return hour * 60 + minute;
+  };
+  return [...blocks].sort((a, b) => minutes(a.start) - minutes(b.start));
+}
 
 /** What the planner has cost so far, for the running total shown next to the button. */
 export interface PlanSpend {
@@ -140,6 +157,73 @@ export class PlanRepo {
       updatedAt: new Date().toISOString(),
     };
     return this.save(next);
+  }
+
+  /**
+   * Rewrite one block by hand, or add a new one.
+   *
+   * Every hand edit stamps `pinned: true` — the contract `promoted` earns by starting work,
+   * earned here by touch. The server carries pinned blocks across a regeneration untouched, so
+   * an edited block is owned rather than replaced. Written through the tracked collection so
+   * the edit is queued for push; blocks are re-sorted so the list still reads as a day.
+   */
+  async editBlock(localDate: string, block: PlanBlock, shell?: PlanShell): Promise<DayPlan> {
+    const plan = (await this.get(localDate)) ?? this.emptyPlan(localDate, shell);
+    const edited: PlanBlock = { ...block, pinned: true };
+    const rest = plan.blocks.filter((candidate) => candidate.id !== block.id);
+    const next: DayPlan = {
+      ...plan,
+      blocks: sortBlocks([...rest, edited]),
+      updatedAt: new Date().toISOString(),
+    };
+    return this.save(next);
+  }
+
+  /** Remove one block. The day keeps its plan — an emptied plan is still a decision. */
+  async deleteBlock(localDate: string, blockId: string): Promise<DayPlan | null> {
+    const plan = await this.get(localDate);
+    if (!plan) return null;
+    const next: DayPlan = {
+      ...plan,
+      blocks: plan.blocks.filter((block) => block.id !== blockId),
+      updatedAt: new Date().toISOString(),
+    };
+    return this.save(next);
+  }
+
+  /**
+   * Move a block to another day. It lands pinned — moving is the strongest possible edit — and
+   * the target day gets a plan shell if it never had one, because "Thursday, but really Friday"
+   * must not depend on Friday having been planned.
+   */
+  async moveBlock(
+    fromDate: string,
+    toDate: string,
+    blockId: string,
+    shell?: PlanShell,
+  ): Promise<{ from: DayPlan | null; to: DayPlan }> {
+    const source = await this.get(fromDate);
+    const block = source?.blocks.find((candidate) => candidate.id === blockId);
+    if (!source || !block) throw new Error('That block is no longer in the plan.');
+
+    const from = await this.deleteBlock(fromDate, blockId);
+    const to = await this.editBlock(toDate, block, shell);
+    return { from, to };
+  }
+
+  private emptyPlan(localDate: string, shell?: PlanShell): DayPlan {
+    const now = new Date().toISOString();
+    return {
+      localDate,
+      weekKey: weekKeyOf(localDate),
+      generatedAt: now,
+      wakeTime: shell?.wakeTime ?? '07:00',
+      startTime: shell?.startTime ?? '09:00',
+      endTime: shell?.endTime ?? '18:00',
+      blocks: [],
+      headline: '',
+      updatedAt: now,
+    };
   }
 
   /**

@@ -312,6 +312,15 @@ export interface PlanBlock {
    * Without the flag, planning again on Friday would quietly orphan Wednesday's thread.
    */
   promoted?: boolean;
+  /**
+   * Set when the user edited, moved or created this block by hand.
+   *
+   * The same contract as `promoted` — the server plans around it instead of replacing it —
+   * but earned by touch rather than by starting work. The model proposes; an edited block is
+   * owned, and a regeneration that erased your hand edits would teach you never to touch the
+   * plan again.
+   */
+  pinned?: boolean;
 }
 
 /** Token spend for one generation, kept so the running bill is visible rather than a surprise. */
