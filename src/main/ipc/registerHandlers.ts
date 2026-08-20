@@ -275,6 +275,29 @@ export function registerHandlers(ctx: AppContext): void {
 		ctx,
 	);
 	on(
+		"planner:reorderBlocks",
+		async (_c, { localDate, blockIds }) => {
+			const plan = await db.plans.reorderBlocks(localDate, blockIds);
+			ctx.broadcast("planner:changed", { localDate, plan });
+			return plan;
+		},
+		ctx,
+	);
+	on(
+		"planner:insertBlock",
+		async (_c, { localDate, index, block }) => {
+			const plan = await db.plans.insertBlock(
+				localDate,
+				index,
+				block,
+				planShell(db.settings.get()),
+			);
+			ctx.broadcast("planner:changed", { localDate, plan });
+			return plan;
+		},
+		ctx,
+	);
+	on(
 		"planner:moveBlock",
 		async (_c, { fromDate, toDate, blockId }) => {
 			const moved = await db.plans.moveBlock(

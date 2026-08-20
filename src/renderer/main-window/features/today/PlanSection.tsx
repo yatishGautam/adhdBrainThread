@@ -1,7 +1,9 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import type { DayPlan, DayRun, PlanBlock, Settings } from '@shared/domain.js';
-import { dayProgress, effectiveBlocks, toClock } from '@shared/dayRun.js';
+import { dayProgress, effectiveBlocks, toClock, toMinutes } from '@shared/dayRun.js';
+import { slotAt } from '@shared/planLayout.js';
 import { Panel } from './Panel.js';
+import { useRowDrag } from './useRowDrag.js';
 // The calendar's map, not a second copy of it: the block you read here and the same block
 // on the calendar must not drift to different colours.
 import { KIND_COLOUR, KIND_LABEL } from '../../../shared/calendar/entryStyle.js';
@@ -434,6 +436,36 @@ function PlanBody({
   );
   const rows = live ? shifted.map((entry) => entry.block) : plan.blocks;
 
+  const setError = usePlanStore((s) => s.setError);
+  // Where a new slot is being opened, as an index into the rendered list. One at a time: two
+  // half-written blocks in one day is a way to lose both.
+  const [opening, setOpening] = useState<number | null>(null);
+
+  /**
+   * The plan's own index for a row. A live shift can leave the list reading in a different
+   * order than the plan stores it, and both the reorder and the insert are edits to the plan,
+   * not to the way today happens to be running.
+   */
+  const planIndexFor = (visual: number): number => {
+    const row = rows[visual];
+    const found = row ? plan.blocks.findIndex((block) => block.id === row.id) : -1;
+    return found >= 0 ? found : plan.blocks.length;
+  };
+
+  const reorder = (from: number, to: number): void => {
+    const order = rows.map((block) => block.id);
+    const [moved] = order.splice(from, 1);
+    if (!moved) return;
+    order.splice(to, 0, moved);
+    setError(null);
+    void window.thread.invoke['planner:reorderBlocks']({
+      localDate: plan.localDate,
+      blockIds: order,
+    }).catch((error: unknown) => setError(cleanError(error)));
+  };
+
+  const drag = useRowDrag(rows.length, reorder);
+
   return (
     <div>
       <p
@@ -450,17 +482,49 @@ function PlanBody({
       {isToday ? <RunBar plan={plan} run={run} nowMinutes={nowMinutes} /> : null}
 
       <div>
-        {rows.map((block) => (
-          <BlockRow
-            key={block.id}
-            block={block}
-            localDate={plan.localDate}
-            displayStart={effectiveTimes.get(block.id)?.start}
-            displayEnd={effectiveTimes.get(block.id)?.end}
-            isNow={progress?.current?.block.id === block.id}
-            skipped={skipped.has(block.id)}
-          />
+        {rows.map((block, index) => (
+          <Fragment key={block.id}>
+            <InsertSlot
+              plan={plan}
+              at={planIndexFor(index)}
+              open={opening === index}
+              quiet={drag.from !== null}
+              onOpen={() => setOpening(index)}
+              onClose={() => setOpening(null)}
+            />
+            <div
+              ref={drag.register(index)}
+              style={{
+                position: 'relative',
+                // The carried row rides the cursor; everything else glides into the gap it left.
+                transform: `translateY(${drag.offsetOf(index)}px)`,
+                transition:
+                  drag.from === index ? 'none' : 'transform 150ms var(--ease-out)',
+                zIndex: drag.from === index ? 2 : 1,
+              }}
+            >
+              <BlockRow
+                block={block}
+                localDate={plan.localDate}
+                displayStart={effectiveTimes.get(block.id)?.start}
+                displayEnd={effectiveTimes.get(block.id)?.end}
+                isNow={progress?.current?.block.id === block.id}
+                skipped={skipped.has(block.id)}
+                carried={drag.from === index}
+                onGrab={(event) => drag.grab(index, event)}
+                onNudge={(delta) => drag.nudge(index, delta)}
+              />
+            </div>
+          </Fragment>
         ))}
+        <InsertSlot
+          plan={plan}
+          at={plan.blocks.length}
+          open={opening === rows.length}
+          quiet={drag.from !== null}
+          onOpen={() => setOpening(rows.length)}
+          onClose={() => setOpening(null)}
+        />
       </div>
 
       <AddBlock plan={plan} />
@@ -513,6 +577,9 @@ function BlockRow({
   displayEnd,
   isNow = false,
   skipped = false,
+  carried = false,
+  onGrab,
+  onNudge,
 }: {
   block: PlanBlock;
   localDate: string;
@@ -523,6 +590,10 @@ function BlockRow({
   isNow?: boolean;
   /** Deliberately let go — dimmed, struck through, never deleted. */
   skipped?: boolean;
+  /** This is the row currently being dragged. */
+  carried?: boolean;
+  onGrab?: (event: React.PointerEvent) => void;
+  onNudge?: (delta: number) => void;
 }): React.JSX.Element {
   const [hover, setHover] = useState(false);
   const [promoting, setPromoting] = useState(false);
@@ -566,16 +637,47 @@ function BlockRow({
         gap: 12,
         padding: '7px 8px',
         borderRadius: 8,
-        background: isNow
-          ? 'color-mix(in srgb, var(--amber) 8%, transparent)'
-          : hover || editing
-            ? 'var(--surface-raised)'
-            : 'transparent',
+        background: carried
+          ? 'var(--surface-hover)'
+          : isNow
+            ? 'color-mix(in srgb, var(--amber) 8%, transparent)'
+            : hover || editing
+              ? 'var(--surface-raised)'
+              : 'transparent',
         outline: isNow ? '1px solid color-mix(in srgb, var(--amber) 35%, transparent)' : 'none',
+        // Off the page while it is in your hand, so it reads as carried rather than as a row
+        // that happens to be in the wrong place.
+        boxShadow: carried ? 'var(--shadow-card-hover)' : 'none',
         opacity: skipped ? 0.45 : 1,
         transition: 'background var(--motion-fast) var(--ease-out)',
       }}
     >
+      <button
+        onPointerDown={onGrab}
+        onKeyDown={(event) => {
+          if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+          event.preventDefault();
+          onNudge?.(event.key === 'ArrowUp' ? -1 : 1);
+        }}
+        title="Drag to move this block up or down the day — the day keeps its shape, the order changes. Arrow keys work too."
+        aria-label={`Move ${block.title} in the day`}
+        style={{
+          ...ghostButton,
+          padding: '0 2px',
+          alignSelf: 'center',
+          flexShrink: 0,
+          cursor: carried ? 'grabbing' : 'grab',
+          fontSize: 13,
+          lineHeight: 1,
+          letterSpacing: '-1px',
+          // Always there for the keyboard, only visible once you are near the row.
+          opacity: carried ? 1 : hover ? 0.9 : 0,
+          transition: 'opacity var(--motion-fast) var(--ease-out)',
+          touchAction: 'none',
+        }}
+      >
+        ⠿
+      </button>
       {isNow ? (
         <span
           style={{
@@ -752,10 +854,16 @@ function BlockEditor({
   localDate,
   block,
   onClose,
+  insertAt,
 }: {
   localDate: string;
   block: PlanBlock;
   onClose: () => void;
+  /**
+   * Set when this is a new block being opened into a position rather than an existing one being
+   * rewritten. An insert can push the rest of the day down; an edit never does.
+   */
+  insertAt?: number;
 }): React.JSX.Element {
   const [title, setTitle] = useState(block.title);
   const [start, setStart] = useState(block.start);
@@ -765,17 +873,23 @@ function BlockEditor({
   const [busy, setBusy] = useState(false);
   const setError = usePlanStore((s) => s.setError);
 
-  const invalid = timeToMinutes(end) <= timeToMinutes(start);
+  const invalid = toMinutes(end) <= toMinutes(start);
 
   const save = async (): Promise<void> => {
     if (invalid || busy) return;
     setBusy(true);
     setError(null);
     try {
-      await window.thread.invoke['planner:editBlock']({
-        localDate,
-        block: { ...block, title: title.trim() || 'Untitled block', start, end, kind },
-      });
+      const edited = { ...block, title: title.trim() || 'Untitled block', start, end, kind };
+      if (insertAt === undefined) {
+        await window.thread.invoke['planner:editBlock']({ localDate, block: edited });
+      } else {
+        await window.thread.invoke['planner:insertBlock']({
+          localDate,
+          index: insertAt,
+          block: edited,
+        });
+      }
       if (moveTo !== localDate) {
         await window.thread.invoke['planner:moveBlock']({
           fromDate: localDate,
@@ -956,7 +1070,7 @@ function AddBlock({ plan }: { plan: DayPlan }): React.JSX.Element {
   if (!draft) {
     return (
       <button
-        onClick={() => setDraft(freshBlock(plan))}
+        onClick={() => setDraft(freshBlock(plan, plan.blocks.length))}
         title="Add a block of your own — it is pinned, so regeneration plans around it"
         style={{ ...ghostButton, marginTop: 6, color: 'var(--text-muted)' }}
       >
@@ -965,15 +1079,104 @@ function AddBlock({ plan }: { plan: DayPlan }): React.JSX.Element {
     );
   }
 
-  return <BlockEditor localDate={plan.localDate} block={draft} onClose={() => setDraft(null)} />;
+  return (
+    <BlockEditor
+      localDate={plan.localDate}
+      block={draft}
+      insertAt={plan.blocks.length}
+      onClose={() => setDraft(null)}
+    />
+  );
+}
+
+/**
+ * The seam between two blocks, and the only thing in the list with no height of its own.
+ *
+ * Adding work at the bottom and then dragging it into place is two gestures for one thought.
+ * This is the one gesture: hover the gap where the thing belongs, and open a slot there. It
+ * takes the gap's own length when the gap is big enough to be a block — a day of 30-minute
+ * defaults sitting beside 20-minute holes is a day you stop trusting — and otherwise makes its
+ * own room and pushes the afternoon down, which is what actually happens when you add work.
+ *
+ * Zero-height by design: the drag arithmetic measures real rows, and a seam that took up space
+ * would make the list part by slightly less than the gap it opened.
+ */
+function InsertSlot({
+  plan,
+  at,
+  open,
+  quiet,
+  onOpen,
+  onClose,
+}: {
+  plan: DayPlan;
+  at: number;
+  open: boolean;
+  /** Something is being dragged — get out of the way rather than offering to open a gap. */
+  quiet: boolean;
+  onOpen: () => void;
+  onClose: () => void;
+}): React.JSX.Element {
+  const [hover, setHover] = useState(false);
+
+  if (open) {
+    return (
+      <BlockEditor
+        localDate={plan.localDate}
+        block={freshBlock(plan, at)}
+        insertAt={at}
+        onClose={onClose}
+      />
+    );
+  }
+
+  return (
+    <div style={{ position: 'relative', height: 0 }}>
+      <button
+        onMouseEnter={() => setHover(true)}
+        onMouseLeave={() => setHover(false)}
+        onClick={onOpen}
+        title="Open a slot here"
+        aria-label="Add a block here"
+        style={{
+          position: 'absolute',
+          left: 0,
+          right: 0,
+          top: -7,
+          height: 14,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          padding: 0,
+          border: 'none',
+          background: 'none',
+          cursor: 'pointer',
+          opacity: quiet ? 0 : hover ? 1 : 0,
+          pointerEvents: quiet ? 'none' : 'auto',
+          transition: 'opacity var(--motion-fast) var(--ease-out)',
+          zIndex: 3,
+        }}
+      >
+        <span style={{ fontSize: 11, color: 'var(--amber)', fontFamily: 'var(--font-mono)' }}>
+          +
+        </span>
+        <span
+          style={{
+            flex: 1,
+            height: 1,
+            background: 'color-mix(in srgb, var(--amber) 45%, transparent)',
+          }}
+        />
+      </button>
+    </div>
+  );
 }
 
 const KIND_OPTIONS: PlanBlock['kind'][] = ['focus', 'admin', 'break', 'meal', 'buffer', 'wind_down'];
 
-function freshBlock(plan: DayPlan): PlanBlock {
-  const last = plan.blocks[plan.blocks.length - 1];
-  const start = last ? last.end : plan.startTime;
-  const end = minutesToTime(Math.min(timeToMinutes(start) + 45, 23 * 60 + 59));
+/** A new block, sized to the space it is being opened into rather than to a fixed default. */
+function freshBlock(plan: DayPlan, at: number): PlanBlock {
+  const { start, end } = slotAt(plan.blocks, at, plan.startTime);
   return {
     // Unique within the day is the whole contract; `hand-` keeps it out of the derived-id space.
     id: `hand-${Math.random().toString(36).slice(2, 10)}`,
@@ -983,17 +1186,6 @@ function freshBlock(plan: DayPlan): PlanBlock {
     title: '',
     pinned: true,
   };
-}
-
-function timeToMinutes(time: string): number {
-  const [hour = 0, minute = 0] = time.split(':').map(Number);
-  return hour * 60 + minute;
-}
-
-function minutesToTime(total: number): string {
-  const hour = Math.floor(total / 60) % 24;
-  const minute = total % 60;
-  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
 }
 
 /** Today and the six days after it — where a block can be sent. */

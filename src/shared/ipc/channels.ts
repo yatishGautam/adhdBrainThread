@@ -345,6 +345,21 @@ export interface Requests {
 		{ from: DayPlan | null; to: DayPlan },
 	];
 	/**
+	 * Drag one block up or down the day. `blockIds` is the list as it now reads, top to bottom;
+	 * the day's own shape — where it starts, the gaps between blocks — is kept, and only what
+	 * stands on it is permuted. Sent whole rather than as a from/to pair so a drag that raced a
+	 * sync and lost is rejected instead of applied to a day it no longer describes.
+	 */
+	"planner:reorderBlocks": [{ localDate: string; blockIds: string[] }, DayPlan];
+	/**
+	 * Open a new slot at a position in the day. Fills a real gap when one is there and otherwise
+	 * pushes the rest of the day down — new work takes time the day did not have.
+	 */
+	"planner:insertBlock": [
+		{ localDate: string; index: number; block: PlanBlock },
+		DayPlan,
+	];
+	/**
 	 * Replan the rest of today, mid-flight — the "life happened" button. Same acknowledge-then-
 	 * sync contract as the week: the result arrives as ordinary records, announced by
 	 * `planner:runFinished` like any other run.
@@ -572,6 +587,8 @@ export const REQUEST_CHANNELS = [
 	"planner:editBlock",
 	"planner:deleteBlock",
 	"planner:moveBlock",
+	"planner:reorderBlocks",
+	"planner:insertBlock",
 	"planner:promoteBlock",
 	"calendar:get",
 	"calendar:refresh",

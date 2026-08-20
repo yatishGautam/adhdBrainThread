@@ -6,6 +6,7 @@
  * was true when it was made, and the honest thing to do with a stale one is throw it away.
  */
 import type { DayPlan, PlanBlock, WeekPlan } from '@shared/domain.js';
+import { insertBlock, resequenceBlocks } from '@shared/planLayout.js';
 import { weekKeyOf } from '@shared/week.js';
 import { COLLECTION, type Collection, type Store } from '../Store.js';
 
@@ -174,6 +175,46 @@ export class PlanRepo {
     const next: DayPlan = {
       ...plan,
       blocks: sortBlocks([...rest, edited]),
+      updatedAt: new Date().toISOString(),
+    };
+    return this.save(next);
+  }
+
+  /**
+   * Put the day's blocks in a new order.
+   *
+   * The reordering itself lives in `@shared/planLayout` so the phone and the laptop agree on
+   * where a dragged block lands. Here it is only persistence — written through the tracked
+   * collection like any hand edit, and re-sorted afterwards because the times changed under it.
+   */
+  async reorderBlocks(localDate: string, blockIds: string[]): Promise<DayPlan> {
+    const plan = await this.get(localDate);
+    if (!plan) throw new Error('There is no plan for that day.');
+    const next: DayPlan = {
+      ...plan,
+      blocks: sortBlocks(resequenceBlocks(plan.blocks, blockIds)),
+      updatedAt: new Date().toISOString(),
+    };
+    return this.save(next);
+  }
+
+  /**
+   * Open a new slot at a position in the day, pushing what follows if it has to.
+   *
+   * A day that was never planned still gets one: opening a slot on an empty Thursday is a
+   * perfectly good way to start planning it, and refusing would send you to the generator for
+   * a single errand.
+   */
+  async insertBlock(
+    localDate: string,
+    index: number,
+    block: PlanBlock,
+    shell?: PlanShell,
+  ): Promise<DayPlan> {
+    const plan = (await this.get(localDate)) ?? this.emptyPlan(localDate, shell);
+    const next: DayPlan = {
+      ...plan,
+      blocks: sortBlocks(insertBlock(plan.blocks, index, block)),
       updatedAt: new Date().toISOString(),
     };
     return this.save(next);
