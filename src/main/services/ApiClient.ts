@@ -125,6 +125,17 @@ export class ApiClient {
 		return this.request<WeekPlanAccepted>("POST", "/plan/day", { token, body });
 	}
 
+	/** The coach. Same 202-then-sync contract; poll `planStatus` like any other run. */
+	insight(
+		token: string,
+		body: { localDate: string; scope: "day" | "week" },
+	): Promise<{ periodKey: string; startedAt: string }> {
+		return this.request<{ periodKey: string; startedAt: string }>("POST", "/insight", {
+			token,
+			body,
+		});
+	}
+
 	planStatus(token: string): Promise<PlanRunState> {
 		return this.request<PlanRunState>("GET", "/plan/status", { token });
 	}

@@ -12,6 +12,7 @@
  * cannot be deployed independently of the server, and these three apps very much are.
  */
 import type {
+	CoachInsight,
 	Day,
 	DayPlan,
 	DayRun,
@@ -54,6 +55,8 @@ export interface PullResponse {
 	weekPlans?: unknown[];
 	/** Absent from a backend deployed before day runs existed. */
 	dayRuns?: unknown[];
+	/** Absent from a backend deployed before insights existed. */
+	insights?: unknown[];
 	profile?: unknown;
 	seq?: number;
 }
@@ -442,6 +445,31 @@ function outcome(value: string | null): Session["outcome"] {
 	return (OUTCOMES as readonly string[]).includes(value ?? "")
 		? (value as Session["outcome"])
 		: "ended_early";
+}
+
+export function insightIn(raw: unknown): CoachInsight | null {
+	const row = raw as Record<string, unknown>;
+	const periodKey = str(row.periodKey);
+	const generatedAt = str(row.generatedAt);
+	const updatedAt = str(row.updatedAt);
+	if (!periodKey || !generatedAt || !updatedAt) return null;
+
+	const usage = row.usage as Record<string, unknown> | undefined;
+	return {
+		periodKey,
+		generatedAt,
+		headline: str(row.headline) ?? "",
+		body: str(row.body) ?? "",
+		suggestion: str(row.suggestion) ?? "",
+		model: str(row.model) ?? "",
+		usage: {
+			inputTokens: num(usage?.inputTokens) ?? 0,
+			outputTokens: num(usage?.outputTokens) ?? 0,
+			costUsd: num(usage?.costUsd) ?? 0,
+		},
+		updatedAt,
+		deletedAt: str(row.deletedAt) ?? null,
+	};
 }
 
 export function dayRunIn(raw: unknown): DayRun | null {

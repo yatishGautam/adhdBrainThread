@@ -11,6 +11,7 @@ import { migrate, type MigrationReport } from './migrate.js';
 import { DayRepo } from './repositories/dayRepo.js';
 import { GoalRepo } from './repositories/goalRepo.js';
 import { DayRunRepo } from './repositories/dayRunRepo.js';
+import { InsightRepo } from './repositories/insightRepo.js';
 import { PlanRepo } from './repositories/planRepo.js';
 import { SessionRepo } from './repositories/sessionRepo.js';
 import { SettingsRepo } from './repositories/settingsRepo.js';
@@ -33,6 +34,7 @@ export class Database {
     readonly goals: GoalRepo,
     readonly plans: PlanRepo,
     readonly dayRuns: DayRunRepo,
+    readonly insights: InsightRepo,
     readonly sessions: SessionRepo,
     readonly settings: SettingsRepo,
     readonly migration: MigrationReport,
@@ -56,6 +58,7 @@ export class Database {
     const goals = new GoalRepo(store, clock);
     const plans = new PlanRepo(store);
     const dayRuns = new DayRunRepo(store);
+    const insights = new InsightRepo(store);
     const sessions = new SessionRepo(store);
 
     return new Database(
@@ -67,6 +70,7 @@ export class Database {
       goals,
       plans,
       dayRuns,
+      insights,
       sessions,
       settings,
       migration,

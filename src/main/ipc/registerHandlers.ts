@@ -291,6 +291,8 @@ export function registerHandlers(ctx: AppContext): void {
 		ctx,
 	);
 	on("planner:generateDay", async (_c, request) => ctx.planner.generateDay(request), ctx);
+	on("insight:get", async (_c, { periodKey }) => db.insights.get(periodKey), ctx);
+	on("insight:generate", async (_c, { scope }) => ctx.planner.generateInsight(scope), ctx);
 
 	// ------------------------------------------------------------------ day run
 

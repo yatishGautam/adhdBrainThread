@@ -5,6 +5,7 @@
  * sessions split by month so no file grows without limit and a month is easy to open by hand.
  */
 import type {
+  CoachInsight,
   Day,
   DayPlan,
   DayRun,
@@ -16,7 +17,7 @@ import type {
 } from '@shared/domain.js';
 import { daySchema } from './schemas/day.js';
 import { goalSchema } from './schemas/goal.js';
-import { dayPlanSchema, dayRunSchema, weekPlanSchema } from './schemas/plan.js';
+import { coachInsightSchema, dayPlanSchema, dayRunSchema, weekPlanSchema } from './schemas/plan.js';
 import { mindfulSessionSchema } from './schemas/mindful.js';
 import { sessionSchema } from './schemas/session.js';
 import { threadSchema } from './schemas/thread.js';
@@ -75,6 +76,13 @@ export const collections: AnySpec[] = [
     schema: dayRunSchema,
     key: (run) => run.localDate,
     partition: (run) => monthOf(run.localDate),
+  }),
+  // A couple of hundred a year at the very most; a file per year, keyed by period.
+  defineCollection<CoachInsight>({
+    name: COLLECTION.insights,
+    schema: coachInsightSchema,
+    key: (insight) => insight.periodKey,
+    partition: (insight) => insight.periodKey.slice(0, 4),
   }),
   // One record per press of the button. Fifty-two a year at most, so a file per ISO
   // week-numbering year — the same partition the goals use, and for the same reason.

@@ -160,6 +160,32 @@ export class PlannerService {
   }
 
   /**
+   * Ask the coach to read a day or a week. Lives on the planner service because it *is* the
+   * same machine — one paid run at a time, sync first so the server reads what this device
+   * just wrote, poll the shared status, and let the result arrive as a record.
+   */
+  async generateInsight(scope: 'day' | 'week'): Promise<{ periodKey: string; startedAt: string }> {
+    const token = this.requireToken();
+    if (this.running) {
+      throw new PlannerError('Another generation is already running. Give it a moment.');
+    }
+
+    this.running = true;
+    try {
+      await this.sync?.sync().catch(() => undefined);
+      const accepted = await this.auth.api.insight(token, {
+        localDate: this.db.clock.today(),
+        scope,
+      });
+      void this.awaitRun({ weekKey: accepted.periodKey, startedAt: accepted.startedAt, dates: [] });
+      return accepted;
+    } catch (error: unknown) {
+      this.running = false;
+      throw new PlannerError(describe(error));
+    }
+  }
+
+  /**
    * Wait for the run, then sync so the result lands locally.
    *
    * Failure here is reported through `onFinished` rather than thrown: nobody is holding this

@@ -42,6 +42,8 @@ export const COLLECTION = {
   weekPlans: 'weekPlans',
   /** Day runs: "Start my day", the shift, and what was let go. Authored here and on the phone. */
   dayRuns: 'dayRuns',
+  /** Coach insights. Server-authored, pulled only — never in the push queue. */
+  insights: 'insights',
 } as const;
 
 export type CollectionName = (typeof COLLECTION)[keyof typeof COLLECTION];

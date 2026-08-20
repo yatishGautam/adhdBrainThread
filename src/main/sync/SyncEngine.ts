@@ -10,6 +10,7 @@
  * an error — the work is already saved.
  */
 import type {
+	CoachInsight,
 	Day,
 	DayPlan,
 	DayRun,
@@ -32,6 +33,7 @@ import {
 	dayRunIn,
 	dayRunOut,
 	goalIn,
+	insightIn,
 	goalOut,
 	mindfulIn,
 	mindfulOut,
@@ -235,6 +237,13 @@ export class SyncEngine {
 			dayRunIn,
 			(record) => record.localDate,
 			(record) => record.updatedAt,
+		);
+		merged += await this.mergeInto<CoachInsight>(
+			this.remote<CoachInsight>(COLLECTION.insights),
+			response.insights,
+			insightIn,
+			(record) => record.periodKey,
+			(record) => record.updatedAt ?? record.generatedAt,
 		);
 
 		merged += await this.adoptProfileSettings(response.profile);

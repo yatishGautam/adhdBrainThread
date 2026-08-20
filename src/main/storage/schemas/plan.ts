@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { DayPlan, DayRun, PlanBlock, PlanUsage, WeekPlan } from '@shared/domain.js';
+import type { CoachInsight, DayPlan, DayRun, PlanBlock, PlanUsage, WeekPlan } from '@shared/domain.js';
 import { isoTimestamp, localDate, ulidLike } from './common.js';
 import { weekKey } from './goal.js';
 
@@ -87,5 +87,17 @@ export const dayRunSchema: z.ZodType<DayRun> = z.object({
   shiftFrom: clockTime.optional(),
   skippedBlockIds: z.array(z.string()),
   updatedAt: isoTimestamp,
+  deletedAt: isoTimestamp.nullish(),
+});
+
+export const coachInsightSchema: z.ZodType<CoachInsight> = z.object({
+  periodKey: z.string().regex(/^(\d{4}-W\d{2}|\d{4}-\d{2}-\d{2})$/),
+  generatedAt: isoTimestamp,
+  headline: z.string(),
+  body: z.string(),
+  suggestion: z.string(),
+  model: z.string(),
+  usage: planUsageSchema,
+  updatedAt: isoTimestamp.optional(),
   deletedAt: isoTimestamp.nullish(),
 });

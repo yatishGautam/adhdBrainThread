@@ -5,6 +5,7 @@ import { ScopeToggle } from './ScopeToggle.js';
 import { MomentumRing } from './MomentumRing.js';
 import { TrendChart } from './TrendChart.js';
 import { StatTile } from './StatTile.js';
+import { CoachPanel } from './CoachPanel.js';
 import { InsightCard } from './InsightCard.js';
 import { DistractionSection } from './DistractionSection.js';
 import { DetailSection } from './DetailSection.js';
@@ -68,6 +69,7 @@ export function AnalyticsView(): React.JSX.Element {
       </div>
 
       <InsightCard insight={summary.insight} />
+      {scope !== 'month' ? <CoachPanel scope={scope} anchor={anchor} /> : null}
       <DetailSection detail={summary.detail} scopeLabel={scope} />
       <DistractionSection stats={summary.distractions} />
     </div>

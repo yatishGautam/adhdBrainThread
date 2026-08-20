@@ -10,6 +10,7 @@ import type { WeekPlanAccepted } from "../planner.js";
 import type { SyncStatus } from "../sync.js";
 import type {
 	Blocker,
+	CoachInsight,
 	Day,
 	DayPlan,
 	DayRun,
@@ -360,6 +361,13 @@ export interface Requests {
 	"dayrun:skip": [{ localDate: string; blockId: string }, DayRun];
 	"dayrun:end": [{ localDate: string }, DayRun | null];
 	/**
+	 * The coach. `generate` costs one (small) API call and follows the planner's contract: it
+	 * returns when the run starts, `planner:runFinished` says when it ended, and the insight
+	 * itself arrives by sync — read it back with `insight:get`.
+	 */
+	"insight:get": [{ periodKey: string }, CoachInsight | null];
+	"insight:generate": [{ scope: "day" | "week" }, { periodKey: string; startedAt: string }];
+	/**
 	 * Turn a plan block into a real thread and link the block to it. The block stops being a
 	 * suggestion and starts being work you can run a timer on — the same move `todo:promote`
 	 * makes, and it returns both halves for the same reason.
@@ -556,6 +564,8 @@ export const REQUEST_CHANNELS = [
 	"dayrun:shift",
 	"dayrun:skip",
 	"dayrun:end",
+	"insight:get",
+	"insight:generate",
 	"planner:editBlock",
 	"planner:deleteBlock",
 	"planner:moveBlock",

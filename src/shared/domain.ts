@@ -390,6 +390,30 @@ export interface DayPlan {
  * reading the plan on the laptop is one action, not two.
  */
 /**
+ * The coach's written read of one period — a day (`2026-08-20`) or a week (`2026-W34`).
+ *
+ * Server-authored, like a plan: the app computes every fact (first touch, focus against plan,
+ * parked distractions, how the day run bent) and the model contributes the one thing only a
+ * model can — the connection between them, written for the person. Regenerating replaces the
+ * row; an insight is an opinion about data, and stale opinions are not worth versioning.
+ */
+export interface CoachInsight {
+  /** Primary key. A local date for a day, an ISO week key for a week — the cadence is the key. */
+  periodKey: string;
+  generatedAt: string;
+  /** The period in one sentence. */
+  headline: string;
+  /** Two short paragraphs, second person. */
+  body: string;
+  /** One small experiment, phrased as an invitation. */
+  suggestion: string;
+  model: string;
+  usage: PlanUsage;
+  updatedAt?: string;
+  deletedAt?: string | null;
+}
+
+/**
  * The record behind "Start my day": the day run.
  *
  * A run is to the day what a session is to a block — an explicit start, a live pointer, a
