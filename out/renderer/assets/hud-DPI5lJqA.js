@@ -1,5 +1,6 @@
-import { a as animateVisualElement, s as setTarget, u as useConstant, b as useIsomorphicLayoutEffect, j as jsxRuntimeExports, m as motion, d as formatClock, r as reactExports, c as createRoot } from "./format-B09i810A.js";
-import { R as Ring, A as AnimatePresence } from "./Ring-DOsfr5Cg.js";
+import { j as jsxRuntimeExports, r as reactExports, c as createRoot } from "./tokens-CwobPeMn.js";
+import { R as Ring, A as AnimatePresence } from "./Ring-DnQ-ggYw.js";
+import { a as animateVisualElement, s as setTarget, u as useConstant, b as useIsomorphicLayoutEffect, m as motion, c as formatClock } from "./format-ChUIx7mk.js";
 function stopAnimation(visualElement) {
   visualElement.values.forEach((value) => value.stop());
 }
@@ -97,7 +98,7 @@ function ThreadLabel({ title, nextAction }) {
       {
         title,
         style: {
-          fontSize: 14,
+          fontSize: 15,
           fontWeight: 600,
           whiteSpace: "nowrap",
           overflow: "hidden",
@@ -111,8 +112,8 @@ function ThreadLabel({ title, nextAction }) {
       {
         title: nextAction,
         style: {
-          fontSize: 11,
-          color: "var(--text-muted)",
+          fontSize: 12,
+          color: "var(--hud-text-muted)",
           whiteSpace: "nowrap",
           overflow: "hidden",
           textOverflow: "ellipsis",
@@ -130,7 +131,7 @@ function Countdown({
 }) {
   const pulsing = !paused && urgency === "urgent";
   return /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", alignItems: "baseline", gap: 6 }, children: [
-    paused ? /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { fontSize: 9, color: "var(--text-faint)" }, children: "PAUSED" }) : null,
+    paused ? /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { fontSize: 10, color: "var(--hud-text-faint)" }, children: "PAUSED" }) : null,
     /* @__PURE__ */ jsxRuntimeExports.jsx(
       motion.span,
       {
@@ -141,7 +142,7 @@ function Countdown({
           fontSize: 26,
           lineHeight: 1,
           fontWeight: 600,
-          color: paused ? "var(--text-muted)" : urgencyColor(urgency),
+          color: paused ? "var(--hud-text-muted)" : urgencyColor(urgency),
           display: "inline-block"
         },
         children: formatClock(remainingMs)
@@ -200,11 +201,11 @@ function ParkButton() {
           border: "1px solid var(--line)",
           borderRadius: 10,
           padding: 8,
-          width: 170,
+          width: 182,
           zIndex: 10
         },
         children: [
-          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { fontSize: 9, color: "var(--text-faint)", marginBottom: 5 }, children: "What pulled you away?" }),
+          /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { fontSize: 10, color: "var(--text-faint)", marginBottom: 5 }, children: "What pulled you away?" }),
           /* @__PURE__ */ jsxRuntimeExports.jsx(
             "input",
             {
@@ -212,7 +213,7 @@ function ParkButton() {
               value: note,
               placeholder: "Note (optional)",
               onChange: (e) => setNote(e.target.value),
-              style: { width: "100%", fontSize: 11, marginBottom: 6, borderBottom: "1px solid var(--line)" }
+              style: { width: "100%", fontSize: 12, marginBottom: 6, borderBottom: "1px solid var(--line)" }
             }
           ),
           /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { display: "flex", gap: 6 }, children: [
@@ -226,7 +227,7 @@ function ParkButton() {
 }
 const tagBtn = {
   flex: 1,
-  fontSize: 10,
+  fontSize: 11,
   padding: "4px 0",
   borderRadius: 6,
   border: "1px solid var(--line)",
@@ -290,28 +291,30 @@ function HudButton({
   return /* @__PURE__ */ jsxRuntimeExports.jsx("button", { onClick, title, style: hudBtn, ...rest, children: label });
 }
 const hudBtn = {
-  padding: "6px 10px",
+  padding: "6px 9px",
   borderRadius: 8,
   border: "1px solid var(--line)",
-  background: "var(--surface-raised)",
-  color: "var(--text-muted)",
+  // A shade behind the see-through shell, so the buttons read as part of the same pane of
+  // glass — but solid enough that their labels never fight with the wallpaper.
+  background: "color-mix(in srgb, var(--surface-raised) 85%, transparent)",
+  color: "var(--hud-text-muted)",
   cursor: "pointer",
-  fontSize: 10,
+  fontSize: 12,
   whiteSpace: "nowrap",
-  minWidth: 56
+  minWidth: 52
 };
 function StagePanel({ stage }) {
   const isBreak = stage.kind === "break";
   return /* @__PURE__ */ jsxRuntimeExports.jsxs(jsxRuntimeExports.Fragment, { children: [
     /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { style: { minWidth: 0, textAlign: "center" }, children: [
-      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { fontSize: 14, fontWeight: 600 }, children: isBreak ? "Break" : "Next: focus" }),
+      /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { fontSize: 15, fontWeight: 600 }, children: isBreak ? "Break" : "Next: focus" }),
       /* @__PURE__ */ jsxRuntimeExports.jsx(
         "div",
         {
           title: stage.threadTitle,
           style: {
-            fontSize: 11,
-            color: "var(--text-muted)",
+            fontSize: 12,
+            color: "var(--hud-text-muted)",
             whiteSpace: "nowrap",
             overflow: "hidden",
             textOverflow: "ellipsis",
@@ -335,7 +338,7 @@ function StagePanel({ stage }) {
           children: formatClock(stage.remainingMs)
         }
       ),
-      !stage.running ? /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { fontSize: 9, color: "var(--text-faint)" }, children: "WAITING FOR YOU" }) : null,
+      !stage.running ? /* @__PURE__ */ jsxRuntimeExports.jsx("span", { style: { fontSize: 10, color: "var(--hud-text-faint)" }, children: "WAITING FOR YOU" }) : null,
       /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { flex: 1 } }),
       /* @__PURE__ */ jsxRuntimeExports.jsxs(
         "div",
@@ -416,8 +419,8 @@ function EmptyHud() {
       onClick: () => void window.thread.invoke["hud:hide"](void 0),
       style: {
         flex: 1,
-        fontSize: 12,
-        color: "var(--text-faint)",
+        fontSize: 13,
+        color: "var(--hud-text-faint)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -460,6 +463,7 @@ function HudApp() {
   const [stage, setStage] = reactExports.useState(null);
   const [tick, setTick] = reactExports.useState(null);
   const [toast, setToast] = reactExports.useState(null);
+  const [hovered, setHovered] = reactExports.useState(false);
   const shell = useAnimationControls();
   reactExports.useEffect(() => {
     window.thread.invoke["session:state"](void 0).then(setState);
@@ -509,20 +513,27 @@ function HudApp() {
     motion.div,
     {
       animate: shell,
+      onMouseEnter: () => setHovered(true),
+      onMouseLeave: () => setHovered(false),
       style: {
-        width: "100vw",
-        height: "100vh",
+        // Sized by HudScale, which owns the window-to-layout conversion.
+        width: "100%",
+        height: "100%",
         position: "relative",
         display: "flex",
         flexDirection: "column",
         justifyContent: "center",
         gap: 8,
         padding: "10px 14px",
-        background: "var(--surface)",
-        border: "1px solid var(--line)",
+        // See-through, so the HUD never hides the thing you are working on. Under the
+        // cursor it firms up: reaching for Park should not mean squinting at it.
+        background: hovered ? "var(--hud-surface-hover)" : "var(--hud-surface)",
+        border: "1px solid var(--hud-line)",
         borderRadius: 22,
+        // The text has an unknown background behind it, so it carries its own shadow.
+        textShadow: "var(--hud-text-shadow)",
         opacity: paused ? 0.75 : 1,
-        transition: "opacity var(--motion-slow) var(--ease-out)",
+        transition: "opacity var(--motion-slow) var(--ease-out), background var(--motion-slow) var(--ease-out)",
         // The whole HUD doubles as its own drag handle; only interactive controls opt out.
         WebkitAppRegion: "drag"
       },
@@ -572,6 +583,26 @@ function HudApp() {
     }
   );
 }
+function HudScale({
+  scale: scale2,
+  children
+}) {
+  const [size, setSize] = reactExports.useState(() => baseSize(scale2));
+  reactExports.useEffect(() => {
+    const onResize = () => setSize(baseSize(scale2));
+    onResize();
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [scale2]);
+  return /* @__PURE__ */ jsxRuntimeExports.jsx("div", { style: { zoom: scale2, width: size.width, height: size.height }, children });
+}
+function baseSize(scale2) {
+  return {
+    width: document.documentElement.clientWidth / scale2,
+    height: document.documentElement.clientHeight / scale2
+  };
+}
+const scale = Number(new URLSearchParams(window.location.search).get("scale"));
 createRoot(document.getElementById("root")).render(
-  /* @__PURE__ */ jsxRuntimeExports.jsx(reactExports.StrictMode, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(HudApp, {}) })
+  /* @__PURE__ */ jsxRuntimeExports.jsx(reactExports.StrictMode, { children: /* @__PURE__ */ jsxRuntimeExports.jsx(HudScale, { scale: Number.isFinite(scale) && scale > 0 ? scale : 1, children: /* @__PURE__ */ jsxRuntimeExports.jsx(HudApp, {}) }) })
 );

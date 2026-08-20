@@ -16,7 +16,7 @@
  */
 import { safeStorage } from "electron";
 import path from "node:path";
-import type { Account, AuthState } from "@shared/auth.js";
+import type { Account, AuthState, EmailStartResult, EmailVerifyResult } from "@shared/auth.js";
 import type { ServerHealth } from "@shared/ipc/channels.js";
 import { DEFAULT_SERVER_URL } from "@shared/auth.js";
 import { systemTimezone } from "@shared/time.js";
@@ -151,6 +151,65 @@ export class AuthService {
 
 	async login(email: string, password: string): Promise<AuthState> {
 		return this.authenticate(() => this.api.login(email.trim(), password));
+	}
+
+	// ------------------------------------------------- signing up by email code
+
+	/**
+	 * Asks the server to mail a code. Signing up and recovering a forgotten password are the
+	 * same call: the server looks the address up and decides which mail to send, and tells the
+	 * person in their inbox rather than telling us here.
+	 *
+	 * Nothing about the account changes, so this does not emit a new `AuthState` — it is the one
+	 * account call whose answer is not who you are.
+	 */
+	async emailStart(email: string): Promise<EmailStartResult> {
+		this.setBusy(true);
+		try {
+			return await this.api.emailStart(email.trim());
+		} finally {
+			this.setBusy(false);
+		}
+	}
+
+	/** Trades six digits for a one-shot ticket. Still not a sign-in — no token exists yet. */
+	async emailVerify(email: string, code: string): Promise<EmailVerifyResult> {
+		this.setBusy(true);
+		try {
+			return await this.api.emailVerify(email.trim(), code);
+		} finally {
+			this.setBusy(false);
+		}
+	}
+
+	/**
+	 * Spends the ticket and signs in with what comes back. This is where an account is actually
+	 * created, so the display-name push mirrors `register` exactly — best effort, because an
+	 * account that exists without a name yet beats a sign-up that fails on its last step.
+	 *
+	 * On a reset there is no name to send and none is sent; the server has just ended every
+	 * other session for the account, which is the point of resetting.
+	 */
+	async setPassword(ticket: string, password: string, displayName?: string): Promise<AuthState> {
+		const name = displayName?.trim() || null;
+		const state = await this.authenticate(
+			() => this.api.setPassword(ticket, password, systemTimezone()),
+			name,
+		);
+		if (name && this.token) {
+			try {
+				await this.api.push(this.token, {
+					profile: {
+						displayName: name,
+						timezone: systemTimezone(),
+						updatedAt: new Date().toISOString(),
+					},
+				});
+			} catch (error: unknown) {
+				console.warn("[auth] the display name will sync on the next round trip", error);
+			}
+		}
+		return state;
 	}
 
 	/**

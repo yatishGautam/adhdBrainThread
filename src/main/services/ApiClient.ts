@@ -6,7 +6,7 @@
  * Every message it throws is written to be shown to a user unedited. The renderer does not get
  * to interpret status codes; by the time an error reaches it, it is a sentence.
  */
-import type { Account } from "@shared/auth.js";
+import type { Account, EmailStartResult, EmailVerifyResult } from "@shared/auth.js";
 import type { Calendar, CalendarDetail } from "@shared/calendar.js";
 import type { DayPlanRequest, PlanRunState, WeekPlanAccepted, WeekPlanRequest } from "@shared/planner.js";
 import type { PullResponse, PushResponse, WireOut } from "../sync/wire.js";
@@ -80,6 +80,33 @@ export class ApiClient {
 	login(email: string, password: string): Promise<AuthResult> {
 		return this.request<AuthResult>("POST", "/auth/login", {
 			body: { email, password },
+		});
+	}
+
+	/**
+	 * Step one of both signing up and resetting a password. Answers 202 and the same body no
+	 * matter what, so there is nothing here to branch on — see `EmailStartResult`.
+	 */
+	emailStart(email: string): Promise<EmailStartResult> {
+		return this.request<EmailStartResult>("POST", "/auth/email/start", {
+			body: { email },
+		});
+	}
+
+	/** Step two. `purpose` tells the caller which screen comes next. */
+	emailVerify(email: string, code: string): Promise<EmailVerifyResult> {
+		return this.request<EmailVerifyResult>("POST", "/auth/email/verify", {
+			body: { email, code },
+		});
+	}
+
+	/**
+	 * Step three, and the one that creates the account — the server writes no user row until a
+	 * code has come back from the mailbox. On a reset it also ends every other session.
+	 */
+	setPassword(ticket: string, password: string, timezone: string): Promise<AuthResult> {
+		return this.request<AuthResult>("POST", "/auth/password", {
+			body: { ticket, password, timezone },
 		});
 	}
 

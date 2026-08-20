@@ -42,6 +42,33 @@ export interface Credentials {
 	displayName?: string;
 }
 
+/**
+ * Which flow a mailed code turned out to belong to. The server decides this by looking the
+ * address up, and only tells us once the code comes back — so knowing it means the mailbox was
+ * read, and there is nothing to leak by acting on it.
+ */
+export type EmailPurpose = "signup" | "reset";
+
+/**
+ * What `/auth/email/start` answers, and it answers exactly this whatever happened: address
+ * registered or not, hourly cap hit or not, mail sent or not. Do not branch the UI on it and do
+ * not report "no account with that address" — the endpoint does not know, deliberately.
+ */
+export interface EmailStartResult {
+	ok: true;
+	/** `"log"` on a backend with no mail configured, where the code goes to the server log. */
+	delivery: "email" | "log";
+}
+
+/** A correct code, traded for one password write. */
+export interface EmailVerifyResult {
+	ticket: string;
+	purpose: EmailPurpose;
+}
+
+/** Six digits. Spaces and dashes are stripped server-side, so paste-from-notification works. */
+export const CODE_LENGTH = 6;
+
 /** The server's own rule, repeated here so the form can say so before making the round trip. */
 export const MIN_PASSWORD_LENGTH = 10;
 

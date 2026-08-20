@@ -103,8 +103,8 @@ function diffLocalDays(from, to) {
 function startOfLocalWeek(localDate2) {
   const [y, m, d] = localDate2.split("-").map(Number);
   const utc = new Date(Date.UTC(y, m - 1, d));
-  const shift = (utc.getUTCDay() + 6) % 7;
-  return addLocalDays(localDate2, -shift);
+  const shift2 = (utc.getUTCDay() + 6) % 7;
+  return addLocalDays(localDate2, -shift2);
 }
 function startOfLocalMonth(localDate2) {
   return `${localDate2.slice(0, 7)}-01`;
@@ -229,7 +229,8 @@ const planBlockSchema = z.object({
   threadId: ulidLike.optional(),
   todoId: ulidLike.optional(),
   goalId: ulidLike.optional(),
-  promoted: z.boolean().optional()
+  promoted: z.boolean().optional(),
+  pinned: z.boolean().optional()
 });
 const planUsageSchema = z.object({
   inputTokens: z.number().nonnegative(),
@@ -262,6 +263,27 @@ const weekPlanSchema = z.object({
   toDate: localDate,
   headline: z.string(),
   deferred: z.array(z.string()),
+  model: z.string(),
+  usage: planUsageSchema,
+  updatedAt: isoTimestamp.optional(),
+  deletedAt: isoTimestamp.nullish()
+});
+const dayRunSchema = z.object({
+  localDate,
+  startedAt: isoTimestamp,
+  endedAt: isoTimestamp.nullish(),
+  shiftMs: z.number().int(),
+  shiftFrom: clockTime$1.optional(),
+  skippedBlockIds: z.array(z.string()),
+  updatedAt: isoTimestamp,
+  deletedAt: isoTimestamp.nullish()
+});
+const coachInsightSchema = z.object({
+  periodKey: z.string().regex(/^(\d{4}-W\d{2}|\d{4}-\d{2}-\d{2})$/),
+  generatedAt: isoTimestamp,
+  headline: z.string(),
+  body: z.string(),
+  suggestion: z.string(),
   model: z.string(),
   usage: planUsageSchema,
   updatedAt: isoTimestamp.optional(),
@@ -357,6 +379,11 @@ const RARE_ROLL_CHANCE = 0.05;
 const CELEBRATION_ANTI_REPEAT = 2;
 const MILESTONE_STEP_COUNT = 10;
 const PLANNER_DEFAULT_MODEL = "claude-opus-5";
+const PLANNER_MODELS = [
+  { id: "claude-opus-5", label: "Opus 5", note: "Best judgement · ~$0.05 a plan" },
+  { id: "claude-sonnet-5", label: "Sonnet 5", note: "Balanced · ~$0.03 a plan" },
+  { id: "claude-haiku-4-5", label: "Haiku 4.5", note: "Cheapest · ~$0.01 a plan" }
+];
 let tmpCounter = 0;
 async function atomicWriteFile(file, contents) {
   const dir = path.dirname(file);
@@ -432,7 +459,11 @@ const COLLECTION = {
    */
   goals: "goals",
   plans: "plans",
-  weekPlans: "weekPlans"
+  weekPlans: "weekPlans",
+  /** Day runs: "Start my day", the shift, and what was let go. Authored here and on the phone. */
+  dayRuns: "dayRuns",
+  /** Coach insights. Server-authored, pulled only — never in the push queue. */
+  insights: "insights"
 };
 function defineCollection(spec) {
   return spec;
@@ -653,6 +684,20 @@ const collections = [
     schema: dayPlanSchema,
     key: (plan) => plan.localDate,
     partition: (plan) => monthOf(plan.localDate)
+  }),
+  // One tiny record per day actually run. Month files, like the plans they point into.
+  defineCollection({
+    name: COLLECTION.dayRuns,
+    schema: dayRunSchema,
+    key: (run) => run.localDate,
+    partition: (run) => monthOf(run.localDate)
+  }),
+  // A couple of hundred a year at the very most; a file per year, keyed by period.
+  defineCollection({
+    name: COLLECTION.insights,
+    schema: coachInsightSchema,
+    key: (insight) => insight.periodKey,
+    partition: (insight) => insight.periodKey.slice(0, 4)
   }),
   // One record per press of the button. Fifty-two a year at most, so a file per ISO
   // week-numbering year — the same partition the goals use, and for the same reason.
@@ -1269,6 +1314,161 @@ class GoalRepo {
     await this.goals.put(goal);
   }
 }
+class DayRunRepo {
+  constructor(store) {
+    this.store = store;
+  }
+  get runs() {
+    return this.store.collection(COLLECTION.dayRuns);
+  }
+  async get(localDate2) {
+    const run = await this.runs.get(localDate2);
+    return run && !run.deletedAt ? run : null;
+  }
+  /**
+   * Ignite the day — or resume it. One run per day is the invariant, so pressing Start again
+   * after an End reopens the same record rather than pretending the morning did not happen.
+   */
+  async start(localDate2) {
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    const existing = await this.get(localDate2);
+    const run = existing ? { ...existing, endedAt: null, updatedAt: now } : {
+      localDate: localDate2,
+      startedAt: now,
+      endedAt: null,
+      shiftMs: 0,
+      skippedBlockIds: [],
+      updatedAt: now
+    };
+    await this.runs.put(run);
+    return run;
+  }
+  async save(run) {
+    await this.runs.put(run);
+    return run;
+  }
+  /** Let one block go, on purpose. Skipping is a decision and reads as one — never "missed". */
+  async skip(localDate2, blockId) {
+    const run = await this.get(localDate2);
+    if (!run) throw new Error("The day has not been started.");
+    if (run.skippedBlockIds.includes(blockId)) return run;
+    return this.save({
+      ...run,
+      skippedBlockIds: [...run.skippedBlockIds, blockId],
+      updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+    });
+  }
+  async end(localDate2) {
+    const run = await this.get(localDate2);
+    if (!run) return null;
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    return this.save({ ...run, endedAt: now, updatedAt: now });
+  }
+}
+class InsightRepo {
+  constructor(store) {
+    this.store = store;
+  }
+  get insights() {
+    return this.store.collection(COLLECTION.insights);
+  }
+  async get(periodKey) {
+    const insight = await this.insights.get(periodKey);
+    return insight && !insight.deletedAt ? insight : null;
+  }
+}
+function effectiveBlocks(plan, run) {
+  const shiftMinutes = run ? Math.round(run.shiftMs / 6e4) : 0;
+  const anchor = run?.shiftFrom ? toMinutes$2(run.shiftFrom) : null;
+  const skipped = new Set(run?.skippedBlockIds ?? []);
+  return plan.blocks.map((block) => {
+    const slides = anchor !== null && toMinutes$2(block.start) >= anchor;
+    const offset = slides ? shiftMinutes : 0;
+    return {
+      block,
+      start: toMinutes$2(block.start) + offset,
+      end: toMinutes$2(block.end) + offset,
+      skipped: skipped.has(block.id)
+    };
+  }).sort((a, b) => a.start - b.start);
+}
+const DAY_START = "00:00";
+function applyShift(plan, run, deltaMs, nowMinutes, scope = "rest") {
+  const frontier = effectiveBlocks(plan, run).filter((entry) => !entry.skipped).find((entry) => entry.end > nowMinutes);
+  const proposed = scope === "day" ? DAY_START : frontier?.block.start;
+  const anchor = earlier(run.shiftFrom, proposed);
+  const shiftMs = run.shiftMs + deltaMs;
+  const { shiftFrom: _replaced, ...rest } = run;
+  return {
+    ...rest,
+    shiftMs,
+    ...shiftMs !== 0 && anchor ? { shiftFrom: anchor } : {},
+    updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+  };
+}
+function earlier(a, b) {
+  if (!a) return b;
+  if (!b) return a;
+  return toMinutes$2(a) <= toMinutes$2(b) ? a : b;
+}
+function toMinutes$2(time) {
+  const [hour = 0, minute = 0] = time.split(":").map(Number);
+  return hour * 60 + minute;
+}
+function toClock(minutes) {
+  const clamped = Math.max(0, Math.min(minutes, 23 * 60 + 59));
+  return `${String(Math.floor(clamped / 60)).padStart(2, "0")}:${String(clamped % 60).padStart(2, "0")}`;
+}
+function ladderOf(blocks) {
+  const gaps = blocks.map((block, index) => {
+    const next = blocks[index + 1];
+    return next ? toMinutes$2(next.start) - toMinutes$2(block.end) : 0;
+  });
+  return { start: blocks.length ? toMinutes$2(blocks[0].start) : 0, gaps };
+}
+function layOnLadder(sequence, ladder) {
+  let cursor = ladder.start;
+  return sequence.map((block, index) => {
+    const duration = toMinutes$2(block.end) - toMinutes$2(block.start);
+    const start = toClock(cursor);
+    const end = toClock(cursor + duration);
+    cursor += duration + (ladder.gaps[index] ?? 0);
+    if (start === block.start && end === block.end) return block;
+    return { ...block, start, end, pinned: true };
+  });
+}
+function resequenceBlocks(blocks, order) {
+  const byId = new Map(blocks.map((block) => [block.id, block]));
+  if (order.length !== blocks.length || order.some((id) => !byId.has(id))) {
+    throw new Error("The plan changed while you were moving that block.");
+  }
+  const sequence = order.map((id) => byId.get(id));
+  return layOnLadder(sequence, ladderOf(blocks));
+}
+function insertBlock(blocks, index, block) {
+  const at = Math.max(0, Math.min(blocks.length, index));
+  const push = Math.max(0, toMinutes$2(block.end) - startOf(blocks[at]));
+  const before = blocks.slice(0, at);
+  const after = blocks.slice(at).map((later) => push > 0 ? shift(later, push) : later);
+  return [...before, { ...block, pinned: true }, ...after];
+}
+function startOf(block) {
+  return block ? toMinutes$2(block.start) : Number.POSITIVE_INFINITY;
+}
+function shift(block, minutes) {
+  return {
+    ...block,
+    start: toClock(toMinutes$2(block.start) + minutes),
+    end: toClock(toMinutes$2(block.end) + minutes)
+  };
+}
+function sortBlocks(blocks) {
+  const minutes = (time) => {
+    const [hour = 0, minute = 0] = time.split(":").map(Number);
+    return hour * 60 + minute;
+  };
+  return [...blocks].sort((a, b) => minutes(a.start) - minutes(b.start));
+}
 class PlanRepo {
   constructor(store) {
     this.store = store;
@@ -1293,6 +1493,29 @@ class PlanRepo {
   async getWeek(weekKey2) {
     const plan = await this.weeks.get(weekKey2);
     return plan && !plan.deletedAt ? plan : null;
+  }
+  /**
+   * Every plan between two local dates, in date order.
+   *
+   * By date rather than by week key, because the calendar's ranges do not respect week
+   * boundaries — a month grid starts on whatever Monday the 1st falls after, and a week read
+   * across a year boundary spans two week-key partitions.
+   */
+  async range(from, to) {
+    const all = await this.plans.all();
+    return all.filter((plan) => !plan.deletedAt && plan.localDate >= from && plan.localDate <= to).sort((a, b) => a.localDate.localeCompare(b.localDate));
+  }
+  /**
+   * The runs for a set of week keys.
+   *
+   * By key rather than by the dates a run covers, because `fromDate`/`toDate` are the window
+   * that run *planned* — pressed on a Thursday they read Thursday to Sunday. Matching a
+   * Monday-to-Wednesday range against those would find no run for a week that plainly has one.
+   */
+  async weeksFor(weekKeys) {
+    const wanted = new Set(weekKeys);
+    const all = await this.weeks.all();
+    return all.filter((plan) => !plan.deletedAt && wanted.has(plan.weekKey)).sort((a, b) => a.weekKey.localeCompare(b.weekKey));
   }
   /** Every day of a week that still has a plan, in date order. */
   async listWeekDays(weekKey2) {
@@ -1349,6 +1572,96 @@ class PlanRepo {
       updatedAt: (/* @__PURE__ */ new Date()).toISOString()
     };
     return this.save(next);
+  }
+  /**
+   * Rewrite one block by hand, or add a new one.
+   *
+   * Every hand edit stamps `pinned: true` — the contract `promoted` earns by starting work,
+   * earned here by touch. The server carries pinned blocks across a regeneration untouched, so
+   * an edited block is owned rather than replaced. Written through the tracked collection so
+   * the edit is queued for push; blocks are re-sorted so the list still reads as a day.
+   */
+  async editBlock(localDate2, block, shell2) {
+    const plan = await this.get(localDate2) ?? this.emptyPlan(localDate2, shell2);
+    const edited = { ...block, pinned: true };
+    const rest = plan.blocks.filter((candidate) => candidate.id !== block.id);
+    const next = {
+      ...plan,
+      blocks: sortBlocks([...rest, edited]),
+      updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+    };
+    return this.save(next);
+  }
+  /**
+   * Put the day's blocks in a new order.
+   *
+   * The reordering itself lives in `@shared/planLayout` so the phone and the laptop agree on
+   * where a dragged block lands. Here it is only persistence — written through the tracked
+   * collection like any hand edit, and re-sorted afterwards because the times changed under it.
+   */
+  async reorderBlocks(localDate2, blockIds) {
+    const plan = await this.get(localDate2);
+    if (!plan) throw new Error("There is no plan for that day.");
+    const next = {
+      ...plan,
+      blocks: sortBlocks(resequenceBlocks(plan.blocks, blockIds)),
+      updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+    };
+    return this.save(next);
+  }
+  /**
+   * Open a new slot at a position in the day, pushing what follows if it has to.
+   *
+   * A day that was never planned still gets one: opening a slot on an empty Thursday is a
+   * perfectly good way to start planning it, and refusing would send you to the generator for
+   * a single errand.
+   */
+  async insertBlock(localDate2, index, block, shell2) {
+    const plan = await this.get(localDate2) ?? this.emptyPlan(localDate2, shell2);
+    const next = {
+      ...plan,
+      blocks: sortBlocks(insertBlock(plan.blocks, index, block)),
+      updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+    };
+    return this.save(next);
+  }
+  /** Remove one block. The day keeps its plan — an emptied plan is still a decision. */
+  async deleteBlock(localDate2, blockId) {
+    const plan = await this.get(localDate2);
+    if (!plan) return null;
+    const next = {
+      ...plan,
+      blocks: plan.blocks.filter((block) => block.id !== blockId),
+      updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+    };
+    return this.save(next);
+  }
+  /**
+   * Move a block to another day. It lands pinned — moving is the strongest possible edit — and
+   * the target day gets a plan shell if it never had one, because "Thursday, but really Friday"
+   * must not depend on Friday having been planned.
+   */
+  async moveBlock(fromDate, toDate, blockId, shell2) {
+    const source = await this.get(fromDate);
+    const block = source?.blocks.find((candidate) => candidate.id === blockId);
+    if (!source || !block) throw new Error("That block is no longer in the plan.");
+    const from = await this.deleteBlock(fromDate, blockId);
+    const to = await this.editBlock(toDate, block, shell2);
+    return { from, to };
+  }
+  emptyPlan(localDate2, shell2) {
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    return {
+      localDate: localDate2,
+      weekKey: weekKeyOf(localDate2),
+      generatedAt: now,
+      wakeTime: shell2?.wakeTime ?? "07:00",
+      startTime: shell2?.startTime ?? "09:00",
+      endTime: shell2?.endTime ?? "18:00",
+      blocks: [],
+      headline: "",
+      updatedAt: now
+    };
   }
   /**
    * Throw a day's plan away.
@@ -1452,6 +1765,8 @@ const settingsSchema = z.object({
   recentCelebrationIds: z.array(z.string()),
   railCollapsed: z.boolean(),
   hudBounds: z.object({ x: z.number(), y: z.number() }).optional(),
+  calendarBounds: z.object({ x: z.number(), y: z.number(), width: z.number(), height: z.number() }).optional(),
+  calendarWidgetScope: z.enum(["day", "week", "month"]).optional(),
   timezone: z.string(),
   lastOpenSessionId: z.string().optional(),
   wakeTime: clockTime().default("07:30"),
@@ -1459,7 +1774,8 @@ const settingsSchema = z.object({
   dayEndTime: clockTime().default("18:00"),
   plannerContext: z.string().default(""),
   plannerModel: z.string().default(PLANNER_DEFAULT_MODEL),
-  plannerEffort: z.enum(["low", "medium", "high"]).default("medium")
+  plannerEffort: z.enum(["low", "medium", "high"]).default("medium"),
+  nudgesEnabled: z.boolean().default(true)
 });
 function clockTime() {
   return z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "expected a 24-hour HH:MM time");
@@ -1480,7 +1796,8 @@ function defaultSettings() {
     plannerContext: "",
     plannerModel: PLANNER_DEFAULT_MODEL,
     // `medium` plans a day as well as `high` does and spends a fraction of the thinking tokens.
-    plannerEffort: "medium"
+    plannerEffort: "medium",
+    nudgesEnabled: true
   };
 }
 class SettingsRepo {
@@ -1717,7 +2034,7 @@ function withOrders(threads) {
   }));
 }
 class Database {
-  constructor(root, store, clock, threads, days, goals, plans, sessions, settings, migration) {
+  constructor(root, store, clock, threads, days, goals, plans, dayRuns, insights, sessions, settings, migration) {
     this.root = root;
     this.store = store;
     this.clock = clock;
@@ -1725,6 +2042,8 @@ class Database {
     this.days = days;
     this.goals = goals;
     this.plans = plans;
+    this.dayRuns = dayRuns;
+    this.insights = insights;
     this.sessions = sessions;
     this.settings = settings;
     this.migration = migration;
@@ -1742,6 +2061,8 @@ class Database {
     const threads = new ThreadRepo(store, clock);
     const goals = new GoalRepo(store, clock);
     const plans = new PlanRepo(store);
+    const dayRuns = new DayRunRepo(store);
+    const insights = new InsightRepo(store);
     const sessions = new SessionRepo(store);
     return new Database(
       root,
@@ -1751,6 +2072,8 @@ class Database {
       days,
       goals,
       plans,
+      dayRuns,
+      insights,
       sessions,
       settings,
       migration
@@ -2233,6 +2556,239 @@ class AnalyticsService {
     return [...byId.values()];
   }
 }
+const MAX_FULL_DAYS = 62;
+const MAX_SUMMARY_DAYS = 366;
+function maxDaysFor(detail) {
+  return detail === "summary" ? MAX_SUMMARY_DAYS : MAX_FULL_DAYS;
+}
+function detailFor(scope) {
+  return scope === "month" ? "summary" : "full";
+}
+function buildCalendar(sources, detail = "full") {
+  const dates = localDateRange(sources.from, sources.to);
+  const live = (rows) => rows.filter((row) => !row.deletedAt);
+  const plansByDate = byKey(live(sources.plans), (plan) => plan.localDate);
+  const daysByDate = byKey(live(sources.days), (day) => day.localDate);
+  const sessionsByDate = groupBy(live(sources.sessions), (session) => session.localDate);
+  const sitsByDate = groupBy(live(sources.sits), (sit) => sit.localDate);
+  const titles = new Map(sources.threads.map((thread) => [thread.id, thread.title]));
+  const days = dates.map((localDate2) => {
+    const plan = plansByDate.get(localDate2) ?? null;
+    const sessions = sessionsByDate.get(localDate2) ?? [];
+    const sits = sitsByDate.get(localDate2) ?? [];
+    const todos = daysByDate.get(localDate2)?.todos ?? [];
+    const entries = entriesFor(localDate2, plan, sessions, sits, titles, sources.timezone);
+    return {
+      localDate: localDate2,
+      // The plan's own week key is authoritative when it has one — it is what the run filed the
+      // day under, and re-deriving it would disagree for a plan generated across a boundary.
+      weekKey: plan?.weekKey || weekKeyOf(localDate2),
+      plan: plan ? {
+        generatedAt: plan.generatedAt,
+        wakeTime: plan.wakeTime,
+        startTime: plan.startTime,
+        endTime: plan.endTime,
+        headline: plan.headline
+      } : null,
+      ...detail === "full" ? { entries } : {},
+      summary: summarise(entries, todos, plan !== null)
+    };
+  });
+  return {
+    from: sources.from,
+    to: sources.to,
+    timezone: sources.timezone,
+    detail,
+    weeks: weeksFor(dates, live(sources.weekPlans), live(sources.goals)),
+    days
+  };
+}
+function entriesFor(localDate2, plan, sessions, sits, titles, timezone) {
+  const entries = [];
+  const blocks = plan?.blocks ?? [];
+  const spentByBlock = attribute(blocks, sessions, timezone);
+  for (const block of blocks) {
+    const spent = spentByBlock.get(block.id);
+    entries.push({
+      id: `plan:${localDate2}:${block.id}`,
+      source: "plan",
+      localDate: localDate2,
+      start: block.start,
+      end: block.end,
+      kind: block.kind,
+      title: block.title,
+      ...block.why ? { why: block.why } : {},
+      ...block.threadId ? { threadId: block.threadId } : {},
+      ...block.todoId ? { todoId: block.todoId } : {},
+      ...block.goalId ? { goalId: block.goalId } : {},
+      ...block.promoted ? { promoted: true } : {},
+      // Only a real session promotes a block past `planned`. Nothing here consults the clock.
+      status: spent ? "done" : "planned",
+      ...spent ? { actualMs: spent } : {}
+    });
+  }
+  for (const session of sessions) {
+    const start = wallClock(session.startedAt, timezone);
+    entries.push({
+      id: `session:${session.id}`,
+      source: "session",
+      localDate: localDate2,
+      start,
+      end: runningEnd(session.startedAt, session.endedAt, session.activeMs, timezone),
+      kind: "session",
+      title: session.threadId && titles.get(session.threadId)?.trim() || "Focus",
+      ...session.threadId ? { threadId: session.threadId } : {},
+      status: session.endedAt ? "done" : "running",
+      actualMs: Math.max(0, session.activeMs),
+      startedAt: session.startedAt,
+      ...session.endedAt ? { endedAt: session.endedAt } : {}
+    });
+  }
+  for (const sit of sits) {
+    const start = wallClock(sit.startedAt, timezone);
+    entries.push({
+      id: `sit:${sit.id}`,
+      source: "sit",
+      localDate: localDate2,
+      start,
+      end: runningEnd(sit.startedAt, sit.endedAt, sit.actualMs, timezone),
+      kind: "sit",
+      title: "Sit",
+      status: sit.endedAt ? "done" : "running",
+      actualMs: Math.max(0, sit.actualMs),
+      startedAt: sit.startedAt,
+      ...sit.endedAt ? { endedAt: sit.endedAt } : {}
+    });
+  }
+  return entries.sort(
+    (a, b) => toMinutes$1(a.start) - toMinutes$1(b.start) || SOURCE_ORDER[a.source] - SOURCE_ORDER[b.source] || a.id.localeCompare(b.id)
+  );
+}
+const SOURCE_ORDER = { plan: 0, session: 1, sit: 2 };
+function attribute(blocks, sessions, timezone) {
+  const spent = /* @__PURE__ */ new Map();
+  if (!blocks.length) return spent;
+  const byThread = /* @__PURE__ */ new Map();
+  for (const block of blocks) {
+    if (!block.threadId) continue;
+    const list = byThread.get(block.threadId);
+    if (list) list.push(block);
+    else byThread.set(block.threadId, [block]);
+  }
+  for (const session of sessions) {
+    if (!session.threadId) continue;
+    const candidates = byThread.get(session.threadId);
+    if (!candidates?.length) continue;
+    const at = toMinutes$1(wallClock(session.startedAt, timezone));
+    const winner = candidates.reduce(
+      (best, block) => Math.abs(toMinutes$1(block.start) - at) < Math.abs(toMinutes$1(best.start) - at) ? block : best
+    );
+    spent.set(winner.id, (spent.get(winner.id) ?? 0) + Math.max(0, session.activeMs));
+  }
+  return spent;
+}
+const WORK_KINDS = /* @__PURE__ */ new Set(["focus", "admin"]);
+function summarise(entries, todos, planned) {
+  let plannedMs = 0;
+  let focusMs = 0;
+  let sitMs = 0;
+  let blocks = 0;
+  let blocksDone = 0;
+  let sessions = 0;
+  for (const entry of entries) {
+    if (entry.source === "plan") {
+      blocks += 1;
+      if (WORK_KINDS.has(entry.kind)) {
+        plannedMs += spanMs(entry.start, entry.end);
+        if (entry.status === "done") blocksDone += 1;
+      }
+    } else if (entry.source === "session") {
+      sessions += 1;
+      focusMs += entry.actualMs ?? 0;
+    } else {
+      sitMs += entry.actualMs ?? 0;
+    }
+  }
+  return {
+    plannedMs,
+    focusMs,
+    sitMs,
+    blocks,
+    blocksDone,
+    sessions,
+    todosOpen: todos.filter((todo) => !todo.done).length,
+    todosDone: todos.filter((todo) => todo.done).length,
+    planned
+  };
+}
+function weeksFor(dates, weekPlans, goals) {
+  const keys = [];
+  for (const date2 of dates) {
+    const key = weekKeyOf(date2);
+    if (!keys.includes(key)) keys.push(key);
+  }
+  const runs = byKey(weekPlans, (week) => week.weekKey);
+  const goalsByWeek = groupBy(goals, (goal) => goal.weekKey);
+  return keys.map((weekKey2) => {
+    const run = runs.get(weekKey2);
+    return {
+      weekKey: weekKey2,
+      from: run?.fromDate ?? "",
+      to: run?.toDate ?? "",
+      generatedAt: run?.generatedAt ?? null,
+      headline: run?.headline ?? "",
+      deferred: (run?.deferred ?? []).filter((line) => typeof line === "string" && line.trim()),
+      model: run?.model || null,
+      goals: (goalsByWeek.get(weekKey2) ?? []).map((goal) => ({
+        id: goal.id,
+        title: goal.title,
+        done: goal.done,
+        order: goal.order ?? null
+      })).sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.id.localeCompare(b.id))
+    };
+  });
+}
+function wallClock(iso2, timezone) {
+  const at = new Date(iso2);
+  if (Number.isNaN(at.getTime())) return "00:00";
+  try {
+    return new Intl.DateTimeFormat("en-GB", {
+      timeZone: timezone,
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23"
+    }).format(at);
+  } catch {
+    return iso2.slice(11, 16);
+  }
+}
+function runningEnd(startedAt, endedAt, accruedMs, timezone) {
+  if (endedAt) return wallClock(endedAt, timezone);
+  const accrued = new Date(new Date(startedAt).getTime() + Math.max(0, accruedMs));
+  return Number.isNaN(accrued.getTime()) ? wallClock(startedAt, timezone) : wallClock(accrued.toISOString(), timezone);
+}
+function toMinutes$1(time) {
+  const [h, m] = time.split(":").map(Number);
+  return (h ?? 0) * 60 + (m ?? 0);
+}
+function spanMs(start, end) {
+  return Math.max(0, toMinutes$1(end) - toMinutes$1(start)) * 6e4;
+}
+function byKey(rows, key) {
+  const out = /* @__PURE__ */ new Map();
+  for (const row of rows) out.set(key(row), row);
+  return out;
+}
+function groupBy(rows, key) {
+  const out = /* @__PURE__ */ new Map();
+  for (const row of rows) {
+    const k = key(row);
+    const list = out.get(k);
+    if (list) list.push(row);
+    else out.set(k, [row]);
+  }
+  return out;
+}
 class ApiError extends Error {
   constructor(status, message) {
     super(message);
@@ -2253,6 +2809,8 @@ class NetworkError extends Error {
 const TIMEOUT_MS = 15e3;
 const SYNC_TIMEOUT_MS = 6e4;
 const PLAN_TIMEOUT_MS = 2e4;
+const CALENDAR_TIMEOUT_MS = 3e4;
+const HEALTH_TIMEOUT_MS = 5e3;
 class ApiClient {
   constructor(baseUrl) {
     this.baseUrl = baseUrl;
@@ -2271,6 +2829,30 @@ class ApiClient {
   login(email, password) {
     return this.request("POST", "/auth/login", {
       body: { email, password }
+    });
+  }
+  /**
+   * Step one of both signing up and resetting a password. Answers 202 and the same body no
+   * matter what, so there is nothing here to branch on — see `EmailStartResult`.
+   */
+  emailStart(email) {
+    return this.request("POST", "/auth/email/start", {
+      body: { email }
+    });
+  }
+  /** Step two. `purpose` tells the caller which screen comes next. */
+  emailVerify(email, code) {
+    return this.request("POST", "/auth/email/verify", {
+      body: { email, code }
+    });
+  }
+  /**
+   * Step three, and the one that creates the account — the server writes no user row until a
+   * code has come back from the mailbox. On a reset it also ends every other session.
+   */
+  setPassword(ticket, password, timezone) {
+    return this.request("POST", "/auth/password", {
+      body: { ticket, password, timezone }
     });
   }
   logout(token) {
@@ -2302,8 +2884,42 @@ class ApiClient {
   planWeek(token, body) {
     return this.request("POST", "/plan/week", { token, body });
   }
+  /** Replan the rest of today, from `fromTime`. Same 202-then-sync contract as the week. */
+  planDay(token, body) {
+    return this.request("POST", "/plan/day", { token, body });
+  }
+  /** The coach. Same 202-then-sync contract; poll `planStatus` like any other run. */
+  insight(token, body) {
+    return this.request("POST", "/insight", {
+      token,
+      body
+    });
+  }
   planStatus(token) {
     return this.request("GET", "/plan/status", { token });
+  }
+  /**
+   * Is the server up? The one call here that carries no token and needs no account — being
+   * signed out is not the same as being offline, and the answer is the same either way.
+   */
+  health() {
+    return this.request("GET", "/health");
+  }
+  // --------------------------------------------------------------- calendar
+  /**
+   * The server's copy of a stretch of calendar.
+   *
+   * A read, and one nothing on screen waits for — `CalendarService` renders the local build
+   * first and lets this replace it when it arrives. That is why it is safe for this to be the
+   * one call that can quietly do nothing.
+   *
+   * `detail=summary` drops the per-day entry lists and keeps the counts, which is what a month
+   * grid renders. Asking for `full` over a month is a 400 from the server rather than a slow
+   * success, so the caller clamps the range before it gets here.
+   */
+  calendar(token, from, to, detail = "full") {
+    const query = new URLSearchParams({ from, to, detail });
+    return this.request("GET", `/calendar?${query.toString()}`, { token });
   }
   async request(method, path2, options = {}) {
     const headers = {};
@@ -2335,6 +2951,8 @@ class ApiClient {
 function timeoutFor(path2) {
   if (path2.startsWith("/plan")) return PLAN_TIMEOUT_MS;
   if (path2.startsWith("/sync")) return SYNC_TIMEOUT_MS;
+  if (path2.startsWith("/health")) return HEALTH_TIMEOUT_MS;
+  if (path2.startsWith("/calendar")) return CALENDAR_TIMEOUT_MS;
   return TIMEOUT_MS;
 }
 function normaliseUrl(url) {
@@ -2380,6 +2998,167 @@ async function serverMessage(response) {
   } catch {
     return null;
   }
+}
+class CalendarService {
+  constructor(db, auth) {
+    this.db = db;
+    this.auth = auth;
+  }
+  /**
+   * The local answer, always available, never blocked on anything.
+   *
+   * This is what a view renders on first paint and what it keeps if the network is not there.
+   */
+  async local(request) {
+    const { from, to } = clampRange(request);
+    const detail = detailFor(request.scope);
+    const settings = this.db.settings.get();
+    const weekKeys = weekKeysBetween(from, to);
+    const [plans, sessions, days, goals, threads, weekPlans, sits] = await Promise.all([
+      this.db.plans.range(from, to),
+      this.db.sessions.inLocalDateRange(from, to),
+      this.db.days.range(from, to),
+      this.db.goals.list(),
+      this.db.threads.list(),
+      this.db.plans.weeksFor(weekKeys),
+      this.sits(from, to)
+    ]);
+    return buildCalendar(
+      {
+        from,
+        to,
+        timezone: settings.timezone,
+        plans,
+        sessions,
+        sits,
+        days,
+        weekPlans,
+        goals: goals.filter((goal) => weekKeys.includes(goal.weekKey)),
+        // Every thread, done ones included: a session on a finished thread still needs its
+        // title, and `activeList()` would render it as a bare "Focus".
+        threads: threads.map((thread) => ({ id: thread.id, title: thread.title }))
+      },
+      detail
+    );
+  }
+  /**
+   * The server's copy, or null.
+   *
+   * Null every time it cannot be had — signed out, offline, rate limited, anything. There is no
+   * error path here on purpose: the caller already holds a complete local answer, so a failure
+   * to reach the server is not a failure to produce a calendar, and treating it as one would
+   * put an error banner over a week that is perfectly readable.
+   */
+  async remote(request) {
+    const token = this.auth.currentToken();
+    if (!token) return null;
+    const { from, to } = clampRange(request);
+    try {
+      const calendar = await this.auth.api.calendar(
+        token,
+        from,
+        to,
+        detailFor(request.scope)
+      );
+      return { calendar, source: "server" };
+    } catch (error) {
+      if (error instanceof ApiError && error.isUnauthorized) {
+        await this.auth.handleUnauthorized();
+      }
+      return null;
+    }
+  }
+  /**
+   * Sits, read straight off the collection.
+   *
+   * There is no `MindfulRepo`: sits are recorded on the phone and this app only ever receives
+   * them through sync, so nothing here has ever needed to write one. Reading them for the
+   * calendar does not change that, and inventing a repository for one filtered read would.
+   */
+  async sits(from, to) {
+    const all = await this.db.store.collection(COLLECTION.mindful).all();
+    return all.filter(
+      (sit) => !sit.deletedAt && sit.localDate >= from && sit.localDate <= to
+    );
+  }
+}
+function weekKeysBetween(from, to) {
+  const keys = [];
+  for (let date2 = from; date2 <= to; date2 = addLocalDays(date2, 7)) {
+    const key = weekKeyOf(date2);
+    if (!keys.includes(key)) keys.push(key);
+  }
+  const last = weekKeyOf(to);
+  if (to >= from && !keys.includes(last)) keys.push(last);
+  return keys;
+}
+function clampRange(request) {
+  const detail = detailFor(request.scope);
+  const limit = maxDaysFor(detail);
+  const from = request.from <= request.to ? request.from : request.to;
+  const to = request.from <= request.to ? request.to : request.from;
+  const span = diffLocalDays(from, to) + 1;
+  return { from, to: span > limit ? addLocalDays(from, limit - 1) : to, detail };
+}
+const STALE_MINUTES = 5;
+class NowService {
+  constructor(db, sessions, onNudge) {
+    this.db = db;
+    this.sessions = sessions;
+    this.onNudge = onNudge;
+  }
+  timer = null;
+  lastMinute = null;
+  start() {
+    if (this.timer) return;
+    this.lastMinute = this.minuteOfDay();
+    this.timer = setInterval(() => void this.tick().catch(() => {
+    }), 2e4);
+    this.timer.unref?.();
+  }
+  stop() {
+    if (this.timer) clearInterval(this.timer);
+    this.timer = null;
+  }
+  async tick() {
+    const settings = this.db.settings.get();
+    if (!settings.nudgesEnabled) return;
+    const now = this.minuteOfDay();
+    let last = this.lastMinute ?? now;
+    this.lastMinute = now;
+    if (now === last) return;
+    if (minutesBetween(last, now) > STALE_MINUTES) last = (now - STALE_MINUTES + 1440) % 1440;
+    const plan = await this.db.plans.get(this.db.clock.today());
+    if (!plan) return;
+    if (await this.sessions.state()) return;
+    const run = await this.db.dayRuns.get(plan.localDate);
+    for (const entry of effectiveBlocks(plan, run)) {
+      if (entry.skipped || entry.block.kind === "buffer") continue;
+      if (!crossed(last, now, entry.start)) continue;
+      this.onNudge({ localDate: plan.localDate, block: entry.block });
+    }
+  }
+  minuteOfDay() {
+    const formatted = new Intl.DateTimeFormat("en-GB", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+      timeZone: this.db.settings.get().timezone
+    }).format(/* @__PURE__ */ new Date());
+    return toMinutes(formatted);
+  }
+}
+function crossed(last, now, target) {
+  if (last === now) return false;
+  if (last < now) return target > last && target <= now;
+  return target > last || target <= now;
+}
+function minutesBetween(last, now) {
+  return (now - last + 1440) % 1440;
+}
+function toMinutes(time) {
+  const [hour = 0, minute = 0] = time.split(":").map(Number);
+  return hour * 60 + minute;
 }
 const POLL_MS = 3e3;
 const POLL_TIMEOUT_MS = 5 * 6e4;
@@ -2430,8 +3209,62 @@ class PlannerService {
     };
     this.running = true;
     try {
+      await this.sync?.sync().catch(() => void 0);
       const accepted = await this.auth.api.planWeek(token, body);
       void this.awaitRun(accepted);
+      return accepted;
+    } catch (error) {
+      this.running = false;
+      throw new PlannerError(describe(error));
+    }
+  }
+  /**
+   * Replan the rest of today, from the clock's "now". The "life happened" button: what already
+   * happened stays as it was, pinned blocks stay where they are, and only the hours still
+   * ahead are reshaped. Same acknowledge-poll-sync flow as the week.
+   */
+  async generateDay(input) {
+    const token = this.requireToken();
+    if (this.running) {
+      throw new PlannerError("A plan is already being generated. Give it a moment.");
+    }
+    const settings = this.db.settings.get();
+    const body = {
+      localDate: input.localDate ?? this.db.clock.today(),
+      fromTime: clockNow(settings.timezone),
+      ...input.note?.trim() ? { note: input.note.trim() } : {},
+      model: settings.plannerModel,
+      effort: settings.plannerEffort
+    };
+    this.running = true;
+    try {
+      await this.sync?.sync().catch(() => void 0);
+      const accepted = await this.auth.api.planDay(token, body);
+      void this.awaitRun(accepted);
+      return accepted;
+    } catch (error) {
+      this.running = false;
+      throw new PlannerError(describe(error));
+    }
+  }
+  /**
+   * Ask the coach to read a day or a week. Lives on the planner service because it *is* the
+   * same machine — one paid run at a time, sync first so the server reads what this device
+   * just wrote, poll the shared status, and let the result arrive as a record.
+   */
+  async generateInsight(scope) {
+    const token = this.requireToken();
+    if (this.running) {
+      throw new PlannerError("Another generation is already running. Give it a moment.");
+    }
+    this.running = true;
+    try {
+      await this.sync?.sync().catch(() => void 0);
+      const accepted = await this.auth.api.insight(token, {
+        localDate: this.db.clock.today(),
+        scope
+      });
+      void this.awaitRun({ weekKey: accepted.periodKey, startedAt: accepted.startedAt, dates: [] });
       return accepted;
     } catch (error) {
       this.running = false;
@@ -2508,6 +3341,14 @@ function describe(error) {
     return error.message;
   }
   return error instanceof Error ? error.message : "The plan could not be generated.";
+}
+function clockNow(timezone) {
+  return new Intl.DateTimeFormat("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+    timeZone: timezone
+  }).format(/* @__PURE__ */ new Date());
 }
 const MIN_PASSWORD_LENGTH = 10;
 const DEFAULT_SERVER_URL = "https://api.adhd.yatishgautam.com";
@@ -2611,6 +3452,61 @@ class AuthService {
   async login(email, password) {
     return this.authenticate(() => this.api.login(email.trim(), password));
   }
+  // ------------------------------------------------- signing up by email code
+  /**
+   * Asks the server to mail a code. Signing up and recovering a forgotten password are the
+   * same call: the server looks the address up and decides which mail to send, and tells the
+   * person in their inbox rather than telling us here.
+   *
+   * Nothing about the account changes, so this does not emit a new `AuthState` — it is the one
+   * account call whose answer is not who you are.
+   */
+  async emailStart(email) {
+    this.setBusy(true);
+    try {
+      return await this.api.emailStart(email.trim());
+    } finally {
+      this.setBusy(false);
+    }
+  }
+  /** Trades six digits for a one-shot ticket. Still not a sign-in — no token exists yet. */
+  async emailVerify(email, code) {
+    this.setBusy(true);
+    try {
+      return await this.api.emailVerify(email.trim(), code);
+    } finally {
+      this.setBusy(false);
+    }
+  }
+  /**
+   * Spends the ticket and signs in with what comes back. This is where an account is actually
+   * created, so the display-name push mirrors `register` exactly — best effort, because an
+   * account that exists without a name yet beats a sign-up that fails on its last step.
+   *
+   * On a reset there is no name to send and none is sent; the server has just ended every
+   * other session for the account, which is the point of resetting.
+   */
+  async setPassword(ticket, password, displayName) {
+    const name = displayName?.trim() || null;
+    const state = await this.authenticate(
+      () => this.api.setPassword(ticket, password, systemTimezone()),
+      name
+    );
+    if (name && this.token) {
+      try {
+        await this.api.push(this.token, {
+          profile: {
+            displayName: name,
+            timezone: systemTimezone(),
+            updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+          }
+        });
+      } catch (error) {
+        console.warn("[auth] the display name will sync on the next round trip", error);
+      }
+    }
+    return state;
+  }
   /**
    * Tells the server to burn the token, then forgets it locally either way. A logout that
    * fails to reach the server must still log you out of this machine — that is the whole
@@ -2638,6 +3534,35 @@ class AuthService {
       return this.state();
     } finally {
       this.setBusy(false);
+    }
+  }
+  /**
+   * Ask the server whether it is there, and time how long it took to say so.
+   *
+   * Deliberately leaves `offline` alone. That flag is what the token check and sync found, and
+   * a probe of an unauthenticated endpoint proves nothing either way about a session — a green
+   * light here with an expired token is a true statement about the server, and quietly
+   * rewriting the account's state from a diagnostic button would make the two disagree.
+   */
+  async checkHealth() {
+    const host = hostOf(this.api.url);
+    const started = Date.now();
+    try {
+      const body = await this.api.health();
+      const online = body?.ok !== false;
+      return {
+        online,
+        host,
+        latencyMs: Date.now() - started,
+        message: online ? null : `${host} answered, but says it is not healthy.`
+      };
+    } catch (error) {
+      return {
+        online: false,
+        host,
+        latencyMs: null,
+        message: error instanceof Error ? error.message : `Could not reach ${host}.`
+      };
     }
   }
   async setServerUrl(url) {
@@ -2826,6 +3751,18 @@ function weekPlanOut(plan) {
     usage: plan.usage ?? { inputTokens: 0, outputTokens: 0, costUsd: 0 },
     updatedAt: iso(plan.updatedAt ?? plan.generatedAt),
     deletedAt: plan.deletedAt ? iso(plan.deletedAt) : null
+  };
+}
+function dayRunOut(run) {
+  return {
+    localDate: run.localDate,
+    startedAt: iso(run.startedAt),
+    endedAt: run.endedAt ? iso(run.endedAt) : null,
+    shiftMs: run.shiftMs ?? 0,
+    shiftFrom: run.shiftFrom ?? null,
+    skippedBlockIds: run.skippedBlockIds ?? [],
+    updatedAt: iso(run.updatedAt),
+    deletedAt: run.deletedAt ? iso(run.deletedAt) : null
   };
 }
 function threadIn(raw) {
@@ -3020,15 +3957,91 @@ const OUTCOMES = ["completed", "ended_early", "switched", "abandoned", "recovere
 function outcome(value) {
   return OUTCOMES.includes(value ?? "") ? value : "ended_early";
 }
+function insightIn(raw) {
+  const row = raw;
+  const periodKey = str(row.periodKey);
+  const generatedAt = str(row.generatedAt);
+  const updatedAt = str(row.updatedAt);
+  if (!periodKey || !generatedAt || !updatedAt) return null;
+  const usage = row.usage;
+  return {
+    periodKey,
+    generatedAt,
+    headline: str(row.headline) ?? "",
+    body: str(row.body) ?? "",
+    suggestion: str(row.suggestion) ?? "",
+    model: str(row.model) ?? "",
+    usage: {
+      inputTokens: num(usage?.inputTokens) ?? 0,
+      outputTokens: num(usage?.outputTokens) ?? 0,
+      costUsd: num(usage?.costUsd) ?? 0
+    },
+    updatedAt,
+    deletedAt: str(row.deletedAt) ?? null
+  };
+}
+function dayRunIn(raw) {
+  const row = raw;
+  const localDate2 = date(row.localDate);
+  const startedAt = str(row.startedAt);
+  const updatedAt = str(row.updatedAt);
+  if (!localDate2 || !startedAt || !updatedAt) return null;
+  const shiftFrom = str(row.shiftFrom);
+  return {
+    localDate: localDate2,
+    startedAt,
+    endedAt: str(row.endedAt) ?? null,
+    shiftMs: num(row.shiftMs) ?? 0,
+    // Defensive: a malformed anchor is worse than none — it would slide the wrong half of
+    // the day on every read.
+    ...shiftFrom && /^([01]\d|2[0-3]):[0-5]\d$/.test(shiftFrom) ? { shiftFrom } : {},
+    skippedBlockIds: strings(row.skippedBlockIds),
+    updatedAt,
+    deletedAt: str(row.deletedAt) ?? null
+  };
+}
+function plannerSettingsOut(settings) {
+  return {
+    wakeTime: settings.wakeTime,
+    dayStartTime: settings.dayStartTime,
+    dayEndTime: settings.dayEndTime,
+    plannerContext: settings.plannerContext,
+    plannerModel: settings.plannerModel,
+    plannerEffort: settings.plannerEffort
+  };
+}
+function plannerSettingsIn(raw) {
+  if (typeof raw !== "object" || raw === null) return {};
+  const settings = raw.settings;
+  if (typeof settings !== "object" || settings === null) return {};
+  const blob = settings;
+  const patch = {};
+  const clock = (value) => typeof value === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(value) ? value : void 0;
+  const wakeTime = clock(blob.wakeTime);
+  if (wakeTime) patch.wakeTime = wakeTime;
+  const dayStartTime = clock(blob.dayStartTime);
+  if (dayStartTime) patch.dayStartTime = dayStartTime;
+  const dayEndTime = clock(blob.dayEndTime);
+  if (dayEndTime) patch.dayEndTime = dayEndTime;
+  if (typeof blob.plannerContext === "string") patch.plannerContext = blob.plannerContext;
+  if (typeof blob.plannerModel === "string" && PLANNER_MODELS.some((model) => model.id === blob.plannerModel)) {
+    patch.plannerModel = blob.plannerModel;
+  }
+  if (blob.plannerEffort === "low" || blob.plannerEffort === "medium" || blob.plannerEffort === "high") {
+    patch.plannerEffort = blob.plannerEffort;
+  }
+  return patch;
+}
 const MAX_THREADS = 2e3;
 const MAX_DAYS = 2e3;
 const MAX_SESSIONS = 5e3;
 class SyncEngine {
-  constructor(db, auth, state, onChanged) {
+  constructor(db, auth, state, onChanged, onSettingsAdopted) {
     this.db = db;
     this.auth = auth;
     this.state = state;
     this.onChanged = onChanged;
+    this.onSettingsAdopted = onSettingsAdopted;
   }
   phase = "idle";
   message = null;
@@ -3167,8 +4180,40 @@ class SyncEngine {
       (record) => record.weekKey,
       (record) => record.updatedAt ?? record.generatedAt
     );
+    merged += await this.mergeInto(
+      this.remote(COLLECTION.dayRuns),
+      response.dayRuns,
+      dayRunIn,
+      (record) => record.localDate,
+      (record) => record.updatedAt
+    );
+    merged += await this.mergeInto(
+      this.remote(COLLECTION.insights),
+      response.insights,
+      insightIn,
+      (record) => record.periodKey,
+      (record) => record.updatedAt ?? record.generatedAt
+    );
+    merged += await this.adoptProfileSettings(response.profile);
     if (typeof response.seq === "number") this.state.advanceCursor(response.seq);
     return merged;
+  }
+  /**
+   * Planner settings edited on another device land here. Skipped entirely while this machine
+   * has its own profile edit queued — the pending push is newer intent, and adopting over it
+   * would erase what was just typed before it ever left the building.
+   */
+  async adoptProfileSettings(raw) {
+    if (!raw || this.state.isProfileDirty) return 0;
+    const patch = plannerSettingsIn(raw);
+    const current = this.db.settings.get();
+    const changed = Object.keys(patch).some(
+      (key) => patch[key] !== current[key]
+    );
+    if (!changed) return 0;
+    const settings = await this.db.settings.update(patch);
+    this.onSettingsAdopted?.(settings);
+    return 1;
   }
   /**
    * Last-write-wins on `updatedAt`, never on arrival order. The case that matters is not two
@@ -3202,8 +4247,9 @@ class SyncEngine {
     const goals = await this.dirtyRecords(COLLECTION.goals);
     const plans = await this.dirtyRecords(COLLECTION.plans);
     const weekPlans = await this.dirtyRecords(COLLECTION.weekPlans);
+    const dayRuns = await this.dirtyRecords(COLLECTION.dayRuns);
     const profileDirty = this.state.isProfileDirty;
-    if (!threads.length && !days.length && !sessions.length && !sits.length && !goals.length && !plans.length && !weekPlans.length && !profileDirty) {
+    if (!threads.length && !days.length && !sessions.length && !sits.length && !goals.length && !plans.length && !weekPlans.length && !dayRuns.length && !profileDirty) {
       return { pushed: 0, conflicts: 0 };
     }
     let pushed = 0;
@@ -3217,14 +4263,22 @@ class SyncEngine {
         mindfulSessions: batch.sits.map(mindfulOut),
         goals: batch.goals.map(goalOut),
         plans: batch.plans.map(planOut),
-        weekPlans: batch.weekPlans.map(weekPlanOut)
+        weekPlans: batch.weekPlans.map(weekPlanOut),
+        // A handful per week at most; they ride the first batch like the goals do.
+        ...index === 0 && dayRuns.length ? { dayRuns: dayRuns.map(dayRunOut) } : {}
       };
       if (index === 0 && profileDirty) {
         const displayName = this.auth.state().account?.displayName ?? null;
+        const settings = this.db.settings.get();
         body.profile = {
-          timezone: this.db.settings.get().timezone,
+          timezone: settings.timezone,
           updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
-          ...displayName ? { displayName } : {}
+          ...displayName ? { displayName } : {},
+          // The planner slice rides along so the server — which builds every plan from
+          // the profile it holds — actually knows the standing context and day shape
+          // typed into this app. The server merges these keys rather than replacing
+          // the blob, so keys another device owns survive this push.
+          settings: plannerSettingsOut(settings)
         };
       }
       const result = await this.auth.api.push(token, body);
@@ -3277,6 +4331,11 @@ class SyncEngine {
       case "weekPlan": {
         const winner = weekPlanIn(conflict.server);
         if (winner) await this.remote(COLLECTION.weekPlans).put(winner);
+        return;
+      }
+      case "dayRun": {
+        const winner = dayRunIn(conflict.server);
+        if (winner) await this.remote(COLLECTION.dayRuns).put(winner);
         return;
       }
       default:
@@ -3388,7 +4447,8 @@ const TRACKED = [
   // tombstone. They are tracked anyway: "I threw this week's plan away" has to reach the
   // other device, and a delete that stays local is a plan that reappears on the next pull.
   COLLECTION.plans,
-  COLLECTION.weekPlans
+  COLLECTION.weekPlans,
+  COLLECTION.dayRuns
 ];
 class SyncState {
   constructor(root) {
@@ -3983,12 +5043,15 @@ class CelebrationOrchestrator {
 }
 const here$2 = path.dirname(fileURLToPath(import.meta.url));
 const preloadPath = path.join(here$2, "../preload/index.mjs");
-function loadRenderer(window, page) {
+function loadRenderer(window, page, search) {
+  const query = search ? `?${search}` : "";
   const devServer = process.env["ELECTRON_RENDERER_URL"];
   if (devServer) {
-    void window.loadURL(`${devServer}/${page === "index" ? "" : `${page}.html`}`);
+    void window.loadURL(`${devServer}/${page === "index" ? "" : `${page}.html`}${query}`);
   } else {
-    void window.loadFile(path.join(here$2, `../renderer/${page}.html`));
+    void window.loadFile(path.join(here$2, `../renderer/${page}.html`), {
+      ...search ? { search } : {}
+    });
   }
 }
 class CelebrationOverlay {
@@ -4055,20 +5118,100 @@ class CelebrationOverlay {
     this.windows.clear();
   }
 }
-const HUD_WIDTH = 470;
-const HUD_HEIGHT = 106;
-function defaultHudPosition() {
+const CALENDAR_WIDTH = 560;
+const CALENDAR_HEIGHT = 420;
+const MIN_WIDTH = 380;
+const MIN_HEIGHT = 260;
+function defaultCalendarBounds() {
   const { workArea } = screen.getPrimaryDisplay();
   return {
-    x: Math.round(workArea.x + workArea.width - HUD_WIDTH - 24),
-    y: Math.round(workArea.y + workArea.height - HUD_HEIGHT - 24)
+    x: Math.round(workArea.x + workArea.width - CALENDAR_WIDTH - 24),
+    y: Math.round(workArea.y + 24),
+    width: CALENDAR_WIDTH,
+    height: CALENDAR_HEIGHT
+  };
+}
+function createCalendarWindow(saved, onMoved) {
+  const bounds = onScreen(saved) ?? defaultCalendarBounds();
+  const window = new BrowserWindow({
+    ...bounds,
+    minWidth: MIN_WIDTH,
+    minHeight: MIN_HEIGHT,
+    frame: false,
+    transparent: true,
+    resizable: true,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    hasShadow: false,
+    show: false,
+    maximizable: false,
+    minimizable: false,
+    fullscreenable: false,
+    webPreferences: {
+      preload: preloadPath,
+      sandbox: false,
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  });
+  window.setAlwaysOnTop(true, "floating");
+  window.once("ready-to-show", () => window.show());
+  const remember = () => {
+    if (window.isDestroyed()) return;
+    const at = window.getBounds();
+    onMoved({ x: at.x, y: at.y, width: at.width, height: at.height });
+  };
+  window.on("moved", remember);
+  window.on("resized", remember);
+  loadRenderer(window, "calendar");
+  return window;
+}
+function onScreen(bounds) {
+  if (!bounds) return void 0;
+  const visible = screen.getAllDisplays().some(({ workArea }) => {
+    const overlapX = bounds.x < workArea.x + workArea.width && bounds.x + bounds.width > workArea.x;
+    const overlapY = bounds.y < workArea.y + workArea.height && bounds.y + 40 > workArea.y;
+    return overlapX && overlapY;
+  });
+  return visible ? bounds : void 0;
+}
+const HUD_BASE_WIDTH = 470;
+const HUD_BASE_HEIGHT = 106;
+const REFERENCE_WIDTH = 1800;
+const MIN_SCALE = 0.8;
+const MARGIN = 24;
+function hudScaleFor(display) {
+  const fit = display.workArea.width / REFERENCE_WIDTH;
+  return Math.round(Math.min(1, Math.max(MIN_SCALE, fit)) * 100) / 100;
+}
+function hudSizeFor(display) {
+  const scale = hudScaleFor(display);
+  return {
+    scale,
+    width: Math.round(HUD_BASE_WIDTH * scale),
+    height: Math.round(HUD_BASE_HEIGHT * scale)
+  };
+}
+function defaultHudPosition(display = screen.getPrimaryDisplay()) {
+  const { workArea } = display;
+  const { width, height } = hudSizeFor(display);
+  return {
+    x: Math.round(workArea.x + workArea.width - width - MARGIN),
+    y: Math.round(workArea.y + workArea.height - height - MARGIN)
   };
 }
 function createHudWindow(saved, onMoved) {
-  const position = saved ?? defaultPosition();
+  const display = saved ? screen.getDisplayNearestPoint(saved) : screen.getPrimaryDisplay();
+  const { scale, width, height } = hudSizeFor(display);
+  const position = clampToWorkArea(
+    saved ?? defaultHudPosition(display),
+    display,
+    width,
+    height
+  );
   const window = new BrowserWindow({
-    width: HUD_WIDTH,
-    height: HUD_HEIGHT,
+    width,
+    height,
     x: position.x,
     y: position.y,
     frame: false,
@@ -4095,14 +5238,16 @@ function createHudWindow(saved, onMoved) {
     const [x, y] = window.getPosition();
     if (typeof x === "number" && typeof y === "number") onMoved({ x, y });
   });
-  loadRenderer(window, "hud");
+  loadRenderer(window, "hud", `scale=${scale}`);
   return window;
 }
-function defaultPosition() {
-  const { workArea } = screen.getPrimaryDisplay();
+function clampToWorkArea(at, display, width, height) {
+  const { workArea } = display;
+  const maxX = workArea.x + workArea.width - width;
+  const maxY = workArea.y + workArea.height - height;
   return {
-    x: Math.round(workArea.x + workArea.width - HUD_WIDTH - 24),
-    y: Math.round(workArea.y + workArea.height - HUD_HEIGHT - 24)
+    x: Math.round(Math.min(Math.max(at.x, workArea.x), Math.max(workArea.x, maxX))),
+    y: Math.round(Math.min(Math.max(at.y, workArea.y), Math.max(workArea.y, maxY)))
   };
 }
 const here$1 = path.dirname(fileURLToPath(import.meta.url));
@@ -4195,6 +5340,8 @@ function updateTray(tray, state, hooks) {
       },
       { label: "End session", enabled: state.running, click: hooks.onEnd },
       { type: "separator" },
+      { label: "Floating calendar", click: hooks.onToggleCalendar },
+      { type: "separator" },
       { label: "Quit", accelerator: "Command+Q", click: hooks.onQuit }
     ])
   );
@@ -4214,10 +5361,13 @@ class AppContext {
   celebrations;
   auth;
   planner;
+  calendar;
+  now;
   sync;
   syncState;
   main = null;
   hud = null;
+  calendarWidget = null;
   overlay;
   tray = null;
   mainReady = false;
@@ -4254,7 +5404,8 @@ class AppContext {
       ctx2.db,
       ctx2.auth,
       ctx2.syncState,
-      (status) => ctx2.broadcast("sync:changed", status)
+      (status) => ctx2.broadcast("sync:changed", status),
+      (settings) => ctx2.broadcastSettings(settings)
     );
     ctx2.sessions = new SessionService(ctx2.db, {
       onTick: (tick) => {
@@ -4295,6 +5446,9 @@ class AppContext {
       () => ctx2.db.settings.get().defaultSessionMs
     );
     ctx2.planner = new PlannerService(ctx2.db, ctx2.auth);
+    ctx2.calendar = new CalendarService(ctx2.db, ctx2.auth);
+    ctx2.now = new NowService(ctx2.db, ctx2.sessions, (nudge) => ctx2.announceBlock(nudge));
+    ctx2.now.start();
     ctx2.planner.attachSync(ctx2.sync);
     ctx2.planner.onFinished = (error, weekKey2) => {
       ctx2.broadcast("planner:runFinished", { weekKey: weekKey2, error });
@@ -4337,6 +5491,34 @@ class AppContext {
     this.hud.on("closed", () => {
       this.hud = null;
     });
+  }
+  /**
+   * Open the floating calendar, or close it if it is already up.
+   *
+   * A toggle rather than an open, because it is reached from one button and one tray item and
+   * both of those read as "show me the calendar" — pressing again when it is already there and
+   * having nothing happen is the behaviour people report as a broken button. Returns whether it
+   * is now open, so the caller can render the button's state from the truth rather than guess.
+   */
+  toggleCalendarWidget() {
+    if (this.calendarWidget && !this.calendarWidget.isDestroyed()) {
+      this.closeCalendarWidget();
+      return false;
+    }
+    const saved = this.db.settings.get().calendarBounds ?? defaultCalendarBounds();
+    this.calendarWidget = createCalendarWindow(saved, (bounds) => {
+      void this.db.settings.update({ calendarBounds: bounds });
+    });
+    this.calendarWidget.on("closed", () => {
+      this.calendarWidget = null;
+    });
+    return true;
+  }
+  closeCalendarWidget() {
+    if (this.calendarWidget && !this.calendarWidget.isDestroyed()) {
+      this.calendarWidget.close();
+    }
+    this.calendarWidget = null;
   }
   resetHud() {
     if (this.hud && !this.hud.isDestroyed()) {
@@ -4389,6 +5571,7 @@ class AppContext {
         })();
       },
       onEnd: () => void this.sessions.end(),
+      onToggleCalendar: () => this.toggleCalendarWidget(),
       // Quit must quit. Closing the main window here left the app resident forever: the
       // tray menu is rebuilt by every refresh, so this hook — not setupTray's — is the one
       // the user's Quit click actually ran.
@@ -4427,6 +5610,30 @@ class AppContext {
       silent: true
     }).show();
   }
+  /**
+   * A plan block's start crossed the clock while nothing was running. The HUD pops with the
+   * block's name, and the OS notification's click lands on the Daily page — from noticing to
+   * starting is two clicks, and the second one is the block's own Start button.
+   */
+  announceBlock(nudge) {
+    this.showHudNow();
+    this.broadcast("hud:toast", { text: `Now: ${nudge.block.title}` });
+    if (!Notification.isSupported()) return;
+    const notification = new Notification({
+      title: `Now: ${nudge.block.title}`,
+      body: nudge.block.why ? `Until ${nudge.block.end} — ${nudge.block.why}` : `Until ${nudge.block.end}.`,
+      silent: true
+    });
+    notification.on("click", () => {
+      this.openMainWindow();
+      this.broadcast("planner:nudge", {
+        localDate: nudge.localDate,
+        blockId: nudge.block.id,
+        threadId: nudge.block.threadId ?? null
+      });
+    });
+    notification.show();
+  }
   /** Brings the HUD back into view without stealing keyboard focus from what you were doing. */
   showHudNow() {
     this.openHud();
@@ -4462,6 +5669,10 @@ class AppContext {
     void this.db.days.today().then((day) => {
       if (day) this.broadcastDay(day);
     });
+    const today = this.db.clock.today();
+    void this.db.dayRuns.get(today).then((run) => {
+      this.broadcast("dayrun:changed", { localDate: today, run });
+    });
     void this.analytics.rebuild();
   }
   /** Foreground, sign-in, session end: the three moments worth a round trip immediately. */
@@ -4470,6 +5681,7 @@ class AppContext {
   }
   async shutdown() {
     this.stages.destroy();
+    this.now.stop();
     this.sync.stop();
     await this.syncState.flush();
     if (this.sessions.isRunning()) await this.sessions.end("ended_early");
@@ -4605,6 +5817,23 @@ function setLaunchAtStartup(enabled) {
   if (!app.isPackaged) return false;
   app.setLoginItemSettings({ openAtLogin: enabled, openAsHidden: true });
   return launchesAtStartup();
+}
+function minutesNow(timezone) {
+  const formatted = new Intl.DateTimeFormat("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+    timeZone: timezone
+  }).format(/* @__PURE__ */ new Date());
+  const [hour = 0, minute = 0] = formatted.split(":").map(Number);
+  return hour * 60 + minute;
+}
+function planShell(settings) {
+  return {
+    wakeTime: settings.wakeTime,
+    startTime: settings.dayStartTime,
+    endTime: settings.dayEndTime
+  };
 }
 function on(channel, handler, ctx2) {
   ipcMain.handle(
@@ -4788,6 +6017,114 @@ function registerHandlers(ctx2) {
     async (_c, { localDate: localDate2 }) => {
       await db.plans.remove(localDate2);
       ctx2.broadcast("planner:changed", { localDate: localDate2, plan: null });
+    },
+    ctx2
+  );
+  on(
+    "planner:editBlock",
+    async (_c, { localDate: localDate2, block }) => {
+      const plan = await db.plans.editBlock(localDate2, block, planShell(db.settings.get()));
+      ctx2.broadcast("planner:changed", { localDate: localDate2, plan });
+      return plan;
+    },
+    ctx2
+  );
+  on(
+    "planner:deleteBlock",
+    async (_c, { localDate: localDate2, blockId }) => {
+      const plan = await db.plans.deleteBlock(localDate2, blockId);
+      ctx2.broadcast("planner:changed", { localDate: localDate2, plan });
+      return plan;
+    },
+    ctx2
+  );
+  on(
+    "planner:reorderBlocks",
+    async (_c, { localDate: localDate2, blockIds }) => {
+      const plan = await db.plans.reorderBlocks(localDate2, blockIds);
+      ctx2.broadcast("planner:changed", { localDate: localDate2, plan });
+      return plan;
+    },
+    ctx2
+  );
+  on(
+    "planner:insertBlock",
+    async (_c, { localDate: localDate2, index, block }) => {
+      const plan = await db.plans.insertBlock(
+        localDate2,
+        index,
+        block,
+        planShell(db.settings.get())
+      );
+      ctx2.broadcast("planner:changed", { localDate: localDate2, plan });
+      return plan;
+    },
+    ctx2
+  );
+  on(
+    "planner:moveBlock",
+    async (_c, { fromDate, toDate, blockId }) => {
+      const moved = await db.plans.moveBlock(
+        fromDate,
+        toDate,
+        blockId,
+        planShell(db.settings.get())
+      );
+      ctx2.broadcast("planner:changed", { localDate: fromDate, plan: moved.from });
+      ctx2.broadcast("planner:changed", { localDate: toDate, plan: moved.to });
+      return moved;
+    },
+    ctx2
+  );
+  on("planner:generateDay", async (_c, request) => ctx2.planner.generateDay(request), ctx2);
+  on("insight:get", async (_c, { periodKey }) => db.insights.get(periodKey), ctx2);
+  on("insight:generate", async (_c, { scope }) => ctx2.planner.generateInsight(scope), ctx2);
+  on("dayrun:get", async (_c, { localDate: localDate2 }) => db.dayRuns.get(localDate2), ctx2);
+  on(
+    "dayrun:start",
+    async (_c, { localDate: localDate2 }) => {
+      const run = await db.dayRuns.start(localDate2);
+      ctx2.broadcast("dayrun:changed", { localDate: localDate2, run });
+      return run;
+    },
+    ctx2
+  );
+  on(
+    "dayrun:shift",
+    async (_c, { localDate: localDate2, deltaMs, scope }) => {
+      const plan = await db.plans.get(localDate2);
+      if (!plan) throw new Error("There is no plan to shift.");
+      const run = await db.dayRuns.get(localDate2);
+      if (!run) throw new Error("The day has not been started.");
+      const shifted = await db.dayRuns.save(
+        applyShift(
+          plan,
+          run,
+          deltaMs,
+          minutesNow(db.settings.get().timezone),
+          scope ?? "rest"
+        )
+      );
+      ctx2.broadcast("dayrun:changed", { localDate: localDate2, run: shifted });
+      return shifted;
+    },
+    ctx2
+  );
+  on(
+    "dayrun:skip",
+    async (_c, { localDate: localDate2, blockId }) => {
+      const run = await db.dayRuns.skip(localDate2, blockId);
+      ctx2.broadcast("dayrun:changed", { localDate: localDate2, run });
+      return run;
+    },
+    ctx2
+  );
+  on(
+    "dayrun:end",
+    async (_c, { localDate: localDate2 }) => {
+      const run = await db.dayRuns.end(localDate2);
+      ctx2.broadcast("dayrun:changed", { localDate: localDate2, run });
+      return run;
     },
     ctx2
   );
@@ -5102,6 +6439,12 @@ function registerHandlers(ctx2) {
     },
     ctx2
   );
+  on("calendar:get", async (c, request) => ({
+    calendar: await c.calendar.local(request),
+    source: "local"
+  }), ctx2);
+  on("calendar:refresh", async (c, request) => c.calendar.remote(request), ctx2);
+  on("server:health", async () => ctx2.auth.checkHealth(), ctx2);
   on(
     "analytics:scope",
     async (_c, { scope, anchor }) => analytics.summary(scope, anchor),
@@ -5119,7 +6462,19 @@ function registerHandlers(ctx2) {
     "settings:update",
     async (_c, { patch }) => {
       const settings = await db.settings.update(patch);
-      if (patch.timezone !== void 0) ctx2.syncState.markProfile();
+      const profileKeys = [
+        "timezone",
+        "wakeTime",
+        "dayStartTime",
+        "dayEndTime",
+        "plannerContext",
+        "plannerModel",
+        "plannerEffort"
+      ];
+      if (profileKeys.some((key) => patch[key] !== void 0)) {
+        ctx2.syncState.markProfile();
+        ctx2.sync?.schedule();
+      }
       ctx2.broadcastSettings(settings);
       return settings;
     },
@@ -5138,6 +6493,25 @@ function registerHandlers(ctx2) {
     ctx2
   );
   on("auth:login", async (_c, { email, password }) => ctx2.auth.login(email, password), ctx2);
+  on(
+    "auth:emailStart",
+    async (_c, { email }) => {
+      if (!email.includes("@")) throw new Error("That does not look like an email address.");
+      return ctx2.auth.emailStart(email);
+    },
+    ctx2
+  );
+  on("auth:emailVerify", async (_c, { email, code }) => ctx2.auth.emailVerify(email, code), ctx2);
+  on(
+    "auth:setPassword",
+    async (_c, { ticket, password, displayName }) => {
+      if (password.length < MIN_PASSWORD_LENGTH) {
+        throw new Error(`Use at least ${MIN_PASSWORD_LENGTH} characters — a short phrase beats a clever word.`);
+      }
+      return ctx2.auth.setPassword(ticket, password, displayName);
+    },
+    ctx2
+  );
   on("auth:logout", async () => ctx2.auth.logout(), ctx2);
   on("auth:deleteAccount", async () => ctx2.auth.deleteAccount(), ctx2);
   on("auth:setServer", async (_c, { url }) => ctx2.auth.setServerUrl(url), ctx2);
@@ -5186,6 +6560,25 @@ function registerHandlers(ctx2) {
     "window:mainReady",
     async () => {
       ctx2.onMainReady();
+    },
+    ctx2
+  );
+  on(
+    "calendarWidget:toggle",
+    async () => ctx2.toggleCalendarWidget(),
+    ctx2
+  );
+  on(
+    "calendarWidget:close",
+    async () => {
+      ctx2.closeCalendarWidget();
+    },
+    ctx2
+  );
+  on(
+    "calendarWidget:scope",
+    async (c, { scope }) => {
+      await c.db.settings.update({ calendarWidgetScope: scope });
     },
     ctx2
   );

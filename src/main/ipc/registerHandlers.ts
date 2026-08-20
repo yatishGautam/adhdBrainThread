@@ -798,6 +798,31 @@ export function registerHandlers(ctx: AppContext): void {
 		ctx,
 	);
 	on("auth:login", async (_c, { email, password }) => ctx.auth.login(email, password), ctx);
+	/**
+	 * The email-code flow. Only the address is pre-checked here: the code and the ticket are the
+	 * server's to judge, and a client that tried to guess whether a code "looks right" would
+	 * only ever be wrong in the direction of refusing a valid one.
+	 */
+	on(
+		"auth:emailStart",
+		async (_c, { email }) => {
+			// Costs no round trip and, more to the point, no slice of the five-per-hour limit.
+			if (!email.includes("@")) throw new Error("That does not look like an email address.");
+			return ctx.auth.emailStart(email);
+		},
+		ctx,
+	);
+	on("auth:emailVerify", async (_c, { email, code }) => ctx.auth.emailVerify(email, code), ctx);
+	on(
+		"auth:setPassword",
+		async (_c, { ticket, password, displayName }) => {
+			if (password.length < MIN_PASSWORD_LENGTH) {
+				throw new Error(`Use at least ${MIN_PASSWORD_LENGTH} characters — a short phrase beats a clever word.`);
+			}
+			return ctx.auth.setPassword(ticket, password, displayName);
+		},
+		ctx,
+	);
 	on("auth:logout", async () => ctx.auth.logout(), ctx);
 	on("auth:deleteAccount", async () => ctx.auth.deleteAccount(), ctx);
 	on("auth:setServer", async (_c, { url }) => ctx.auth.setServerUrl(url), ctx);

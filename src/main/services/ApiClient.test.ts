@@ -9,8 +9,9 @@
  * hand-written fixture of a 409 body decodes perfectly forever, including when the server never
  * sends that shape.
  *
- * Registration is rate limited to five per hour, and this file spends two of them, so a tight
- * loop of reruns will start seeing 429s. Restart the API — the limiter counts in memory.
+ * Registration is rate limited to five per hour and this file spends three of them; asking for
+ * an email code is limited the same way and this file spends three of those. So a tight loop of
+ * reruns will start seeing 429s. Restart the API — the limiter counts in memory.
  */
 import { describe, expect, it } from 'vitest';
 import { ApiClient, ApiError, NetworkError, normaliseUrl } from './ApiClient.js';
@@ -100,6 +101,60 @@ describe.skipIf(!API)('against a real backend', () => {
 
   it('rejects a password under the server minimum before creating anything', async () => {
     await expect(client.register(uniqueEmail(), 'short', 'Europe/London')).rejects.toMatchObject({
+      status: 400,
+    });
+  });
+
+  // --------------------------------------------------- signing up by email code
+  //
+  // The happy path cannot be driven from here: finishing it needs the six digits, and those
+  // only exist in the mailbox or, in development, the server's log. What these cover is the
+  // half a client can actually get wrong — the shape of the answer, and the promise that the
+  // answer never varies.
+
+  it('answers a registered and an unregistered address identically', async () => {
+    // The property the whole design rests on. If these two ever diverge — different body,
+    // different status, different anything — this endpoint has become a way to ask the server
+    // which addresses have accounts, and the client must never help that along by branching.
+    const registered = uniqueEmail();
+    await client.register(registered, PASSWORD, 'Europe/London');
+
+    const known = await client.emailStart(registered);
+    const unknown = await client.emailStart(uniqueEmail());
+
+    expect(known).toEqual(unknown);
+    expect(known.ok).toBe(true);
+    expect(['email', 'log']).toContain(known.delivery);
+  });
+
+  it('gives one message for a wrong code, saying nothing about whether a challenge exists', async () => {
+    // Two addresses in very different states — one with a live code, one the server has never
+    // seen — and the same wrong guess against both. Distinguishable answers here would leak
+    // exactly what /auth/email/start refuses to.
+    const pending = uniqueEmail();
+    await client.emailStart(pending);
+
+    const onPending = await client.emailVerify(pending, '000000').catch((caught: unknown) => caught);
+    const onNothing = await client
+      .emailVerify(uniqueEmail(), '000000')
+      .catch((caught: unknown) => caught);
+
+    expect(onPending).toBeInstanceOf(ApiError);
+    expect(onNothing).toBeInstanceOf(ApiError);
+    expect((onPending as ApiError).status).toBe(400);
+    expect((onNothing as ApiError).message).toBe((onPending as ApiError).message);
+  });
+
+  it('refuses a ticket it never issued', async () => {
+    await expect(client.setPassword('not-a-real-ticket', PASSWORD, 'Europe/London')).rejects.toMatchObject({
+      status: 400,
+    });
+  });
+
+  it('rejects a short password on the ticket path too, not just at register', async () => {
+    // Same rule, second door. A minimum enforced on one path and not the other is the kind of
+    // gap that only shows up once someone uses the new screen.
+    await expect(client.setPassword('not-a-real-ticket', 'short', 'Europe/London')).rejects.toMatchObject({
       status: 400,
     });
   });
