@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { DayPlan, DayRun, PlanBlock, Settings } from '@shared/domain.js';
-import { dayProgress, toClock } from '@shared/dayRun.js';
+import { dayProgress, effectiveBlocks, toClock } from '@shared/dayRun.js';
 import { Panel } from './Panel.js';
 // The calendar's map, not a second copy of it: the block you read here and the same block
 // on the calendar must not drift to different colours.
@@ -421,6 +421,16 @@ function PlanBody({
   const live = run && !run.endedAt ? run : null;
   const progress = live ? dayProgress(plan, live, nowMinutes) : null;
   const skipped = new Set(run?.skippedBlockIds ?? []);
+  // Rows display the *effective* times: a day shifted +30 must read as the day being lived,
+  // not the one that fell behind.
+  const effectiveTimes = new Map(
+    live
+      ? effectiveBlocks(plan, live).map((entry) => [
+          entry.block.id,
+          { start: toClock(entry.start), end: toClock(entry.end) },
+        ])
+      : [],
+  );
 
   return (
     <div>
@@ -443,6 +453,8 @@ function PlanBody({
             key={block.id}
             block={block}
             localDate={plan.localDate}
+            displayStart={effectiveTimes.get(block.id)?.start}
+            displayEnd={effectiveTimes.get(block.id)?.end}
             isNow={progress?.current?.block.id === block.id}
             skipped={skipped.has(block.id)}
           />
@@ -495,11 +507,16 @@ const WORK_KINDS: ReadonlySet<PlanBlock['kind']> = new Set(['focus', 'admin']);
 function BlockRow({
   block,
   localDate,
+  displayStart,
+  displayEnd,
   isNow = false,
   skipped = false,
 }: {
   block: PlanBlock;
   localDate: string;
+  /** Effective wall-clock times — the block's own unless the day run shifted them. */
+  displayStart?: string;
+  displayEnd?: string;
   /** The day run says this block's window contains the clock. */
   isNow?: boolean;
   /** Deliberately let go — dimmed, struck through, never deleted. */
@@ -582,7 +599,7 @@ function BlockRow({
           fontFamily: 'var(--font-mono)',
         }}
       >
-        {block.start}–{block.end}
+        {displayStart ?? block.start}–{displayEnd ?? block.end}
       </span>
 
       <span
