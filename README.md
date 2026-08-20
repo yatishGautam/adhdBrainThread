@@ -176,6 +176,17 @@ times, the model and the effort. The server merges these keys into the profile b
 and builds every plan from them, whichever device pressed the button. (For a while the box
 wrote `settings.json` and stopped there; the server planned every week with an empty context.)
 
+## The coach
+
+Under the dashboard's charts sits the coach: a written read of the day or week on screen —
+headline, two honest paragraphs, one small experiment. It is generated on the server (where the
+key lives) from facts this app computed — first and last touch, focus against plan, what the
+parked distractions actually said, how the day run bent — digested into the same prose-with-
+labels format the planner reads. The model is never asked to add, only to notice; Haiku by
+default, so a read costs about half a cent and the price is printed on the card. Same contract
+as every other paid call: a button, never a schedule, and the result arrives by sync so the
+phone shows the same words.
+
 ## The day, run live
 
 **Start my day** turns the plan from a document into a runtime. A day run is to the day what a
