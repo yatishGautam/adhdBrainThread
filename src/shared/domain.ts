@@ -239,6 +239,12 @@ export interface Settings {
   plannerModel: string;
   /** Thinking depth. `medium` plans a day well for a fraction of `high`'s output tokens. */
   plannerEffort: 'low' | 'medium' | 'high';
+  /**
+   * A nudge at each plan block's start: HUD pops, notification says what and until when.
+   * Device-local — how loud one machine is says nothing about the others — so it never rides
+   * the profile.
+   */
+  nudgesEnabled: boolean;
 }
 
 /**

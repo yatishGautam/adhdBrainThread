@@ -36,6 +36,7 @@ export const settingsSchema = z.object({
   plannerContext: z.string().default(''),
   plannerModel: z.string().default(PLANNER_DEFAULT_MODEL),
   plannerEffort: z.enum(['low', 'medium', 'high']).default('medium'),
+  nudgesEnabled: z.boolean().default(true),
 }) satisfies z.ZodType<Settings, unknown>;
 
 function clockTime(): z.ZodString {
@@ -59,5 +60,6 @@ export function defaultSettings(): Settings {
     plannerModel: PLANNER_DEFAULT_MODEL,
     // `medium` plans a day as well as `high` does and spends a fraction of the thinking tokens.
     plannerEffort: 'medium',
+    nudgesEnabled: true,
   };
 }

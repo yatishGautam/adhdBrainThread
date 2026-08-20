@@ -446,6 +446,11 @@ export interface Events {
 	"goals:changed": { weekKey: string; goals: Goal[] };
 	/** A plan was generated or thrown away. Null means the day no longer has one. */
 	"planner:changed": { localDate: string; plan: DayPlan | null };
+	/**
+	 * A block's start crossed the clock and the OS notification was clicked. The main window
+	 * answers by showing the Daily page, so the click lands next to the block's Start button.
+	 */
+	"planner:nudge": { localDate: string; blockId: string; threadId: string | null };
 	/** A whole week was planned. Carries every day of it, so no view has to refetch. */
 	"planner:weekChanged": { weekKey: string; week: WeekPlan | null; days: DayPlan[] };
 	/**
@@ -580,6 +585,7 @@ export const EVENT_CHANNELS = [
 	"carry:changed",
 	"goals:changed",
 	"planner:changed",
+	"planner:nudge",
 	"planner:weekChanged",
 	"planner:runFinished",
 	"auth:changed",

@@ -17,6 +17,7 @@ import type { PlannerState } from "@shared/ipc/channels.js";
 import { Database } from "./storage/Database.js";
 import { AnalyticsService } from "./services/AnalyticsService.js";
 import { CalendarService } from "./services/CalendarService.js";
+import { NowService, type BlockNudge } from "./services/NowService.js";
 import { PlannerService } from "./services/PlannerService.js";
 import { AuthService } from "./services/AuthService.js";
 import { SyncEngine, type SyncStatus } from "./sync/SyncEngine.js";
@@ -50,6 +51,7 @@ export class AppContext {
 	auth!: AuthService;
 	planner!: PlannerService;
 	calendar!: CalendarService;
+	now!: NowService;
 	sync!: SyncEngine;
 	syncState!: SyncState;
 	main: BrowserWindow | null = null;
@@ -157,6 +159,8 @@ export class AppContext {
 		// and this app has not held an API key since.
 		ctx.planner = new PlannerService(ctx.db, ctx.auth);
 		ctx.calendar = new CalendarService(ctx.db, ctx.auth);
+		ctx.now = new NowService(ctx.db, ctx.sessions, (nudge) => ctx.announceBlock(nudge));
+		ctx.now.start();
 		// The engine is built before this point but the planner needs it to pull a finished run
 		// in, and a run finishing has to reach the windows — the plan arrives through sync, so
 		// nothing would announce it otherwise.
@@ -365,6 +369,34 @@ export class AppContext {
 		}).show();
 	}
 
+	/**
+	 * A plan block's start crossed the clock while nothing was running. The HUD pops with the
+	 * block's name, and the OS notification's click lands on the Daily page — from noticing to
+	 * starting is two clicks, and the second one is the block's own Start button.
+	 */
+	private announceBlock(nudge: BlockNudge): void {
+		this.showHudNow();
+		this.broadcast("hud:toast", { text: `Now: ${nudge.block.title}` });
+
+		if (!Notification.isSupported()) return;
+		const notification = new Notification({
+			title: `Now: ${nudge.block.title}`,
+			body: nudge.block.why
+				? `Until ${nudge.block.end} — ${nudge.block.why}`
+				: `Until ${nudge.block.end}.`,
+			silent: true,
+		});
+		notification.on("click", () => {
+			this.openMainWindow();
+			this.broadcast("planner:nudge", {
+				localDate: nudge.localDate,
+				blockId: nudge.block.id,
+				threadId: nudge.block.threadId ?? null,
+			});
+		});
+		notification.show();
+	}
+
 	/** Brings the HUD back into view without stealing keyboard focus from what you were doing. */
 	private showHudNow(): void {
 		this.openHud();
@@ -414,6 +446,7 @@ export class AppContext {
 
 	async shutdown(): Promise<void> {
 		this.stages.destroy();
+		this.now.stop();
 		this.sync.stop();
 		await this.syncState.flush();
 		if (this.sessions.isRunning()) await this.sessions.end("ended_early");

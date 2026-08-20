@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { DayPlan, WeekPlan } from '@shared/domain.js';
 import type { GeneratePlanRequest, PlannerState } from '@shared/ipc/channels.js';
+import { useUiStore } from './uiStore.js';
 
 /**
  * The generated plans on screen — a week's worth of days, and the run that produced them — plus
@@ -106,6 +107,11 @@ export async function initPlanStore(): Promise<void> {
   window.thread.on('planner:runFinished', ({ error }) => {
     usePlanStore.setState({ generating: false, ...(error ? { error } : {}) });
     void refreshPlannerState();
+  });
+  // A clicked block nudge lands on the Daily page — right next to the block's Start button,
+  // which is the whole point of the click.
+  window.thread.on('planner:nudge', () => {
+    useUiStore.getState().setTab('today');
   });
 }
 

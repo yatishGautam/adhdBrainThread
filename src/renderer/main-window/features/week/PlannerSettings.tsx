@@ -117,6 +117,30 @@ export function PlannerSettings(): React.JSX.Element {
         </div>
       </Field>
 
+      <Field label="Nudges">
+        <label
+          style={{
+            display: 'flex',
+            gap: 8,
+            alignItems: 'baseline',
+            fontSize: 12,
+            color: 'var(--text-muted)',
+            cursor: 'pointer',
+            lineHeight: 1.5,
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={settings.nudgesEnabled}
+            onChange={(e) => void patch({ nudgesEnabled: e.target.checked })}
+          />
+          <span>
+            Say when each block starts — the HUD pops and a notification names the block. Quiet
+            while a session is running. This machine only.
+          </span>
+        </label>
+      </Field>
+
       <PlannerAvailability />
     </Panel>
   );
