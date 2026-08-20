@@ -36,6 +36,17 @@ export interface WeekPlanAccepted {
   dates: string[];
 }
 
+/** `POST /plan/day` — replan the rest of today from a wall-clock "now". */
+export interface DayPlanRequest {
+  localDate: string;
+  /** The moment the replanned day starts from. What already happened stays as it was. */
+  fromTime: string;
+  /** About right now specifically — "the meeting blew up, dentist at 4". Never stored. */
+  note?: string;
+  model?: string;
+  effort?: 'low' | 'medium' | 'high';
+}
+
 export type PlanRunStatus = 'idle' | 'running' | 'done' | 'failed';
 
 /** Whether a run is still going. A courtesy for the spinner; sync is what delivers. */

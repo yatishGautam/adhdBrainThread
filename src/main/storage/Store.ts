@@ -40,6 +40,8 @@ export const COLLECTION = {
   goals: 'goals',
   plans: 'plans',
   weekPlans: 'weekPlans',
+  /** Day runs: "Start my day", the shift, and what was let go. Authored here and on the phone. */
+  dayRuns: 'dayRuns',
 } as const;
 
 export type CollectionName = (typeof COLLECTION)[keyof typeof COLLECTION];

@@ -86,6 +86,22 @@ export async function clearPlan(localDate: string): Promise<void> {
   await window.thread.invoke['planner:clear']({ localDate });
 }
 
+/** The day-sized sibling of `generatePlan`, same money, same contract, smaller window. */
+export async function generateDayPlan(request: {
+  localDate: string;
+  note?: string;
+}): Promise<boolean> {
+  if (usePlanStore.getState().generating) return false;
+  usePlanStore.setState({ generating: true, error: null });
+  try {
+    await window.thread.invoke['planner:generateDay'](request);
+    return true;
+  } catch (error: unknown) {
+    usePlanStore.setState({ error: messageOf(error), generating: false });
+    return false;
+  }
+}
+
 export async function initPlanStore(): Promise<void> {
   await refreshPlannerState();
   window.thread.on('planner:changed', ({ localDate, plan }) => {

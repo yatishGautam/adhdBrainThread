@@ -14,6 +14,7 @@
 import type {
 	Day,
 	DayPlan,
+	DayRun,
 	Goal,
 	MindfulSession,
 	PlanBlock,
@@ -32,6 +33,7 @@ export interface WireOut {
 	goals?: unknown[];
 	plans?: unknown[];
 	weekPlans?: unknown[];
+	dayRuns?: unknown[];
 	profile?: {
 		timezone: string;
 		updatedAt: string;
@@ -50,6 +52,8 @@ export interface PullResponse {
 	goals?: unknown[];
 	plans?: unknown[];
 	weekPlans?: unknown[];
+	/** Absent from a backend deployed before day runs existed. */
+	dayRuns?: unknown[];
 	profile?: unknown;
 	seq?: number;
 }
@@ -190,6 +194,19 @@ export function weekPlanOut(plan: WeekPlan): Record<string, unknown> {
 		usage: plan.usage ?? { inputTokens: 0, outputTokens: 0, costUsd: 0 },
 		updatedAt: iso(plan.updatedAt ?? plan.generatedAt),
 		deletedAt: plan.deletedAt ? iso(plan.deletedAt) : null,
+	};
+}
+
+export function dayRunOut(run: DayRun): Record<string, unknown> {
+	return {
+		localDate: run.localDate,
+		startedAt: iso(run.startedAt),
+		endedAt: run.endedAt ? iso(run.endedAt) : null,
+		shiftMs: run.shiftMs ?? 0,
+		shiftFrom: run.shiftFrom ?? null,
+		skippedBlockIds: run.skippedBlockIds ?? [],
+		updatedAt: iso(run.updatedAt),
+		deletedAt: run.deletedAt ? iso(run.deletedAt) : null,
 	};
 }
 
@@ -425,6 +442,28 @@ function outcome(value: string | null): Session["outcome"] {
 	return (OUTCOMES as readonly string[]).includes(value ?? "")
 		? (value as Session["outcome"])
 		: "ended_early";
+}
+
+export function dayRunIn(raw: unknown): DayRun | null {
+	const row = raw as Record<string, unknown>;
+	const localDate = date(row.localDate);
+	const startedAt = str(row.startedAt);
+	const updatedAt = str(row.updatedAt);
+	if (!localDate || !startedAt || !updatedAt) return null;
+
+	const shiftFrom = str(row.shiftFrom);
+	return {
+		localDate,
+		startedAt,
+		endedAt: str(row.endedAt) ?? null,
+		shiftMs: num(row.shiftMs) ?? 0,
+		// Defensive: a malformed anchor is worse than none — it would slide the wrong half of
+		// the day on every read.
+		...(shiftFrom && /^([01]\d|2[0-3]):[0-5]\d$/.test(shiftFrom) ? { shiftFrom } : {}),
+		skippedBlockIds: strings(row.skippedBlockIds),
+		updatedAt,
+		deletedAt: str(row.deletedAt) ?? null,
+	};
 }
 
 // ------------------------------------------------------------------- profile settings

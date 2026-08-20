@@ -10,6 +10,7 @@ import { JsonStore } from './JsonStore.js';
 import { migrate, type MigrationReport } from './migrate.js';
 import { DayRepo } from './repositories/dayRepo.js';
 import { GoalRepo } from './repositories/goalRepo.js';
+import { DayRunRepo } from './repositories/dayRunRepo.js';
 import { PlanRepo } from './repositories/planRepo.js';
 import { SessionRepo } from './repositories/sessionRepo.js';
 import { SettingsRepo } from './repositories/settingsRepo.js';
@@ -31,6 +32,7 @@ export class Database {
     readonly days: DayRepo,
     readonly goals: GoalRepo,
     readonly plans: PlanRepo,
+    readonly dayRuns: DayRunRepo,
     readonly sessions: SessionRepo,
     readonly settings: SettingsRepo,
     readonly migration: MigrationReport,
@@ -53,6 +55,7 @@ export class Database {
     const threads = new ThreadRepo(store, clock);
     const goals = new GoalRepo(store, clock);
     const plans = new PlanRepo(store);
+    const dayRuns = new DayRunRepo(store);
     const sessions = new SessionRepo(store);
 
     return new Database(
@@ -63,6 +66,7 @@ export class Database {
       days,
       goals,
       plans,
+      dayRuns,
       sessions,
       settings,
       migration,

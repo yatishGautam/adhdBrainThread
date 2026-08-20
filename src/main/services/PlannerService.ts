@@ -22,7 +22,12 @@
  * finished. Quitting mid-run loses nothing — the plan is already written and arrives on the next
  * sync, here and on every other device.
  */
-import type { PlanRunState, WeekPlanAccepted, WeekPlanRequest } from '@shared/planner.js';
+import type {
+  DayPlanRequest,
+  PlanRunState,
+  WeekPlanAccepted,
+  WeekPlanRequest,
+} from '@shared/planner.js';
 import { weekKeyOf } from '@shared/week.js';
 import type { Database } from '../storage/Database.js';
 import type { SyncEngine } from '../sync/SyncEngine.js';
@@ -112,6 +117,40 @@ export class PlannerService {
       const accepted = await this.auth.api.planWeek(token, body);
       // Deliberately not awaited: the caller gets its acknowledgement now, and the wait happens
       // in the background. The plan is already the server's responsibility by this point.
+      void this.awaitRun(accepted);
+      return accepted;
+    } catch (error: unknown) {
+      this.running = false;
+      throw new PlannerError(describe(error));
+    }
+  }
+
+  /**
+   * Replan the rest of today, from the clock's "now". The "life happened" button: what already
+   * happened stays as it was, pinned blocks stay where they are, and only the hours still
+   * ahead are reshaped. Same acknowledge-poll-sync flow as the week.
+   */
+  async generateDay(input: { localDate?: string; note?: string }): Promise<WeekPlanAccepted> {
+    const token = this.requireToken();
+    if (this.running) {
+      throw new PlannerError('A plan is already being generated. Give it a moment.');
+    }
+
+    const settings = this.db.settings.get();
+    const body: DayPlanRequest = {
+      localDate: input.localDate ?? this.db.clock.today(),
+      fromTime: clockNow(settings.timezone),
+      ...(input.note?.trim() ? { note: input.note.trim() } : {}),
+      model: settings.plannerModel,
+      effort: settings.plannerEffort,
+    };
+
+    this.running = true;
+    try {
+      // Push first, same as the week: the server replans from what it holds.
+      await this.sync?.sync().catch(() => undefined);
+
+      const accepted = await this.auth.api.planDay(token, body);
       void this.awaitRun(accepted);
       return accepted;
     } catch (error: unknown) {
@@ -220,4 +259,14 @@ function describe(error: unknown): string {
 export function toMinutes(time: string): number {
   const [h, m] = time.split(':').map(Number);
   return (h ?? 0) * 60 + (m ?? 0);
+}
+
+/** The wall clock in the user's timezone, `HH:MM`. */
+function clockNow(timezone: string): string {
+  return new Intl.DateTimeFormat('en-GB', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+    timeZone: timezone,
+  }).format(new Date());
 }

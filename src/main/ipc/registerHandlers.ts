@@ -14,6 +14,19 @@ import { openLink } from "../services/openLink.js";
 import { launchesAtStartup, setLaunchAtStartup } from "../services/startup.js";
 import type { PlanShell } from "../storage/repositories/planRepo.js";
 import type { Settings } from "@shared/domain.js";
+import { applyShift } from "@shared/dayRun.js";
+
+/** The wall clock in the user's timezone, as minutes from midnight. */
+function minutesNow(timezone: string): number {
+	const formatted = new Intl.DateTimeFormat("en-GB", {
+		hour: "2-digit",
+		minute: "2-digit",
+		hourCycle: "h23",
+		timeZone: timezone,
+	}).format(new Date());
+	const [hour = 0, minute = 0] = formatted.split(":").map(Number);
+	return hour * 60 + minute;
+}
 
 /** The day frame a hand-made plan starts from, when the day was never planned at all. */
 function planShell(settings: Settings): PlanShell {
@@ -274,6 +287,53 @@ export function registerHandlers(ctx: AppContext): void {
 			ctx.broadcast("planner:changed", { localDate: fromDate, plan: moved.from });
 			ctx.broadcast("planner:changed", { localDate: toDate, plan: moved.to });
 			return moved;
+		},
+		ctx,
+	);
+	on("planner:generateDay", async (_c, request) => ctx.planner.generateDay(request), ctx);
+
+	// ------------------------------------------------------------------ day run
+
+	on("dayrun:get", async (_c, { localDate }) => db.dayRuns.get(localDate), ctx);
+	on(
+		"dayrun:start",
+		async (_c, { localDate }) => {
+			const run = await db.dayRuns.start(localDate);
+			ctx.broadcast("dayrun:changed", { localDate, run });
+			return run;
+		},
+		ctx,
+	);
+	on(
+		"dayrun:shift",
+		async (_c, { localDate, deltaMs }) => {
+			const plan = await db.plans.get(localDate);
+			if (!plan) throw new Error("There is no plan to shift.");
+			const run = await db.dayRuns.get(localDate);
+			if (!run) throw new Error("The day has not been started.");
+			const shifted = await db.dayRuns.save(
+				applyShift(plan, run, deltaMs, minutesNow(db.settings.get().timezone)),
+			);
+			ctx.broadcast("dayrun:changed", { localDate, run: shifted });
+			return shifted;
+		},
+		ctx,
+	);
+	on(
+		"dayrun:skip",
+		async (_c, { localDate, blockId }) => {
+			const run = await db.dayRuns.skip(localDate, blockId);
+			ctx.broadcast("dayrun:changed", { localDate, run });
+			return run;
+		},
+		ctx,
+	);
+	on(
+		"dayrun:end",
+		async (_c, { localDate }) => {
+			const run = await db.dayRuns.end(localDate);
+			ctx.broadcast("dayrun:changed", { localDate, run });
+			return run;
 		},
 		ctx,
 	);

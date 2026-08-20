@@ -389,6 +389,33 @@ export interface DayPlan {
  * arrives on every device through sync, which is the whole point. Planning on the phone and
  * reading the plan on the laptop is one action, not two.
  */
+/**
+ * The record behind "Start my day": the day run.
+ *
+ * A run is to the day what a session is to a block — an explicit start, a live pointer, a
+ * clean end. Only what cannot be derived is stored: which block is "now" falls out of the plan,
+ * the shift and the clock, so two devices holding the same records can never disagree about it.
+ *
+ * The shift rule that makes the derivation stable: a block whose original `start` is at or
+ * after `shiftFrom` slides by `shiftMs`; everything earlier is the finished morning and stays
+ * put. Running late is one tap, and the morning does not get rewritten to pretend otherwise.
+ */
+export interface DayRun {
+  /** Primary key. One run per day at most — starting again resumes, never duplicates. */
+  localDate: string;
+  startedAt: string;
+  /** Set by the wind-down. Null while the day is still being run. */
+  endedAt?: string | null;
+  /** Signed — starting early is as real as running late. */
+  shiftMs: number;
+  /** Original wall-clock `HH:MM` the shift applies from. Absent when nothing shifted. */
+  shiftFrom?: string;
+  /** Blocks deliberately let go. Ids into the day plan's blocks, not records of their own. */
+  skippedBlockIds: string[];
+  updatedAt: string;
+  deletedAt?: string | null;
+}
+
 export interface WeekPlan {
   /** Primary key. ISO week key, `2026-W34`. */
   weekKey: string;

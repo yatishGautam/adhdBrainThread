@@ -24,6 +24,7 @@ const TRACKED: CollectionName[] = [
 	// other device, and a delete that stays local is a plan that reappears on the next pull.
 	COLLECTION.plans,
 	COLLECTION.weekPlans,
+	COLLECTION.dayRuns,
 ];
 
 interface Persisted {

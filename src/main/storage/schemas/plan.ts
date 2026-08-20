@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { DayPlan, PlanBlock, PlanUsage, WeekPlan } from '@shared/domain.js';
+import type { DayPlan, DayRun, PlanBlock, PlanUsage, WeekPlan } from '@shared/domain.js';
 import { isoTimestamp, localDate, ulidLike } from './common.js';
 import { weekKey } from './goal.js';
 
@@ -30,6 +30,7 @@ export const planBlockSchema: z.ZodType<PlanBlock> = z.object({
   todoId: ulidLike.optional(),
   goalId: ulidLike.optional(),
   promoted: z.boolean().optional(),
+  pinned: z.boolean().optional(),
 });
 
 export const planUsageSchema: z.ZodType<PlanUsage> = z.object({
@@ -77,3 +78,14 @@ export const weekPlanSchema: z.ZodType<WeekPlan> = z.object({
  * planner. It is `src/planner/reply.ts` in the backend repo. Nothing in this app parses a model
  * reply any more: it asks for a plan and stores what comes back, already validated.
  */
+
+export const dayRunSchema: z.ZodType<DayRun> = z.object({
+  localDate,
+  startedAt: isoTimestamp,
+  endedAt: isoTimestamp.nullish(),
+  shiftMs: z.number().int(),
+  shiftFrom: clockTime.optional(),
+  skippedBlockIds: z.array(z.string()),
+  updatedAt: isoTimestamp,
+  deletedAt: isoTimestamp.nullish(),
+});

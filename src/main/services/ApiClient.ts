@@ -8,7 +8,7 @@
  */
 import type { Account } from "@shared/auth.js";
 import type { Calendar, CalendarDetail } from "@shared/calendar.js";
-import type { PlanRunState, WeekPlanAccepted, WeekPlanRequest } from "@shared/planner.js";
+import type { DayPlanRequest, PlanRunState, WeekPlanAccepted, WeekPlanRequest } from "@shared/planner.js";
 import type { PullResponse, PushResponse, WireOut } from "../sync/wire.js";
 
 /** A response the server actually sent. `status` is the HTTP code. */
@@ -118,6 +118,11 @@ export class ApiClient {
 	 */
 	planWeek(token: string, body: WeekPlanRequest): Promise<WeekPlanAccepted> {
 		return this.request<WeekPlanAccepted>("POST", "/plan/week", { token, body });
+	}
+
+	/** Replan the rest of today, from `fromTime`. Same 202-then-sync contract as the week. */
+	planDay(token: string, body: DayPlanRequest): Promise<WeekPlanAccepted> {
+		return this.request<WeekPlanAccepted>("POST", "/plan/day", { token, body });
 	}
 
 	planStatus(token: string): Promise<PlanRunState> {

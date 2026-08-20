@@ -436,6 +436,11 @@ export class AppContext {
 		void this.db.days.today().then((day) => {
 			if (day) this.broadcastDay(day);
 		});
+		// A run started or shifted on the phone changes what "now" means here.
+		const today = this.db.clock.today();
+		void this.db.dayRuns.get(today).then((run) => {
+			this.broadcast("dayrun:changed", { localDate: today, run });
+		});
 		void this.analytics.rebuild();
 	}
 

@@ -12,6 +12,7 @@ import type {
 	Blocker,
 	Day,
 	DayPlan,
+	DayRun,
 	Distraction,
 	DistractionKind,
 	Goal,
@@ -343,6 +344,22 @@ export interface Requests {
 		{ from: DayPlan | null; to: DayPlan },
 	];
 	/**
+	 * Replan the rest of today, mid-flight — the "life happened" button. Same acknowledge-then-
+	 * sync contract as the week: the result arrives as ordinary records, announced by
+	 * `planner:runFinished` like any other run.
+	 */
+	"planner:generateDay": [{ localDate: string; note?: string }, WeekPlanAccepted];
+	/**
+	 * The day run: "Start my day", the shift, the skips, the wind-down. One record per day —
+	 * see `DayRun` in domain.ts. Everything else (which block is now, what slipped) is derived
+	 * in the renderer from `@shared/dayRun.ts`.
+	 */
+	"dayrun:get": [{ localDate: string }, DayRun | null];
+	"dayrun:start": [{ localDate: string }, DayRun];
+	"dayrun:shift": [{ localDate: string; deltaMs: number }, DayRun];
+	"dayrun:skip": [{ localDate: string; blockId: string }, DayRun];
+	"dayrun:end": [{ localDate: string }, DayRun | null];
+	/**
 	 * Turn a plan block into a real thread and link the block to it. The block stops being a
 	 * suggestion and starts being work you can run a timer on — the same move `todo:promote`
 	 * makes, and it returns both halves for the same reason.
@@ -451,6 +468,8 @@ export interface Events {
 	 * answers by showing the Daily page, so the click lands next to the block's Start button.
 	 */
 	"planner:nudge": { localDate: string; blockId: string; threadId: string | null };
+	/** The run changed — started, shifted, skipped or ended — here or on another device. */
+	"dayrun:changed": { localDate: string; run: DayRun | null };
 	/** A whole week was planned. Carries every day of it, so no view has to refetch. */
 	"planner:weekChanged": { weekKey: string; week: WeekPlan | null; days: DayPlan[] };
 	/**
@@ -531,6 +550,12 @@ export const REQUEST_CHANNELS = [
 	"planner:week",
 	"planner:generate",
 	"planner:clear",
+	"planner:generateDay",
+	"dayrun:get",
+	"dayrun:start",
+	"dayrun:shift",
+	"dayrun:skip",
+	"dayrun:end",
 	"planner:editBlock",
 	"planner:deleteBlock",
 	"planner:moveBlock",
@@ -586,6 +611,7 @@ export const EVENT_CHANNELS = [
 	"goals:changed",
 	"planner:changed",
 	"planner:nudge",
+	"dayrun:changed",
 	"planner:weekChanged",
 	"planner:runFinished",
 	"auth:changed",

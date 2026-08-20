@@ -7,6 +7,7 @@
 import type {
   Day,
   DayPlan,
+  DayRun,
   Goal,
   MindfulSession,
   Session,
@@ -15,7 +16,7 @@ import type {
 } from '@shared/domain.js';
 import { daySchema } from './schemas/day.js';
 import { goalSchema } from './schemas/goal.js';
-import { dayPlanSchema, weekPlanSchema } from './schemas/plan.js';
+import { dayPlanSchema, dayRunSchema, weekPlanSchema } from './schemas/plan.js';
 import { mindfulSessionSchema } from './schemas/mindful.js';
 import { sessionSchema } from './schemas/session.js';
 import { threadSchema } from './schemas/thread.js';
@@ -67,6 +68,13 @@ export const collections: AnySpec[] = [
     schema: dayPlanSchema,
     key: (plan) => plan.localDate,
     partition: (plan) => monthOf(plan.localDate),
+  }),
+  // One tiny record per day actually run. Month files, like the plans they point into.
+  defineCollection<DayRun>({
+    name: COLLECTION.dayRuns,
+    schema: dayRunSchema,
+    key: (run) => run.localDate,
+    partition: (run) => monthOf(run.localDate),
   }),
   // One record per press of the button. Fifty-two a year at most, so a file per ISO
   // week-numbering year — the same partition the goals use, and for the same reason.

@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
-import type { DayPlan, PlanBlock, Settings } from '@shared/domain.js';
+import type { DayPlan, DayRun, PlanBlock, Settings } from '@shared/domain.js';
+import { dayProgress, toClock } from '@shared/dayRun.js';
 import { Panel } from './Panel.js';
 // The calendar's map, not a second copy of it: the block you read here and the same block
 // on the calendar must not drift to different colours.
 import { KIND_COLOUR, KIND_LABEL } from '../../../shared/calendar/entryStyle.js';
 import {
   clearPlan,
+  generateDayPlan,
   generatePlan,
   loadPlan,
   usePlanStore,
@@ -36,10 +38,28 @@ export function PlanSection({ localDate }: { localDate: string }): React.JSX.Ele
   const daysLeft = usePlanStore((s) => s.state?.daysLeft ?? 0);
   const canPlan = Boolean(availability?.signedIn && availability?.serverReady);
   const [setupOpen, setSetupOpen] = useState(false);
+  const [run, setRun] = useState<DayRun | null>(null);
+  const [nowMinutes, setNowMinutes] = useState(minutesOfDay());
+  const isToday = localDate === localToday();
 
   useEffect(() => {
     void loadPlan(localDate);
+    void window.thread.invoke['dayrun:get']({ localDate }).then(setRun);
   }, [localDate]);
+
+  useEffect(
+    () =>
+      window.thread.on('dayrun:changed', ({ localDate: date, run: next }) => {
+        if (date === localDate) setRun(next);
+      }),
+    [localDate],
+  );
+
+  // Half a minute of drift is invisible on a block that lasts twenty-five.
+  useEffect(() => {
+    const timer = setInterval(() => setNowMinutes(minutesOfDay()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
 
   return (
     <Panel
@@ -102,9 +122,22 @@ export function PlanSection({ localDate }: { localDate: string }): React.JSX.Ele
 
       {generating ? <Generating /> : null}
 
-      {plan && !generating ? <PlanBody plan={plan} /> : null}
+      {plan && !generating ? (
+        <PlanBody plan={plan} run={isToday ? run : null} nowMinutes={nowMinutes} isToday={isToday} />
+      ) : null}
     </Panel>
   );
+}
+
+function minutesOfDay(): number {
+  const now = new Date();
+  return now.getHours() * 60 + now.getMinutes();
+}
+
+function localToday(): string {
+  const now = new Date();
+  const pad = (value: number): string => String(value).padStart(2, '0');
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 }
 
 function PlanActions({
@@ -374,7 +407,21 @@ function Time({
   );
 }
 
-function PlanBody({ plan }: { plan: DayPlan }): React.JSX.Element {
+function PlanBody({
+  plan,
+  run,
+  nowMinutes,
+  isToday,
+}: {
+  plan: DayPlan;
+  run: DayRun | null;
+  nowMinutes: number;
+  isToday: boolean;
+}): React.JSX.Element {
+  const live = run && !run.endedAt ? run : null;
+  const progress = live ? dayProgress(plan, live, nowMinutes) : null;
+  const skipped = new Set(run?.skippedBlockIds ?? []);
+
   return (
     <div>
       <p
@@ -388,9 +435,17 @@ function PlanBody({ plan }: { plan: DayPlan }): React.JSX.Element {
         {plan.headline}
       </p>
 
+      {isToday ? <RunBar plan={plan} run={run} nowMinutes={nowMinutes} /> : null}
+
       <div>
         {plan.blocks.map((block) => (
-          <BlockRow key={block.id} block={block} localDate={plan.localDate} />
+          <BlockRow
+            key={block.id}
+            block={block}
+            localDate={plan.localDate}
+            isNow={progress?.current?.block.id === block.id}
+            skipped={skipped.has(block.id)}
+          />
         ))}
       </div>
 
@@ -440,9 +495,15 @@ const WORK_KINDS: ReadonlySet<PlanBlock['kind']> = new Set(['focus', 'admin']);
 function BlockRow({
   block,
   localDate,
+  isNow = false,
+  skipped = false,
 }: {
   block: PlanBlock;
   localDate: string;
+  /** The day run says this block's window contains the clock. */
+  isNow?: boolean;
+  /** Deliberately let go — dimmed, struck through, never deleted. */
+  skipped?: boolean;
 }): React.JSX.Element {
   const [hover, setHover] = useState(false);
   const [promoting, setPromoting] = useState(false);
@@ -486,10 +547,31 @@ function BlockRow({
         gap: 12,
         padding: '7px 8px',
         borderRadius: 8,
-        background: hover || editing ? 'var(--surface-raised)' : 'transparent',
+        background: isNow
+          ? 'color-mix(in srgb, var(--amber) 8%, transparent)'
+          : hover || editing
+            ? 'var(--surface-raised)'
+            : 'transparent',
+        outline: isNow ? '1px solid color-mix(in srgb, var(--amber) 35%, transparent)' : 'none',
+        opacity: skipped ? 0.45 : 1,
         transition: 'background var(--motion-fast) var(--ease-out)',
       }}
     >
+      {isNow ? (
+        <span
+          style={{
+            fontSize: 9,
+            fontWeight: 700,
+            letterSpacing: '0.08em',
+            color: 'var(--amber)',
+            fontFamily: 'var(--font-mono)',
+            flexShrink: 0,
+            alignSelf: 'center',
+          }}
+        >
+          NOW
+        </span>
+      ) : null}
       <span
         className="mono"
         style={{
@@ -516,7 +598,20 @@ function BlockRow({
       />
 
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 13, color: 'var(--text)' }}>{block.title}</div>
+        <div
+          style={{
+            fontSize: 13,
+            color: 'var(--text)',
+            textDecoration: skipped ? 'line-through' : 'none',
+          }}
+        >
+          {block.title}
+          {skipped ? (
+            <span style={{ fontSize: 10, color: 'var(--text-faint)', marginLeft: 8, textDecoration: 'none' }}>
+              let go
+            </span>
+          ) : null}
+        </div>
         {block.why ? (
           <div style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 2, lineHeight: 1.5 }}>
             {block.why}
@@ -887,4 +982,168 @@ function dayOptionLabel(date: string, today: string): string {
 function cleanError(error: unknown): string {
   const raw = error instanceof Error ? error.message : String(error);
   return raw.replace(/^Error invoking remote method '[^']+':\s*/, '').replace(/^Error:\s*/, '');
+}
+
+// ------------------------------------------------------------------ the day run
+
+/**
+ * The day, run like a session: an explicit start, a live pointer, one-tap mending.
+ *
+ * The verbs are ordered by cost. Shift slides the rest of the day and is free; Skip lets one
+ * block go and is free; Replan asks the server to reshape only the hours still ahead and costs
+ * one call. Nothing here starts a timer — the run points, you ignite — and nothing shames:
+ * "let go" is a real verb, not a euphemism for failure.
+ */
+function RunBar({
+  plan,
+  run,
+  nowMinutes,
+}: {
+  plan: DayPlan;
+  run: DayRun | null;
+  nowMinutes: number;
+}): React.JSX.Element {
+  const setError = usePlanStore((s) => s.setError);
+  const [busy, setBusy] = useState(false);
+
+  const act = async (work: () => Promise<unknown>): Promise<void> => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await work();
+    } catch (error: unknown) {
+      setError(cleanError(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!run || run.endedAt) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '0 0 14px' }}>
+        <button
+          onClick={() =>
+            void act(() => window.thread.invoke['dayrun:start']({ localDate: plan.localDate }))
+          }
+          className="btn-launch"
+          style={{
+            padding: '7px 16px',
+            borderRadius: 10,
+            border: 'none',
+            fontSize: 13,
+            fontWeight: 600,
+            fontFamily: 'inherit',
+            cursor: 'pointer',
+          }}
+        >
+          {run?.endedAt ? 'Resume the day' : '▶ Start my day'}
+        </button>
+        <span style={{ fontSize: 11, color: 'var(--text-faint)' }}>
+          Keeps a live pointer on the current block, and makes running late a one-tap fix.
+        </span>
+      </div>
+    );
+  }
+
+  const progress = dayProgress(plan, run, nowMinutes);
+  const shiftedMinutes = Math.round(run.shiftMs / 60_000);
+
+  const status = progress.current
+    ? `Block ${progress.position} of ${progress.total}`
+    : progress.next
+      ? `Between blocks — next at ${toClock(progress.next.start)}`
+      : 'Nothing left on the plan.';
+
+  return (
+    <div
+      style={{
+        border: '1px solid color-mix(in srgb, var(--amber) 30%, var(--line))',
+        borderRadius: 10,
+        padding: '10px 12px',
+        marginBottom: 14,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+        flexWrap: 'wrap',
+        background: 'color-mix(in srgb, var(--amber) 4%, transparent)',
+      }}
+    >
+      <span style={{ fontSize: 12.5, color: 'var(--text)', fontWeight: 600 }}>{status}</span>
+      {shiftedMinutes !== 0 ? (
+        <span style={{ fontSize: 10.5, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+          shifted {shiftedMinutes > 0 ? '+' : ''}
+          {shiftedMinutes}m
+        </span>
+      ) : null}
+      {progress.slipped.length ? (
+        <span style={{ fontSize: 10.5, color: 'var(--text-faint)' }}>
+          {progress.slipped.length} slipped
+        </span>
+      ) : null}
+
+      <span style={{ flex: 1 }} />
+
+      <button
+        onClick={() =>
+          void act(() =>
+            window.thread.invoke['dayrun:shift']({
+              localDate: plan.localDate,
+              deltaMs: 15 * 60_000,
+            }),
+          )
+        }
+        style={ghostButton}
+        title="Running late — slide everything still ahead by fifteen minutes"
+      >
+        +15m
+      </button>
+      <button
+        onClick={() =>
+          void act(() =>
+            window.thread.invoke['dayrun:shift']({
+              localDate: plan.localDate,
+              deltaMs: 30 * 60_000,
+            }),
+          )
+        }
+        style={ghostButton}
+        title="Slide everything still ahead by thirty minutes"
+      >
+        +30m
+      </button>
+      {progress.current ? (
+        <button
+          onClick={() => {
+            const blockId = progress.current?.block.id;
+            if (blockId) {
+              void act(() =>
+                window.thread.invoke['dayrun:skip']({ localDate: plan.localDate, blockId }),
+              );
+            }
+          }}
+          style={ghostButton}
+          title="Let this block go — it stays visible, struck through, and nothing shames you for it"
+        >
+          Skip block
+        </button>
+      ) : null}
+      <button
+        onClick={() => void act(() => generateDayPlan({ localDate: plan.localDate }))}
+        style={{ ...ghostButton, color: 'var(--amber)' }}
+        title="Life happened — one call replans only the hours still ahead. What happened and what you pinned stays."
+      >
+        Replan rest
+      </button>
+      <button
+        onClick={() =>
+          void act(() => window.thread.invoke['dayrun:end']({ localDate: plan.localDate }))
+        }
+        style={ghostButton}
+        title="Close the day out"
+      >
+        End day
+      </button>
+    </div>
+  );
 }

@@ -12,6 +12,7 @@
 import type {
 	Day,
 	DayPlan,
+	DayRun,
 	Goal,
 	MindfulSession,
 	Session,
@@ -28,6 +29,8 @@ import type { SyncState } from "./SyncState.js";
 import {
 	dayIn,
 	dayOut,
+	dayRunIn,
+	dayRunOut,
 	goalIn,
 	goalOut,
 	mindfulIn,
@@ -226,6 +229,13 @@ export class SyncEngine {
 			(record) => record.weekKey,
 			(record) => record.updatedAt ?? record.generatedAt,
 		);
+		merged += await this.mergeInto<DayRun>(
+			this.remote<DayRun>(COLLECTION.dayRuns),
+			response.dayRuns,
+			dayRunIn,
+			(record) => record.localDate,
+			(record) => record.updatedAt,
+		);
 
 		merged += await this.adoptProfileSettings(response.profile);
 
@@ -295,6 +305,7 @@ export class SyncEngine {
 		const goals = await this.dirtyRecords<Goal>(COLLECTION.goals);
 		const plans = await this.dirtyRecords<DayPlan>(COLLECTION.plans);
 		const weekPlans = await this.dirtyRecords<WeekPlan>(COLLECTION.weekPlans);
+		const dayRuns = await this.dirtyRecords<DayRun>(COLLECTION.dayRuns);
 		const profileDirty = this.state.isProfileDirty;
 
 		if (
@@ -305,6 +316,7 @@ export class SyncEngine {
 			!goals.length &&
 			!plans.length &&
 			!weekPlans.length &&
+			!dayRuns.length &&
 			!profileDirty
 		) {
 			return { pushed: 0, conflicts: 0 };
@@ -323,6 +335,8 @@ export class SyncEngine {
 				goals: batch.goals.map(goalOut),
 				plans: batch.plans.map(planOut),
 				weekPlans: batch.weekPlans.map(weekPlanOut),
+				// A handful per week at most; they ride the first batch like the goals do.
+				...(index === 0 && dayRuns.length ? { dayRuns: dayRuns.map(dayRunOut) } : {}),
 			};
 			if (index === 0 && profileDirty) {
 				const displayName = this.auth.state().account?.displayName ?? null;
@@ -397,6 +411,11 @@ export class SyncEngine {
 			case "weekPlan": {
 				const winner = weekPlanIn(conflict.server);
 				if (winner) await this.remote<WeekPlan>(COLLECTION.weekPlans).put(winner);
+				return;
+			}
+			case "dayRun": {
+				const winner = dayRunIn(conflict.server);
+				if (winner) await this.remote<DayRun>(COLLECTION.dayRuns).put(winner);
 				return;
 			}
 			default:

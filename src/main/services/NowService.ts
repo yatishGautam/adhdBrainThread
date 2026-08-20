@@ -13,6 +13,7 @@
  * in a burst would teach the user to dismiss all of them forever.
  */
 import type { PlanBlock } from "@shared/domain.js";
+import { effectiveBlocks } from "@shared/dayRun.js";
 import type { Database } from "../storage/Database.js";
 import type { SessionService } from "./SessionService.js";
 
@@ -67,10 +68,13 @@ export class NowService {
 		// Mid-session, the answer to "what should you be doing" is: what you are doing.
 		if (await this.sessions.state()) return;
 
-		for (const block of plan.blocks) {
-			if (block.kind === "buffer") continue;
-			if (!crossed(last, now, toMinutes(block.start))) continue;
-			this.onNudge({ localDate: plan.localDate, block });
+		// Through the run's lens: a day shifted +30 nudges at the shifted times, and a block
+		// deliberately let go is never announced.
+		const run = await this.db.dayRuns.get(plan.localDate);
+		for (const entry of effectiveBlocks(plan, run)) {
+			if (entry.skipped || entry.block.kind === "buffer") continue;
+			if (!crossed(last, now, entry.start)) continue;
+			this.onNudge({ localDate: plan.localDate, block: entry.block });
 		}
 	}
 
